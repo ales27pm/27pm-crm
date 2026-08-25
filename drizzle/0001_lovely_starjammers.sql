@@ -1,0 +1,1 @@
+ALTER TABLE `deals` ADD `note` text DEFAULT '' NOT NULL;
