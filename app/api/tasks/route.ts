@@ -1,0 +1,101 @@
+import { requireOperatorRequest } from "@/lib/api-auth";
+import { crmDatabase } from "@/lib/d1";
+import {
+  jsonError,
+  optionalTrimmedString,
+  readJsonObject,
+  validIsoTimestamp,
+} from "@/lib/http";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  const auth = requireOperatorRequest(request);
+  if (auth.response) return auth.response;
+
+  const payload = await readJsonObject(request);
+  if (!payload) return jsonError(400, "request_body_invalid");
+  const title = optionalTrimmedString(payload.title, 300);
+  const dealId = entityId(payload.dealId);
+  const requestedConversationId = entityId(payload.conversationId);
+  const dueAt = "dueAt" in payload ? validIsoTimestamp(payload.dueAt) : null;
+  if (
+    !title ||
+    dueAt === undefined ||
+    (payload.dealId !== undefined && !dealId) ||
+    (payload.conversationId !== undefined && !requestedConversationId) ||
+    (!dealId && !requestedConversationId)
+  ) {
+    return jsonError(400, "task_invalid");
+  }
+
+  try {
+    const db = crmDatabase();
+    const deal = dealId
+      ? await db
+          .prepare("SELECT conversation_id AS conversationId FROM deals WHERE id = ? LIMIT 1")
+          .bind(dealId)
+          .first<{ conversationId: string }>()
+      : null;
+    if (dealId && !deal) return jsonError(404, "deal_not_found");
+
+    const conversationId = deal?.conversationId ?? requestedConversationId;
+    if (!conversationId) return jsonError(400, "task_parent_required");
+    if (requestedConversationId && requestedConversationId !== conversationId) {
+      return jsonError(409, "task_parent_mismatch");
+    }
+    const conversation = await db
+      .prepare("SELECT 1 AS present FROM conversations WHERE id = ? LIMIT 1")
+      .bind(conversationId)
+      .first();
+    if (!conversation) return jsonError(404, "conversation_not_found");
+
+    const id = crypto.randomUUID();
+    await db.batch([
+      db
+        .prepare(
+          `INSERT INTO tasks
+            (id, conversation_id, deal_id, title, status, due_at)
+           VALUES (?, ?, ?, ?, 'open', ?)`,
+        )
+        .bind(id, conversationId, dealId, title, dueAt),
+      db
+        .prepare(
+          `INSERT INTO audit_entries
+            (id, actor_email, action, entity_type, entity_id, details_json)
+           VALUES (?, ?, 'task.created', 'task', ?, ?)`,
+        )
+        .bind(
+          crypto.randomUUID(),
+          auth.operator.email,
+          id,
+          JSON.stringify({ conversationId, dealId }),
+        ),
+    ]);
+
+    return Response.json(
+      {
+        task: {
+          id,
+          title,
+          dueAt,
+          completed: false,
+          dealId,
+          conversationId,
+        },
+      },
+      {
+        status: 201,
+        headers: { "cache-control": "private, no-store" },
+      },
+    );
+  } catch {
+    return jsonError(500, "task_create_failed");
+  }
+}
+
+function entityId(value: unknown): string | null {
+  return typeof value === "string" && /^[a-zA-Z0-9_-]{1,128}$/u.test(value)
+    ? value
+    : null;
+}
