@@ -63,7 +63,9 @@ export const demoDashboard: DashboardData = {
           senderEmail: "marie@ateliernord.example",
           recipientLabel: "bonjour@27pm.org",
           sentAt: "09:24",
+          sentAtIso: "2026-08-25T13:24:00.000Z",
           deliveryState: "received",
+          deliveryEvents: [],
           body:
             "Bonjour,\n\nNous aimerions discuter d’un nouveau site web pour Atelier Nord. Nous avons besoin d’un site épuré, rapide et facile à mettre à jour. Auriez-vous des disponibilités pour en discuter cette semaine ?\n\nMerci,\nMarie",
         },
@@ -74,7 +76,20 @@ export const demoDashboard: DashboardData = {
           senderEmail: "bonjour@27pm.org",
           recipientLabel: "Marie Tremblay",
           sentAt: "09:35",
+          sentAtIso: "2026-08-25T13:35:00.000Z",
           deliveryState: "delivered",
+          deliveryEvents: [
+            {
+              state: "accepted",
+              occurredAt: "2026-08-25T13:35:00.000Z",
+              occurredLabel: "09:35:00",
+            },
+            {
+              state: "delivered",
+              occurredAt: "2026-08-25T13:35:04.000Z",
+              occurredLabel: "09:35:04",
+            },
+          ],
           body:
             "Bonjour Marie,\n\nMerci pour votre message. Avec plaisir pour en discuter. Seriez-vous disponible jeudi ou vendredi en avant-midi ?\n\nAu plaisir,\nPhilippe",
         },
@@ -101,7 +116,9 @@ export const demoDashboard: DashboardData = {
           senderEmail: "simon@gagnon.example",
           recipientLabel: "bonjour@27pm.org",
           sentAt: "Hier",
+          sentAtIso: "2026-08-24T16:00:00.000Z",
           deliveryState: "received",
+          deliveryEvents: [],
           body:
             "Bonjour l’équipe,\n\nNous souhaitons moderniser notre portail client et simplifier les demandes de service.\n\nSimon",
         },
@@ -128,7 +145,9 @@ export const demoDashboard: DashboardData = {
           senderEmail: "nadia@roy.example",
           recipientLabel: "bonjour@27pm.org",
           sentAt: "Hier",
+          sentAtIso: "2026-08-24T15:00:00.000Z",
           deliveryState: "received",
+          deliveryEvents: [],
           body:
             "Bonjour,\n\nNous avons besoin d’une application sur mesure pour gérer nos demandes de soumission.\n\nNadia",
         },

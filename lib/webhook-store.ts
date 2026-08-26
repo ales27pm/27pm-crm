@@ -11,6 +11,7 @@ import {
   type ParsedInboundMessage,
   type ParsedMailgunEvent,
 } from "./mailgun";
+import { reconcileMailgunEventsBestEffort } from "./mailgun-event-reconciliation";
 import type { PrivateObjectBucket } from "./runtime";
 
 export type WebhookReservation = "accepted" | "duplicate" | "replay";
@@ -315,29 +316,12 @@ export async function recordMailgunEvent(
     )
     .run();
 
-  const status = deliveryStatus(event.eventType, event.severity);
-  if (message && status) {
-    await db
-      .prepare("UPDATE messages SET status = ? WHERE id = ?")
-      .bind(status, message.id)
-      .run();
-  }
-}
-
-function deliveryStatus(eventType: string, severity: string | null): string | null {
-  switch (eventType) {
-    case "accepted":
-      return "accepted";
-    case "delivered":
-      return "delivered";
-    case "complained":
-      return "complained";
-    case "rejected":
-      return "permanent-failure";
-    case "failed":
-      return severity === "temporary" ? "temporary-failure" : "permanent-failure";
-    default:
-      return null;
+  if (event.messageId) {
+    // Re-resolve after insertion so a concurrent outbound insert cannot leave
+    // this callback permanently detached from its message. The event is
+    // already durable, so a secondary reconciliation error must not turn the
+    // webhook response into a misleading persistence failure.
+    await reconcileMailgunEventsBestEffort(db, event.messageId);
   }
 }
 

@@ -2,6 +2,13 @@ import { requireOperatorRequest } from "@/lib/api-auth";
 import { crmDatabase } from "@/lib/d1";
 import { jsonError } from "@/lib/http";
 import { CRM_MAILBOXES, mailboxForAddress } from "@/lib/mailboxes";
+import {
+  buildDeliveryTimeline,
+  mailgunDeliveryState,
+  mailgunReasonFromPayloadJson,
+  storedMessageDeliveryState,
+  type DeliveryTimelineEvent,
+} from "@/lib/mailgun-lifecycle";
 import { runtimeString } from "@/lib/runtime";
 
 export const dynamic = "force-dynamic";
@@ -45,6 +52,15 @@ type MessageRow = {
   textBody: string | null;
   status: string;
   occurredAt: string;
+};
+
+type MessageEventRow = {
+  messageId: string;
+  eventType: string;
+  severity: string | null;
+  eventTimestamp: string;
+  payloadJson: string;
+  eventSequence: number;
 };
 
 type DealRow = {
@@ -108,7 +124,15 @@ export async function GET(request: Request) {
 
   try {
     const db = crmDatabase();
-    const [mailboxes, contacts, conversations, messages, deals, tasks] =
+    const [
+      mailboxes,
+      contacts,
+      conversations,
+      messages,
+      messageEvents,
+      deals,
+      tasks,
+    ] =
       await Promise.all([
         db
           .prepare(
@@ -171,6 +195,22 @@ export async function GET(request: Request) {
           .all<MessageRow>(),
         db
           .prepare(
+            `SELECT me.message_id AS messageId,
+                    me.event_type AS eventType,
+                    me.severity,
+                    me.event_timestamp AS eventTimestamp,
+                    me.payload_json AS payloadJson,
+                    me.rowid AS eventSequence
+             FROM message_events me
+             JOIN messages m ON m.id = me.message_id
+             JOIN conversations c ON c.id = m.conversation_id
+             ${where}
+             ORDER BY me.event_timestamp, me.rowid`,
+          )
+          .bind(...values)
+          .all<MessageEventRow>(),
+        db
+          .prepare(
             `SELECT d.id, c.contact_id AS contactId,
                     d.conversation_id AS conversationId,
                     c.subject,
@@ -201,6 +241,25 @@ export async function GET(request: Request) {
       const current = messagesByConversation.get(message.conversationId) ?? [];
       current.push(message);
       messagesByConversation.set(message.conversationId, current);
+    }
+    const deliveryEventsByMessage = new Map<
+      string,
+      DeliveryTimelineEvent[]
+    >();
+    for (const event of messageEvents.results) {
+      const state = mailgunDeliveryState({
+        eventType: event.eventType,
+        severity: event.severity,
+        reason: mailgunReasonFromPayloadJson(event.payloadJson),
+      });
+      if (!state) continue;
+      const current = deliveryEventsByMessage.get(event.messageId) ?? [];
+      current.push({
+        state,
+        occurredAt: event.eventTimestamp,
+        sequence: event.eventSequence,
+      });
+      deliveryEventsByMessage.set(event.messageId, current);
     }
     const contactById = new Map(contacts.results.map((contact) => [contact.id, contact]));
 
@@ -242,20 +301,44 @@ export async function GET(request: Request) {
               conversation.followUpState,
             ),
             dealId: conversation.dealId,
-            messages: threadMessages.map((message) => ({
-              id: message.id,
-              direction: message.direction,
-              senderName:
-                message.direction === "outbound" ? "27PM" : contactName,
-              senderEmail: message.sender,
-              recipientLabel:
+            messages: threadMessages.map((message) => {
+              const storedState = storedMessageDeliveryState(
+                message.status,
+                message.direction,
+              );
+              const deliveryTimeline =
                 message.direction === "outbound"
-                  ? contact?.displayName ?? contact?.email ?? "Contact"
-                  : conversation.mailboxAddress,
-              sentAt: displayDate(message.occurredAt),
-              body: message.textBody ?? "",
-              deliveryState: presentationDeliveryState(message.status),
-            })),
+                  ? buildDeliveryTimeline({
+                      messageOccurredAt: message.occurredAt,
+                      storedState:
+                        storedState === "received" ? "accepted" : storedState,
+                      providerEvents:
+                        deliveryEventsByMessage.get(message.id) ?? [],
+                    })
+                  : [];
+
+              return {
+                id: message.id,
+                direction: message.direction,
+                senderName:
+                  message.direction === "outbound" ? "27PM" : contactName,
+                senderEmail: message.sender,
+                recipientLabel:
+                  message.direction === "outbound"
+                    ? contact?.displayName ?? contact?.email ?? "Contact"
+                    : conversation.mailboxAddress,
+                sentAt: displayDate(message.occurredAt),
+                sentAtIso: message.occurredAt,
+                body: message.textBody ?? "",
+                deliveryState:
+                  deliveryTimeline.at(-1)?.state ?? storedState,
+                deliveryEvents: deliveryTimeline.map((event) => ({
+                  state: event.state,
+                  occurredAt: event.occurredAt,
+                  occurredLabel: displayEventDate(event.occurredAt),
+                })),
+              };
+            }),
           };
         }),
         contacts: contacts.results.map((contact) => ({
@@ -321,17 +404,6 @@ function transportState(): "operational" | "configuration" {
     : "configuration";
 }
 
-function presentationDeliveryState(
-  status: string,
-): "received" | "accepted" | "delivered" | "failed" {
-  if (status === "received") return "received";
-  if (status === "delivered") return "delivered";
-  if (["temporary-failure", "permanent-failure", "bounced", "complained"].includes(status)) {
-    return "failed";
-  }
-  return "accepted";
-}
-
 function presentationStage(
   stage: string,
 ): "nouveau" | "qualifie" | "proposition" | "production" | "gagne" {
@@ -368,6 +440,19 @@ function displayDate(value: string): string {
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    timeZone: "America/Toronto",
+  }).format(date);
+}
+
+function displayEventDate(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.valueOf())) return value;
+  return new Intl.DateTimeFormat("fr-CA", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
     timeZone: "America/Toronto",
   }).format(date);
 }

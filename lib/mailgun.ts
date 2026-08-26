@@ -55,6 +55,7 @@ export type ParsedMailgunEvent = {
   eventId: string | null;
   eventType: string;
   severity: string | null;
+  reason: string | null;
   recipient: string | null;
   messageId: string | null;
   eventTimestamp: string;
@@ -225,6 +226,7 @@ function parsedEvent(
     eventId: optionalString(eventData.id),
     eventType,
     severity: optionalString(eventData.severity),
+    reason: optionalString(eventData.reason),
     recipient: extractEmailAddress(optionalString(eventData.recipient) ?? ""),
     messageId: normalizeMessageId(
       optionalString(headers["message-id"] ?? headers.messageId),

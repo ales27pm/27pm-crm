@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DashboardData,
   Deal,
@@ -51,6 +51,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
+  const contextTriggerRef = useRef<HTMLButtonElement>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(
     Boolean(initialData.conversations[0]),
   );
@@ -130,6 +131,15 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
     : null;
   const unreadCount = data.mailboxes.reduce((sum, mailbox) => sum + mailbox.unreadCount, 0);
   const sendEnabled = data.live && data.transportState === "operational";
+
+  const closeInboxContext = useCallback(() => {
+    setContextOpen(false);
+    window.requestAnimationFrame(() => {
+      if (contextTriggerRef.current?.isConnected) {
+        contextTriggerRef.current.focus();
+      }
+    });
+  }, []);
 
   function navigate(view: NavView) {
     setActiveView(view);
@@ -286,11 +296,12 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
 
   const inboxContext = (
     <ContextRail
+      id="conversation-context"
       contact={selectedContact}
       deal={selectedConversationDeal}
       open={contextOpen}
       mobileSheet
-      onClose={() => setContextOpen(false)}
+      onClose={closeInboxContext}
       onDealChange={(patch) => {
         if (selectedConversationDeal) updateDeal(selectedConversationDeal.id, patch);
       }}
@@ -354,6 +365,8 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
                 key={selectedConversation?.id ?? "empty"}
                 conversation={selectedConversation}
                 sendEnabled={sendEnabled}
+                contextOpen={contextOpen}
+                contextTriggerRef={contextTriggerRef}
                 onBack={() => setMobileThreadOpen(false)}
                 onOpenContext={() => setContextOpen(true)}
                 onSend={(body) =>

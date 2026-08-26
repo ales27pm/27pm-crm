@@ -173,7 +173,22 @@ test("fallback thread and callback identities are deterministic", async () => {
       message: { headers: { "message-id": "<mailgun-message@example.com>" } },
     },
   });
+  assert.equal(event.reason, null);
   assert.equal(await eventCallbackKey(event), "event:event-123");
+
+  const bounceEvent = parseMailgunEventJson({
+    signature: signature(),
+    "event-data": {
+      id: "event-124",
+      event: "failed",
+      severity: "permanent",
+      reason: "bounce",
+      timestamp: nowSeconds,
+      recipient: "client@example.com",
+      message: { headers: { "message-id": "<mailgun-message@example.com>" } },
+    },
+  });
+  assert.equal(bounceEvent.reason, "bounce");
 });
 
 test("send idempotency keys and canonical request hashes are stable", async () => {

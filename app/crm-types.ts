@@ -1,3 +1,8 @@
+import type {
+  MessageDeliveryState,
+  OutboundDeliveryState,
+} from "@/lib/mailgun-lifecycle";
+
 export type MailboxKind = "sales" | "operations";
 export type TransportState = "operational" | "configuration" | "degraded";
 export type NavView =
@@ -28,8 +33,16 @@ export type CrmMessage = {
   senderEmail: string;
   recipientLabel: string;
   sentAt: string;
+  sentAtIso: string;
   body: string;
-  deliveryState?: "received" | "accepted" | "delivered" | "failed";
+  deliveryState: MessageDeliveryState;
+  deliveryEvents: CrmDeliveryEvent[];
+};
+
+export type CrmDeliveryEvent = {
+  state: OutboundDeliveryState;
+  occurredAt: string;
+  occurredLabel: string;
 };
 
 export type Conversation = {

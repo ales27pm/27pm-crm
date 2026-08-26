@@ -70,8 +70,13 @@ Do these steps in order. Do not create the Mailgun route early.
    ```
 
 10. Record the returned route ID in the private change record, not in source.
-11. Remove `MAILGUN_API_KEY` from the local environment.
-12. Run the two-mailbox canary below before announcing availability.
+11. In the Mailgun domain webhooks, inspect the existing configuration before
+    changing it, then point `accepted`, `delivered`, `temporary_fail`,
+    `permanent_fail`, and `complained` to the exact delivery-event callback
+    documented below. Do not replace an unrelated callback without a separate
+    review.
+12. Remove `MAILGUN_API_KEY` from the local environment.
+13. Run the two-mailbox canary below before announcing availability.
 
 Running the apply command again is safe: an existing exact route produces a
 no-change result. If a network failure occurs after a create request, run the
@@ -87,6 +92,20 @@ expression:  match_recipient("^(bonjour|admin)@27pm\.org$")
 action 1:    store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")
 action 2:    stop()
 ```
+
+Configure each delivery-event webhook above with this exact HTTPS target:
+
+```text
+https://crm.27pm.org/api/webhooks/mailgun/events
+```
+
+Mailgun posts accepted and delivered events directly. It posts delivery
+failures as `failed` events with a temporary or permanent severity; a permanent
+event whose reason is `bounce` or `suppress-bounce` is presented separately as
+a rebond. Complaint events remain `complained`. The CRM stores the signed raw
+event for audit, but exposes only the canonical state, timestamp, and safe
+operator guidance in the browser. See Mailgun’s [event types](https://documentation.mailgun.com/docs/mailgun/user-manual/events/event-types)
+and [webhook payloads](https://documentation.mailgun.com/docs/mailgun/user-manual/webhooks/webhook-payloads).
 
 Mailgun uses Python-style regular expressions for `match_recipient`; the
 anchors above exclude aliases, plus-addresses, other local parts, and other

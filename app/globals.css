@@ -670,6 +670,75 @@ h3 {
   white-space: pre-line;
 }
 
+.delivery-status {
+  display: grid;
+  max-width: 44rem;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0 3.3rem;
+  padding: 0.65rem 0.8rem;
+  border-left: 3px solid var(--blue);
+  background: var(--blue-soft);
+}
+
+.delivery-status[data-tone="success"] {
+  border-left-color: var(--green);
+}
+
+.delivery-status[data-tone="danger"] {
+  border-left-color: var(--red);
+}
+
+.delivery-current {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  font-size: 0.75rem;
+}
+
+.delivery-current strong {
+  font-weight: 700;
+}
+
+.delivery-current time,
+.delivery-history-details time {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.delivery-guidance {
+  color: var(--muted);
+  font-size: 0.73rem;
+  line-height: 1.45;
+}
+
+.delivery-history-details summary {
+  display: inline-flex;
+  min-height: 2.75rem;
+  align-items: center;
+  color: var(--blue-deep);
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 650;
+}
+
+.delivery-history-details ol {
+  display: grid;
+  margin: 0;
+  padding: 0 0 0.2rem;
+  gap: 0.35rem;
+  list-style: none;
+}
+
+.delivery-history-details li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-top: 0.35rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.71rem;
+}
+
 .message-more {
   width: 2rem;
   height: 2rem;
@@ -1848,8 +1917,12 @@ h3 {
     font-size: clamp(1.65rem, 8vw, 2.35rem);
   }
 
-  .thread-actions button:nth-child(-n + 2) {
+  .thread-reply-action {
     display: none;
+  }
+
+  .thread-context-action {
+    flex: 0 0 2.75rem;
   }
 
   .message-stream {
@@ -1858,6 +1931,10 @@ h3 {
 
   .message {
     padding-block: 1.1rem;
+  }
+
+  .delivery-status {
+    margin-left: 0;
   }
 
   .message > p {
@@ -1913,10 +1990,14 @@ h3 {
     padding-top: 0.5rem;
   }
 
-  .context-rail[data-mobile-sheet] .context-list,
-  .context-rail[data-mobile-sheet] .context-note,
-  .context-rail[data-mobile-sheet] .context-action {
-    display: none;
+  .context-rail[data-mobile-sheet] .deal-fields input,
+  .context-rail[data-mobile-sheet] .deal-fields select,
+  .context-rail[data-mobile-sheet] .context-action button {
+    min-height: 2.75rem;
+  }
+
+  .context-rail[data-mobile-sheet] .context-action button {
+    width: 100%;
   }
 
   .pipeline-workspace,

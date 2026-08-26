@@ -89,5 +89,67 @@ test("generated D1 migration seeds both identities and enforces idempotency", as
     /unique constraint failed/i,
   );
 
+  database
+    .prepare("INSERT INTO contacts (id, email) VALUES ('contact-events', 'events@example.com')")
+    .run();
+  database
+    .prepare(
+      `INSERT INTO conversations
+        (id, mailbox_id, contact_id, subject, normalized_subject, thread_key, last_message_at)
+       VALUES
+        ('conversation-events', 'mailbox_bonjour', 'contact-events', 'Events',
+         'events', 'events:test', '2026-08-25T13:00:00.000Z')`,
+    )
+    .run();
+  const insertMessage = database.prepare(
+    `INSERT INTO messages
+      (id, conversation_id, mailbox_id, direction, sender, status, occurred_at)
+     VALUES (?, 'conversation-events', 'mailbox_bonjour', 'outbound',
+             'bonjour@27pm.org', ?, '2026-08-25T13:00:00.000Z')`,
+  );
+  const deliveryStates = [
+    "accepted",
+    "delivered",
+    "bounced",
+    "complained",
+    "temporary-failure",
+    "permanent-failure",
+  ];
+  for (const [index, status] of deliveryStates.entries()) {
+    insertMessage.run(`message-state-${index}`, status);
+  }
+  assert.throws(
+    () => insertMessage.run("message-generic-failed", "failed"),
+    /check constraint failed/i,
+  );
+  assert.deepEqual(
+    database
+      .prepare(
+        "SELECT status FROM messages WHERE id LIKE 'message-state-%' ORDER BY id",
+      )
+      .all()
+      .map((row) => row.status),
+    deliveryStates,
+  );
+
+  database
+    .prepare(
+      `INSERT INTO message_events
+        (id, message_id, callback_key, event_type, severity,
+         event_timestamp, payload_json)
+       VALUES
+        ('event-delivered', 'message-state-1', 'event:delivered', 'delivered',
+         NULL, '2026-08-25T13:01:00.000Z', '{}')`,
+    )
+    .run();
+  assert.equal(
+    database
+      .prepare(
+        "SELECT event_timestamp FROM message_events WHERE id = 'event-delivered'",
+      )
+      .get().event_timestamp,
+    "2026-08-25T13:01:00.000Z",
+  );
+
   database.close();
 });

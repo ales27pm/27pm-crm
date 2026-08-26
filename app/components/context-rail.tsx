@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import type { Contact, Deal, PipelineStage } from "../crm-types";
 import { Icon } from "./icons";
 
 type ContextRailProps = {
+  id?: string;
   contact: Contact | null;
   deal: Deal | null;
   open: boolean;
@@ -23,6 +25,7 @@ const stages: Array<{ value: PipelineStage; label: string }> = [
 ];
 
 export function ContextRail({
+  id,
   contact,
   deal,
   open,
@@ -32,6 +35,25 @@ export function ContextRail({
   onAddTask,
   onOpenConversation,
 }: ContextRailProps) {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!open || !window.matchMedia("(max-width: 1040px)").matches) return;
+    const frame = window.requestAnimationFrame(() => closeButtonRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !window.matchMedia("(max-width: 1040px)").matches) return;
+    function closeOnEscape(event: KeyboardEvent) {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      onClose();
+    }
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose, open]);
+
   if (!contact) return null;
 
   const initials = contact.name
@@ -43,12 +65,19 @@ export function ContextRail({
 
   return (
     <aside
+      id={id}
       className="context-rail"
       data-open={open || undefined}
       data-mobile-sheet={mobileSheet || undefined}
       aria-label={`Contexte de ${contact.name}`}
     >
-      <button className="context-close" type="button" onClick={onClose} aria-label="Fermer le contexte">
+      <button
+        ref={closeButtonRef}
+        className="context-close"
+        type="button"
+        onClick={onClose}
+        aria-label="Fermer le contexte"
+      >
         <Icon name="close" />
       </button>
       <header className="contact-heading">

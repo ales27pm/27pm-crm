@@ -2,6 +2,7 @@ import { requireOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import { jsonError, readJsonObject } from "@/lib/http";
 import { sendMailgunMessage } from "@/lib/mailgun-client";
+import { reconcileMailgunEventsBestEffort } from "@/lib/mailgun-event-reconciliation";
 import {
   normalizeCommandIdempotencyKey,
   normalizeMessageId,
@@ -97,6 +98,10 @@ export async function POST(request: Request) {
         return jsonError(409, "idempotency_key_reused");
       }
       if (existing.status === "sent") {
+        await reconcileMailgunEventsBestEffort(
+          db,
+          existing.providerMessageId,
+        );
         return Response.json({
           accepted: true,
           idempotent: true,
@@ -187,6 +192,10 @@ export async function POST(request: Request) {
           JSON.stringify({ mailboxId: command.mailbox.id }),
         ),
     ]);
+
+    // A provider callback can arrive before this outbound row is committed.
+    // Link any such callback by Mailgun message ID and apply its latest state.
+    await reconcileMailgunEventsBestEffort(db, externalMessageId);
 
     return Response.json(
       {
