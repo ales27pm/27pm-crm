@@ -20,6 +20,16 @@ pipeline et suivis. L’application gère deux identités distinctes :
 Le site public `27pm.org` et son hébergement GitHub Pages restent entièrement
 séparés du CRM.
 
+## CRM de prospection
+
+Le CRM sépare les entreprises, contacts vérifiés et opportunités. Il gère le
+pipeline, les relances, les interactions, la provenance, l’assignation et les
+blocages de conformité. La cohorte initiale contient uniquement cinq
+entreprises et des hypothèses de prospection — aucun contact personnel inventé.
+La portée et les limites du formulaire public, de l’authentification et du
+déploiement sont détaillées dans
+[docs/mvp-limitations.md](docs/mvp-limitations.md).
+
 ## Développement
 
 Node.js `>=22.13.0` est requis.

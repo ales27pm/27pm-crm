@@ -5,7 +5,7 @@ import { Icon, type IconName } from "./icons";
 
 const items: Array<{ id: NavView; label: string; icon: IconName }> = [
   { id: "inbox", label: "Réception", icon: "inbox" },
-  { id: "contacts", label: "Contacts", icon: "contacts" },
+  { id: "contacts", label: "Comptes", icon: "contacts" },
   { id: "pipeline", label: "Pipeline", icon: "pipeline" },
   { id: "projects", label: "Projets", icon: "projects" },
   { id: "tasks", label: "Tâches", icon: "tasks" },

@@ -34,6 +34,56 @@ them. Never commit a production value to `.env.example`.
 | `MAILGUN_DOMAIN` | No | Must remain exactly `27pm.org`. |
 | `CRM_PUBLIC_ORIGIN` | No | Stable production HTTPS origin, normally `https://crm.27pm.org`. |
 | `CRM_WEBHOOK_MAX_AGE_SECONDS` | No | Maximum accepted webhook age; the current operational default is 900 seconds. |
+| `PUBLIC_SITE_ORIGIN` | No | Exact public site origin allowed to submit an intake. |
+| `TURNSTILE_SECRET_KEY` | Yes | Server-side Cloudflare Turnstile verification secret. |
+| `PUBLIC_INTAKE_HASH_SALT` | Yes | Random secret used only to hash requester IPs for rate limiting. |
+| `PUBLIC_INTAKE_TURNSTILE_ACTION` | No | Expected Turnstile widget action; defaults to `crm_intake`. |
+
+## Migrations CRM 0004 et 0005
+
+The Sites build packages the SQL migrations and the production D1 binding is
+owned by the Sites project. Do not run Wrangler against the placeholder local
+database ID from `vite.config.ts`.
+
+Before an authorized deployment:
+
+1. export or snapshot the production D1 database using the Sites project
+   controls;
+2. record the current checkpoint and migration state;
+3. deploy the exact reviewed checkpoint through Sites so its packaged
+   migrations apply to the correct binding;
+4. verify `GET /api/health`, operator denial/allowlist behavior, the five
+   accounts, zero cohort contacts, and `PRAGMA foreign_key_check` through the
+   approved D1 console;
+5. verify a duplicate import key returns an idempotent no-change result.
+
+Rollback is not `DROP TABLE`: pause writes, restore the captured D1 snapshot
+and the prior Sites checkpoint together. If restoration is unavailable, keep
+the new schema and ship a reviewed forward-only corrective migration.
+Migration 0004 preserves legacy contacts, backfills organizations and seeds
+the five account hypotheses. Migration 0005 adds the atomic public-intake rate
+bucket and the explicit channel for contact tasks. A code rollback without a
+data rollback has not been claimed compatible.
+
+## Public intake contract
+
+The public site may send this request only after the three intake settings are
+configured. It must generate a fresh idempotency key and Turnstile token:
+
+```http
+POST /api/public/intake
+Origin: https://27pm.org
+Content-Type: application/json
+Idempotency-Key: form-<random-uuid>
+
+{"organizationName":"…","contactName":"…","contactEmail":"…","projectType":"…","message":"…","privacyAcknowledged":true,"turnstileToken":"…","website":""}
+```
+
+`website` is a honeypot and must remain empty. A `202` means only “queued for
+operator review”; it is not an acknowledgement of a commercial relationship
+and must not trigger email, SMS, calls, or automated sequencing.
+The Turnstile widget must use action `crm_intake` (or the exact configured
+override); the CRM verifies both the action and the hostname before storing.
 
 The route-administration credential, `MAILGUN_API_KEY`, is deliberately **not**
 a Sites runtime secret. It is a short-lived operator input for the local

@@ -877,6 +877,7 @@ h3 {
 .deal-fields > label,
 .context-action,
 .context-note,
+.context-interactions,
 .operations-context {
   padding: 1.05rem 0;
   border-bottom: 1px solid var(--line);
@@ -885,7 +886,8 @@ h3 {
 .context-list dt,
 .deal-fields > label > span:first-child,
 .context-action > span,
-.context-note > span {
+.context-note > span,
+.context-interactions > span {
   display: flex;
   align-items: center;
   gap: 0.65rem;
@@ -897,7 +899,8 @@ h3 {
 .context-list dt svg,
 .deal-fields > label > span:first-child svg,
 .context-action > span svg,
-.context-note > span svg {
+.context-note > span svg,
+.context-interactions > span svg {
   width: 1.12rem;
   height: 1.12rem;
   color: var(--blue);
@@ -992,6 +995,102 @@ h3 {
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.5;
+}
+
+.context-interactions {
+  padding: 1.05rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.context-interactions > span {
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  font-size: 0.76rem;
+  font-weight: 580;
+}
+
+.context-interactions > span svg {
+  width: 1.12rem;
+  color: var(--blue);
+}
+
+.context-interactions form {
+  display: grid;
+  gap: 0.55rem;
+  margin-top: 0.75rem;
+}
+
+.context-interactions select,
+.context-interactions textarea {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--ivory-raised);
+  font-size: 0.76rem;
+}
+
+.context-interactions textarea {
+  resize: vertical;
+}
+
+.context-interactions button {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  border: 1px solid var(--blue);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--blue);
+  font-size: 0.76rem;
+}
+
+.context-interactions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.context-interactions button svg {
+  width: 1rem;
+}
+
+.context-interactions form > p,
+.interaction-empty {
+  color: var(--muted);
+  font-size: 0.69rem;
+}
+
+.interaction-history {
+  display: grid;
+  gap: 0.75rem;
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.interaction-history li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--blue);
+  font-size: 0.7rem;
+}
+
+.interaction-history time {
+  color: var(--muted);
+}
+
+.interaction-history p {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+  line-height: 1.45;
+}
+
+.interaction-empty {
+  margin-top: 0.9rem;
 }
 
 .operations-context {
@@ -1184,6 +1283,97 @@ h3 {
   border-top: 1px solid var(--line);
 }
 
+.accounts-view {
+  height: calc(100svh - var(--header));
+  overflow-y: auto;
+  border-top: 1px solid var(--line);
+  padding-bottom: 4rem;
+}
+
+.account-filters {
+  display: flex;
+  gap: 1rem;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.account-filters label,
+.form-grid label {
+  display: grid;
+  gap: 0.35rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.account-filters input,
+.account-filters select,
+.form-grid input,
+.form-grid select,
+.form-grid textarea {
+  min-height: 2.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 3px;
+  background: var(--ivory-raised);
+  color: var(--ink);
+}
+
+.account-grid {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 25rem), 1fr));
+  padding: 1.5rem;
+}
+
+.account-card {
+  padding: 1rem;
+  border: 1px solid var(--line);
+  background: var(--ivory-raised);
+}
+
+.account-card[data-blocked] { border-color: var(--red); }
+.account-card > header,
+.account-card > header > div,
+.account-card .account-contacts { display: flex; gap: 0.65rem; }
+.account-card > header { align-items: start; justify-content: space-between; }
+.account-card > header > div { align-items: center; }
+.account-card h3 { font-size: 1.1rem; }
+.account-card header p,
+.account-card .account-contacts span { color: var(--muted); font-size: 0.72rem; }
+.score-badge { display: grid; width: 2.5rem; height: 2.5rem; place-items: center; border-radius: 50%; background: var(--blue); color: white; font-weight: 750; }
+.account-card dl { display: grid; gap: 0.55rem; margin: 1rem 0; }
+.account-card dl > div { display: grid; gap: 0.3rem; grid-template-columns: 7rem 1fr; }
+.account-card dt { color: var(--muted); font-size: 0.68rem; }
+.account-card dd { margin: 0; font-size: 0.78rem; }
+.hypothesis-note, .compliance-stop { margin: 0.75rem 0; padding: 0.6rem; background: var(--blue-soft); font-size: 0.72rem; }
+.compliance-stop { border-left: 3px solid var(--red); background: transparent; color: var(--red); }
+.account-contacts { flex-direction: column; margin: 1rem 0; }
+.contact-row-button { display: grid; width: 100%; gap: 0.15rem; padding: 0.55rem 0.65rem; border: 1px solid var(--line); background: var(--ivory); color: var(--ink); text-align: left; }
+.contact-row-button:hover,
+.contact-row-button:focus-visible { border-color: var(--blue); }
+.contact-row-button small { color: var(--muted); font-size: 0.68rem; }
+.intake-queue { margin: 1.5rem; border-top: 1px solid var(--line-strong); }
+.intake-queue h2 { padding: 1.2rem 0; font-size: 1.15rem; }
+.intake-queue h2 span { color: var(--blue); }
+.intake-queue article { display: flex; justify-content: space-between; gap: 1rem; padding: 1rem 0; border-top: 1px solid var(--line); }
+.intake-queue article span { display: block; color: var(--muted); font-size: 0.72rem; }
+.intake-queue article p { margin-top: 0.5rem; font-size: 0.8rem; }
+.intake-queue article > div:last-child { display: flex; gap: 0.5rem; align-items: start; }
+
+.dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(23 23 20 / 38%); }
+.crm-dialog { width: min(52rem, 100%); max-height: calc(100svh - 2rem); overflow: auto; border: 1px solid var(--line-strong); background: var(--ivory); box-shadow: 0 1.5rem 6rem rgb(23 23 20 / 25%); }
+.crm-dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.2rem; border-bottom: 1px solid var(--line); }
+.crm-dialog h2 { font-size: 1.5rem; }
+.crm-dialog .icon-button { width: 2.5rem; height: 2.5rem; background: transparent; font-size: 1.5rem; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; padding: 1.2rem; }
+.form-grid .form-span { grid-column: 1 / -1; }
+.form-grid .check-label { display: flex; align-items: center; gap: 0.5rem; color: var(--ink); }
+.form-grid .check-label input { min-height: auto; }
+.crm-dialog footer { display: flex; justify-content: flex-end; gap: 0.75rem; padding: 1rem 1.2rem; border-top: 1px solid var(--line); }
+.dialog-spacer { flex: 1; }
+.danger-action { min-height: 2.75rem; padding: 0 1rem; border: 1px solid var(--red); background: transparent; color: var(--red); font: inherit; font-weight: 700; }
+.form-error { margin: 0 1.2rem 1rem; color: var(--red); font-size: 0.78rem; }
+
 .list-header,
 .list-row {
   display: grid;
@@ -1191,6 +1381,21 @@ h3 {
   gap: 1.5rem;
   grid-template-columns: minmax(14rem, 1.4fr) minmax(10rem, 1fr) 0.7fr 0.8fr;
   padding: 0 1.5rem;
+}
+
+.list-summary {
+  display: flex;
+  min-height: 3.5rem;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0 1.5rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.list-summary strong {
+  color: var(--blue);
 }
 
 .list-header.projects-columns,
@@ -1237,6 +1442,49 @@ h3 {
 
 .task-view {
   padding: 1rem 1.5rem;
+}
+
+.task-summary {
+  display: grid;
+  gap: 1px;
+  grid-template-columns: repeat(2, minmax(0, 11rem));
+  margin-bottom: 0.75rem;
+  border: 1px solid var(--line);
+  background: var(--line);
+}
+
+.task-summary > div {
+  display: flex;
+  min-height: 4.5rem;
+  justify-content: center;
+  gap: 0.25rem;
+  padding: 0.65rem;
+  background: var(--ivory-raised);
+  flex-direction: column;
+}
+
+.task-summary strong {
+  color: var(--blue);
+  font-family: var(--serif);
+  font-size: 1.8rem;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.task-summary span {
+  color: var(--muted);
+  font-size: 0.7rem;
+}
+
+.task-summary [data-alert] strong,
+.task-row[data-overdue] small {
+  color: var(--red);
+}
+
+.empty-state {
+  padding: 2rem 0;
+  color: var(--muted);
+  font-size: 0.82rem;
 }
 
 .task-row {
@@ -1446,6 +1694,57 @@ h3 {
 
 .compose-dialog footer .send-button {
   margin-left: auto;
+}
+
+.prospect-dialog {
+  width: min(48rem, calc(100vw - 2rem));
+}
+
+.prospect-dialog header div > p {
+  max-width: 34rem;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.prospect-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.prospect-form-grid label {
+  display: grid;
+  min-height: 4.6rem;
+  align-content: center;
+  gap: 0.35rem;
+  padding: 0.65rem 1.2rem;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.prospect-form-grid label:nth-child(even) {
+  border-right: 0;
+}
+
+.prospect-form-grid label > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.prospect-form-grid input,
+.prospect-form-grid select,
+.prospect-form-grid textarea {
+  min-height: 2.2rem;
+  padding: 0.3rem 0;
+}
+
+.prospect-form-grid textarea {
+  min-height: 5rem;
+}
+
+.prospect-form-grid .prospect-span-two {
+  grid-column: 1 / -1;
+  border-right: 0;
 }
 
 .mobile-nav {
@@ -2027,6 +2326,26 @@ h3 {
     overflow-x: auto;
   }
 
+  .account-filters,
+  .intake-queue article {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .account-grid,
+  .form-grid {
+    grid-template-columns: 1fr;
+    padding: 1rem;
+  }
+
+  .form-grid .form-span {
+    grid-column: auto;
+  }
+
+  .account-card dl > div {
+    grid-template-columns: 1fr;
+  }
+
   .list-header,
   .list-row {
     min-width: 48rem;
@@ -2086,6 +2405,20 @@ h3 {
 
   .compose-dialog textarea {
     min-height: 11rem;
+  }
+
+  .prospect-form-grid {
+    display: block;
+    max-height: calc(100svh - 10rem);
+    overflow-y: auto;
+  }
+
+  .prospect-form-grid label {
+    border-right: 0;
+  }
+
+  .prospect-form-grid textarea {
+    min-height: 5rem;
   }
 }
 

@@ -3,11 +3,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   DashboardData,
+  Contact,
   Deal,
   NavView,
+  Organization,
   PipelineStage,
 } from "../crm-types";
+import { AccountDialog } from "./account-dialog";
 import { ComposeDialog } from "./compose-dialog";
+import { ContactDialog } from "./contact-dialog";
 import { ContextRail } from "./context-rail";
 import { InboxRail, type InboxFilter } from "./inbox-rail";
 import { Icon } from "./icons";
@@ -15,7 +19,7 @@ import { PipelineView } from "./pipeline-view";
 import { Sidebar } from "./sidebar";
 import { ThreadView } from "./thread-view";
 import {
-  ContactsView,
+  AccountsView,
   ProjectsView,
   SettingsView,
   TasksView,
@@ -28,7 +32,7 @@ type CrmAppProps = {
 
 const viewTitles: Record<NavView, string> = {
   inbox: "Réception",
-  contacts: "Contacts",
+  contacts: "Comptes",
   pipeline: "Pipeline",
   projects: "Projets",
   tasks: "Tâches",
@@ -50,6 +54,10 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [editingAccount, setEditingAccount] = useState<Organization | null>(null);
+  const [contactAccount, setContactAccount] = useState<Organization | null>(null);
+  const [editingContact, setEditingContact] = useState<Contact | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const contextTriggerRef = useRef<HTMLButtonElement>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(
@@ -172,6 +180,16 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
 
   function updateDeal(id: string, patch: Partial<Deal>) {
     const previous = data.deals.find((deal) => deal.id === id);
+    const { nextActionDate, ...directPatch } = patch;
+    const apiPatch =
+      nextActionDate === undefined
+        ? directPatch
+        : {
+            ...directPatch,
+            nextActionAt: nextActionDate
+              ? `${nextActionDate}T12:00:00.000Z`
+              : null,
+          };
     setData((current) => ({
       ...current,
       deals: current.deals.map((deal) => (deal.id === id ? { ...deal, ...patch } : deal)),
@@ -180,7 +198,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       void fetch(`/api/deals/${encodeURIComponent(id)}`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(apiPatch),
       }).then((response) => {
         if (response.ok) {
           setSyncMessage("");
@@ -216,6 +234,10 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
           id,
           title: deal.nextAction || `Suivre ${deal.title}`,
           dueLabel: deal.nextActionDate || "À planifier",
+          dueAt: deal.nextActionDate
+            ? `${deal.nextActionDate}T12:00:00.000Z`
+            : null,
+          overdue: false,
           completed: false,
           dealId: deal.id,
         },
@@ -228,7 +250,11 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         body: JSON.stringify({
           title: deal.nextAction || `Suivre ${deal.title}`,
           dealId: deal.id,
-          dueAt: deal.nextActionDate || undefined,
+          contactAction: false,
+          contactChannel: "internal",
+          dueAt: deal.nextActionDate
+            ? `${deal.nextActionDate}T12:00:00.000Z`
+            : undefined,
         }),
       }).then(async (response) => {
         if (!response.ok) throw new Error("task_create_failed");
@@ -277,6 +303,28 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
     if (!dashboard) throw new Error("dashboard_refresh_failed");
     setData(dashboard);
     setSyncMessage("");
+    return dashboard;
+  }
+
+  async function addInteraction(
+    dealId: string,
+    kind: Deal["interactions"][number]["kind"],
+    summary: string,
+  ) {
+    if (!currentIsLive(data)) return false;
+    try {
+      const response = await fetch("/api/interactions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ dealId, kind, summary }),
+      });
+      if (!response.ok) return false;
+      await refreshDashboard();
+      return true;
+    } catch {
+      setSyncMessage("L’interaction n’a pas été enregistrée.");
+      return false;
+    }
   }
 
   async function sendMessage(payload: Record<string, string>) {
@@ -306,6 +354,11 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         if (selectedConversationDeal) updateDeal(selectedConversationDeal.id, patch);
       }}
       onAddTask={() => addTask(selectedConversationDeal)}
+      onAddInteraction={(kind, summary) =>
+        selectedConversationDeal
+          ? addInteraction(selectedConversationDeal.id, kind, summary)
+          : Promise.resolve(false)
+      }
     />
   );
 
@@ -329,12 +382,9 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
               <Icon name="compose" /> Nouveau courriel
             </button>
           ) : null}
-          {activeView === "pipeline" ? (
-            <button className="primary-action" type="button" onClick={() => {
-              setActiveView("inbox");
-              setComposeOpen(true);
-            }}>
-              <Icon name="compose" /> Nouveau courriel
+          {(["contacts", "pipeline", "projects"] as NavView[]).includes(activeView) ? (
+            <button className="primary-action" type="button" onClick={() => { setEditingAccount(null); setAccountOpen(true); }}>
+              <Icon name="plus" /> Nouvelle entreprise
             </button>
           ) : null}
         </header>
@@ -407,17 +457,27 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
                 if (selectedPipelineDeal) updateDeal(selectedPipelineDeal.id, patch);
               }}
               onAddTask={() => addTask(selectedPipelineDeal)}
-              onOpenConversation={() => {
-                if (!selectedPipelineDeal) return;
-                setSelectedConversationId(selectedPipelineDeal.conversationId);
-                setActiveView("inbox");
-                setMobileThreadOpen(true);
-              }}
+              onAddInteraction={(kind, summary) =>
+                selectedPipelineDeal
+                  ? addInteraction(selectedPipelineDeal.id, kind, summary)
+                  : Promise.resolve(false)
+              }
+              onOpenConversation={
+                selectedPipelineDeal && data.conversations.some(
+                  (conversation) => conversation.id === selectedPipelineDeal.conversationId,
+                )
+                  ? () => {
+                      setSelectedConversationId(selectedPipelineDeal.conversationId);
+                      setActiveView("inbox");
+                      setMobileThreadOpen(true);
+                    }
+                  : undefined
+              }
             />
           </div>
         ) : null}
 
-        {activeView === "contacts" ? <ContactsView contacts={data.contacts} /> : null}
+        {activeView === "contacts" ? <AccountsView organizations={data.organizations} contacts={data.contacts} intakes={data.intakes} onEdit={(account) => { setEditingAccount(account); setAccountOpen(true); }} onAddContact={(account) => { setEditingContact(null); setContactAccount(account); }} onEditContact={(account, contact) => { setEditingContact(contact); setContactAccount(account); }} onReviewIntake={(id, status) => { void fetch(`/api/intake/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }).then((response) => { if (!response.ok) throw new Error(); return refreshDashboard(); }).catch(() => setSyncMessage("La demande n’a pas pu être revue.")); }} /> : null}
         {activeView === "projects" ? <ProjectsView deals={data.deals} /> : null}
         {activeView === "tasks" ? (
           <TasksView
@@ -438,7 +498,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         {(
           [
             ["inbox", "Réception", "inbox"],
-            ["contacts", "Contacts", "contacts"],
+            ["contacts", "Comptes", "contacts"],
             ["pipeline", "Pipeline", "pipeline"],
             ["tasks", "Tâches", "tasks"],
           ] as const
@@ -462,6 +522,8 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         onClose={() => setComposeOpen(false)}
         onSend={sendMessage}
       />
+      <AccountDialog account={editingAccount} open={accountOpen} onClose={() => setAccountOpen(false)} onSaved={refreshDashboard} />
+      <ContactDialog account={contactAccount} contact={editingContact} open={Boolean(contactAccount)} onClose={() => { setContactAccount(null); setEditingContact(null); }} onSaved={refreshDashboard} />
     </div>
   );
 }

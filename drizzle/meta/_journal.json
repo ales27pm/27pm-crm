@@ -22,6 +22,27 @@
       "when": 1787658900065,
       "tag": "0002_sleepy_ezekiel",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1788045264144,
+      "tag": "0003_friendly_boomer",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1788046340298,
+      "tag": "0004_flawless_orphan",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1788047947960,
+      "tag": "0005_known_naoko",
+      "breakpoints": true
     }
   ]
 }

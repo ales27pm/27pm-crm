@@ -1,5 +1,6 @@
 import { requireOperatorRequest } from "@/lib/api-auth";
 import { crmDatabase } from "@/lib/d1";
+import { emailContactability, phoneContactability, type ContactabilityRow } from "@/lib/crm-accounts";
 import {
   jsonError,
   optionalTrimmedString,
@@ -19,11 +20,17 @@ export async function POST(request: Request) {
   const dealId = entityId(payload.dealId);
   const requestedConversationId = entityId(payload.conversationId);
   const dueAt = "dueAt" in payload ? validIsoTimestamp(payload.dueAt) : null;
+  const contactAction = payload.contactAction === true;
+  const requestedChannel = payload.contactChannel;
+  const contactChannel = contactAction
+    ? requestedChannel === "email" || requestedChannel === "phone" ? requestedChannel : null
+    : "internal";
   if (
     !title ||
     dueAt === undefined ||
     (payload.dealId !== undefined && !dealId) ||
     (payload.conversationId !== undefined && !requestedConversationId) ||
+    !contactChannel ||
     (!dealId && !requestedConversationId)
   ) {
     return jsonError(400, "task_invalid");
@@ -50,15 +57,47 @@ export async function POST(request: Request) {
       .first();
     if (!conversation) return jsonError(404, "conversation_not_found");
 
+    if (contactAction) {
+      const contact = await db
+        .prepare(
+          `SELECT contact.id AS contactId,
+                  contact.organization_id AS organizationId,
+                  contact.phone AS phone,
+                  contact.validated_at AS validatedAt,
+                  contact.contact_basis AS contactBasis,
+                  contact.role_relevance AS roleRelevance,
+                  contact.email_status AS emailStatus,
+                  contact.unsubscribed_at AS unsubscribedAt,
+                  contact.do_not_call AS doNotCall,
+                  contact.do_not_contact AS doNotContact,
+                  contact.deleted_at AS deletedAt,
+                  contact.dncl_status AS dnclStatus,
+                  organization.do_not_contact AS organizationDoNotContact,
+                  organization.deleted_at AS organizationDeletedAt
+           FROM conversations conversation
+           LEFT JOIN deals deal ON deal.id = ? AND deal.conversation_id = conversation.id
+           LEFT JOIN contacts contact ON contact.id = COALESCE(deal.contact_id, conversation.contact_id)
+           LEFT JOIN organizations organization ON organization.id = COALESCE(deal.organization_id, contact.organization_id)
+           WHERE conversation.id = ? LIMIT 1`,
+        )
+        .bind(dealId, conversationId)
+        .first<ContactabilityRow & { dnclStatus: string }>();
+      if (!contact?.contactId) return jsonError(409, "contact_required_for_action");
+      const blocked = contactChannel === "phone"
+        ? phoneContactability(contact)
+        : emailContactability(contact);
+      if (blocked) return jsonError(409, blocked);
+    }
+
     const id = crypto.randomUUID();
     await db.batch([
       db
         .prepare(
           `INSERT INTO tasks
-            (id, conversation_id, deal_id, title, status, due_at)
-           VALUES (?, ?, ?, ?, 'open', ?)`,
+            (id, conversation_id, deal_id, title, status, due_at, contact_action, contact_channel)
+           VALUES (?, ?, ?, ?, 'open', ?, ?, ?)`,
         )
-        .bind(id, conversationId, dealId, title, dueAt),
+        .bind(id, conversationId, dealId, title, dueAt, contactAction ? 1 : 0, contactChannel),
       db
         .prepare(
           `INSERT INTO audit_entries
@@ -69,7 +108,7 @@ export async function POST(request: Request) {
           crypto.randomUUID(),
           auth.operator.email,
           id,
-          JSON.stringify({ conversationId, dealId }),
+          JSON.stringify({ conversationId, dealId, contactAction, contactChannel }),
         ),
     ]);
 

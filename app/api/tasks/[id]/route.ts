@@ -72,6 +72,17 @@ export async function PATCH(request: Request, context: RouteContext) {
 
   try {
     const db = crmDatabase();
+    const current = await db
+      .prepare("SELECT status, contact_action AS contactAction FROM tasks WHERE id = ? LIMIT 1")
+      .bind(id)
+      .first<{ status: string; contactAction: number | boolean }>();
+    if (!current) return jsonError(404, "task_not_found");
+    const requestedStatus = "completed" in payload
+      ? payload.completed ? "done" : "open"
+      : typeof payload.status === "string" ? payload.status : null;
+    if (Boolean(current.contactAction) && current.status === "cancelled" && requestedStatus && requestedStatus !== "cancelled") {
+      return jsonError(409, "cancelled_contact_task_locked");
+    }
     assignments.push("updated_at = CURRENT_TIMESTAMP");
     const updated = await db
       .prepare(`UPDATE tasks SET ${assignments.join(", ")} WHERE id = ?`)

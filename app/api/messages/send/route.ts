@@ -1,5 +1,9 @@
 import { requireOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
+import {
+  emailContactability,
+  type ContactabilityRow,
+} from "@/lib/crm-accounts";
 import { jsonError, readJsonObject } from "@/lib/http";
 import { sendMailgunMessage } from "@/lib/mailgun-client";
 import { reconcileMailgunEventsBestEffort } from "@/lib/mailgun-event-reconciliation";
@@ -47,6 +51,7 @@ export async function POST(request: Request) {
   let conversation: {
     id: string;
     mailboxId: string;
+    contactEmail: string | null;
     externalMessageId: string | null;
   } | null = null;
 
@@ -54,11 +59,13 @@ export async function POST(request: Request) {
     if (command.conversationId) {
       conversation = await db
         .prepare(
-          `SELECT c.id, c.mailbox_id AS mailboxId,
+          `SELECT c.id, c.mailbox_id AS mailboxId, contact.email AS contactEmail,
                   (SELECT m.external_message_id FROM messages m
                     WHERE m.conversation_id = c.id AND m.external_message_id IS NOT NULL
                     ORDER BY m.occurred_at DESC LIMIT 1) AS externalMessageId
-           FROM conversations c WHERE c.id = ? LIMIT 1`,
+           FROM conversations c
+           LEFT JOIN contacts contact ON contact.id = c.contact_id
+           WHERE c.id = ? LIMIT 1`,
         )
         .bind(command.conversationId)
         .first();
@@ -66,6 +73,20 @@ export async function POST(request: Request) {
       if (conversation.mailboxId !== command.mailbox.id) {
         return jsonError(409, "conversation_mailbox_mismatch");
       }
+      if (
+        !conversation.contactEmail ||
+        command.to.length !== 1 ||
+        command.to[0] !== conversation.contactEmail
+      ) {
+        return jsonError(409, "conversation_recipient_mismatch");
+      }
+    }
+
+    for (const recipient of command.to) {
+      const contact = await contactabilityForEmail(db, recipient);
+      if (!contact) return jsonError(409, "recipient_not_qualified");
+      const blocked = emailContactability(contact);
+      if (blocked) return jsonError(409, blocked);
     }
 
     const inserted = await db
@@ -191,6 +212,26 @@ export async function POST(request: Request) {
           conversationId,
           JSON.stringify({ mailboxId: command.mailbox.id }),
         ),
+      db
+        .prepare(
+          `UPDATE contacts
+           SET last_contact_at = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = (SELECT contact_id FROM conversations WHERE id = ?)`,
+        )
+        .bind(occurredAt, conversationId),
+      db
+        .prepare(
+          `UPDATE organizations
+           SET last_contact_at = ?, updated_at = CURRENT_TIMESTAMP
+           WHERE id = (
+             SELECT COALESCE(deal.organization_id, contact.organization_id)
+             FROM conversations conversation
+             LEFT JOIN deals deal ON deal.conversation_id = conversation.id
+             LEFT JOIN contacts contact ON contact.id = conversation.contact_id
+             WHERE conversation.id = ? LIMIT 1
+           )`,
+        )
+        .bind(occurredAt, conversationId),
     ]);
 
     // A provider callback can arrive before this outbound row is committed.
@@ -245,7 +286,7 @@ function parseSendCommand(payload: Record<string, unknown>) {
       typeof value === "string" ? extractEmailAddress(value) : null,
     )
     .filter((value): value is string => Boolean(value));
-  if (to.length === 0 || to.length > 20) return null;
+  if (to.length !== 1) return null;
 
   const subject =
     typeof payload.subject === "string"
@@ -303,15 +344,10 @@ async function createOutboundConversation(
   externalMessageId: string | null,
   occurredAt: string,
 ): Promise<string> {
-  const contactCandidateId = crypto.randomUUID();
-  await db
-    .prepare("INSERT OR IGNORE INTO contacts (id, email) VALUES (?, ?)")
-    .bind(contactCandidateId, recipient)
-    .run();
   const contact = await db
-    .prepare("SELECT id FROM contacts WHERE email = ? LIMIT 1")
+    .prepare("SELECT id, organization_id AS organizationId FROM contacts WHERE email = ? LIMIT 1")
     .bind(recipient)
-    .first<{ id: string }>();
+    .first<{ id: string; organizationId: string | null }>();
   if (!contact) throw new Error("contact_create_failed");
 
   const conversationId = crypto.randomUUID();
@@ -338,10 +374,37 @@ async function createOutboundConversation(
   if (mailbox.purpose === "sales") {
     await db
       .prepare(
-        "INSERT INTO deals (id, conversation_id, stage) VALUES (?, ?, 'new')",
+        "INSERT INTO deals (id, conversation_id, organization_id, contact_id, stage) VALUES (?, ?, ?, ?, 'new')",
       )
-      .bind(crypto.randomUUID(), conversationId)
+      .bind(crypto.randomUUID(), conversationId, contact.organizationId, contact.id)
       .run();
   }
   return conversationId;
+}
+
+async function contactabilityForEmail(
+  db: ReturnType<typeof crmDatabase>,
+  email: string,
+) {
+  return db
+    .prepare(
+      `SELECT contact.id AS contactId,
+              contact.organization_id AS organizationId,
+              contact.phone AS phone,
+              contact.validated_at AS validatedAt,
+              contact.contact_basis AS contactBasis,
+              contact.role_relevance AS roleRelevance,
+              contact.email_status AS emailStatus,
+              contact.unsubscribed_at AS unsubscribedAt,
+              contact.do_not_call AS doNotCall,
+              contact.do_not_contact AS doNotContact,
+              contact.deleted_at AS deletedAt,
+              organization.do_not_contact AS organizationDoNotContact,
+              organization.deleted_at AS organizationDeletedAt
+       FROM contacts contact
+       LEFT JOIN organizations organization ON organization.id = contact.organization_id
+       WHERE contact.email = ? LIMIT 1`,
+    )
+    .bind(email)
+    .first<ContactabilityRow>();
 }

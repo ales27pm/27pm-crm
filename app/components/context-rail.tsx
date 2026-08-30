@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef } from "react";
-import type { Contact, Deal, PipelineStage } from "../crm-types";
+import { useEffect, useRef, useState } from "react";
+import type { Contact, CrmInteraction, Deal, PipelineStage } from "../crm-types";
 import { Icon } from "./icons";
 
 type ContextRailProps = {
@@ -13,6 +13,10 @@ type ContextRailProps = {
   onClose: () => void;
   onDealChange: (patch: Partial<Deal>) => void;
   onAddTask: () => void;
+  onAddInteraction: (
+    kind: CrmInteraction["kind"],
+    summary: string,
+  ) => Promise<boolean>;
   onOpenConversation?: () => void;
 };
 
@@ -33,9 +37,13 @@ export function ContextRail({
   onClose,
   onDealChange,
   onAddTask,
+  onAddInteraction,
   onOpenConversation,
 }: ContextRailProps) {
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [interactionKind, setInteractionKind] = useState<CrmInteraction["kind"]>("call");
+  const [interactionSummary, setInteractionSummary] = useState("");
+  const [interactionStatus, setInteractionStatus] = useState("");
 
   useEffect(() => {
     if (!open || !window.matchMedia("(max-width: 1040px)").matches) return;
@@ -54,14 +62,17 @@ export function ContextRail({
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose, open]);
 
-  if (!contact) return null;
+  if (!contact && !deal) return null;
 
-  const initials = contact.name
+  const contextName = contact?.name ?? deal?.organization ?? deal?.title ?? "Compte";
+  const contextOrganization = contact?.organization ?? deal?.organization ?? "";
+  const initials = contextName
     .split(/\s+/)
     .map((part) => part[0])
     .join("")
     .slice(0, 2)
     .toUpperCase();
+  const dealInteractions = deal?.interactions ?? [];
 
   return (
     <aside
@@ -69,7 +80,7 @@ export function ContextRail({
       className="context-rail"
       data-open={open || undefined}
       data-mobile-sheet={mobileSheet || undefined}
-      aria-label={`Contexte de ${contact.name}`}
+      aria-label={`Contexte de ${contextName}`}
     >
       <button
         ref={closeButtonRef}
@@ -83,19 +94,19 @@ export function ContextRail({
       <header className="contact-heading">
         <span className="avatar">{initials}</span>
         <div>
-          <h3>{contact.name}</h3>
-          <p>{contact.organization}</p>
+          <h3>{contextName}</h3>
+          <p>{contact ? contextOrganization : "Aucun contact vérifié"}</p>
         </div>
       </header>
 
       <dl className="context-list">
         <div>
           <dt><Icon name="contacts" /> Statut</dt>
-          <dd>{contact.status}</dd>
+          <dd>{contact?.status ?? "Compte à qualifier"}</dd>
         </div>
         <div>
           <dt><Icon name="globe" /> Source</dt>
-          <dd>{contact.source}</dd>
+          <dd>{contact?.source ?? deal?.source ?? "Source du compte"}</dd>
         </div>
       </dl>
 
@@ -135,6 +146,14 @@ export function ContextRail({
             />
           </label>
           <label>
+            <span><Icon name="clock" /> Date de relance</span>
+            <input
+              type="date"
+              value={deal.nextActionDate}
+              onChange={(event) => onDealChange({ nextActionDate: event.target.value })}
+            />
+          </label>
+          <label>
             <span><Icon name="folder" /> Type de projet</span>
             <span className="select-control">
               <select
@@ -167,6 +186,56 @@ export function ContextRail({
               rows={4}
             />
           </div>
+          <div className="context-interactions">
+            <span><Icon name="clock" /> Historique des interactions</span>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                const summary = interactionSummary.trim();
+                if (!summary) return;
+                setInteractionStatus("Enregistrement…");
+                void onAddInteraction(interactionKind, summary).then((created) => {
+                  setInteractionStatus(created ? "Interaction enregistrée." : "L’interaction n’a pas été enregistrée.");
+                  if (created) setInteractionSummary("");
+                });
+              }}
+            >
+              <select
+                aria-label="Type d’interaction"
+                value={interactionKind}
+                onChange={(event) => setInteractionKind(event.target.value as CrmInteraction["kind"])}
+              >
+                <option value="call">Appel</option>
+                <option value="meeting">Rencontre</option>
+                <option value="email">Courriel consigné</option>
+                <option value="note">Note</option>
+                <option value="other">Autre</option>
+              </select>
+              <textarea
+                aria-label="Résumé de l’interaction"
+                rows={3}
+                value={interactionSummary}
+                onChange={(event) => setInteractionSummary(event.target.value)}
+                placeholder="Résultat, décision et prochaine étape…"
+              />
+              <button type="submit" disabled={!interactionSummary.trim()}>
+                <Icon name="plus" /> Consigner
+              </button>
+              <p role="status">{interactionStatus}</p>
+            </form>
+            <ol className="interaction-history">
+              {dealInteractions.map((interaction) => (
+                <li key={interaction.id}>
+                  <strong>{interactionLabel(interaction.kind)}</strong>
+                  <time dateTime={interaction.occurredAt}>{interaction.occurredLabel}</time>
+                  <p>{interaction.summary}</p>
+                </li>
+              ))}
+            </ol>
+            {dealInteractions.length === 0 ? (
+              <p className="interaction-empty">Aucune interaction consignée.</p>
+            ) : null}
+          </div>
         </div>
       ) : (
         <div className="operations-context">
@@ -176,4 +245,14 @@ export function ContextRail({
       )}
     </aside>
   );
+}
+
+function interactionLabel(kind: CrmInteraction["kind"]) {
+  return {
+    call: "Appel",
+    email: "Courriel consigné",
+    meeting: "Rencontre",
+    note: "Note",
+    other: "Autre",
+  }[kind];
 }

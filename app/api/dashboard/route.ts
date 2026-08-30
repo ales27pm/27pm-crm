@@ -23,10 +23,38 @@ type MailboxRow = {
 type ContactRow = {
   id: string;
   email: string;
+  phone: string | null;
   displayName: string | null;
   organization: string | null;
+  organizationId: string | null;
+  role: string | null;
+  source: string;
+  sourceUrl: string | null;
+  sourceDate: string | null;
+  contactBasis: string;
+  roleRelevance: string;
+  dnclStatus: string;
+  emailStatus: string;
+  unsubscribedAt: string | null;
+  doNotCall: number;
+  doNotContact: number;
+  lastContactAt: string | null;
+  nextFollowUpAt: string | null;
+  validatedAt: string | null;
   conversationCount: number;
 };
+
+type OrganizationRow = {
+  id: string; name: string; website: string | null; sourceLabel: string;
+  sourceUrl: string | null; sourceDate: string | null; score: number | null;
+  priority: "very_high" | "high" | "normal" | "low";
+  budgetMinCents: number | null; budgetMaxCents: number | null;
+  budgetIsHypothesis: number; ownerEmail: string | null; doNotContact: number;
+  lastContactAt: string | null; nextFollowUpAt: string | null;
+  nextStep: string | null; notes: string; contactCount: number;
+};
+
+type IntakeRow = { id: string; organizationName: string; contactName: string; contactEmail: string; projectType: string | null; message: string; createdAt: string };
 
 type ConversationRow = {
   id: string;
@@ -41,6 +69,15 @@ type ConversationRow = {
   followUpState: string;
   lastMessageAt: string;
   dealId: string | null;
+};
+
+type InteractionRow = {
+  id: string;
+  dealId: string;
+  kind: "call" | "email" | "meeting" | "note" | "other";
+  summary: string;
+  occurredAt: string;
+  createdBy: string;
 };
 
 type MessageRow = {
@@ -65,11 +102,13 @@ type MessageEventRow = {
 
 type DealRow = {
   id: string;
+  organizationId: string | null;
   contactId: string | null;
   conversationId: string;
   subject: string;
   contactName: string | null;
   organization: string | null;
+  source: string;
   stage: string;
   projectType: string | null;
   nextAction: string | null;
@@ -121,17 +160,23 @@ export async function GET(request: Request) {
     values.push(followUp);
   }
   const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+  const conversationWhere = conditions.length
+    ? `${where} AND EXISTS (SELECT 1 FROM messages visible_message WHERE visible_message.conversation_id = c.id)`
+    : "WHERE EXISTS (SELECT 1 FROM messages visible_message WHERE visible_message.conversation_id = c.id)";
 
   try {
     const db = crmDatabase();
     const [
       mailboxes,
+      organizations,
       contacts,
       conversations,
       messages,
       messageEvents,
       deals,
+      interactions,
       tasks,
+      intakes,
     ] =
       await Promise.all([
         db
@@ -147,13 +192,50 @@ export async function GET(request: Request) {
           .all<MailboxRow>(),
         db
           .prepare(
-            `SELECT contact.id, contact.email,
+            `SELECT organization.id, organization.name, organization.website,
+                    organization.source_label AS sourceLabel,
+                    organization.source_url AS sourceUrl,
+                    organization.source_date AS sourceDate,
+                    organization.score, organization.priority,
+                    organization.budget_min_cents AS budgetMinCents,
+                    organization.budget_max_cents AS budgetMaxCents,
+                    organization.budget_is_hypothesis AS budgetIsHypothesis,
+                    organization.owner_email AS ownerEmail,
+                    organization.do_not_contact AS doNotContact,
+                    organization.last_contact_at AS lastContactAt,
+                    organization.next_follow_up_at AS nextFollowUpAt,
+                    organization.next_step AS nextStep, organization.notes,
+                    COUNT(contact.id) AS contactCount
+             FROM organizations organization
+             LEFT JOIN contacts contact ON contact.organization_id = organization.id AND contact.deleted_at IS NULL
+             WHERE organization.deleted_at IS NULL
+             GROUP BY organization.id
+             ORDER BY organization.sort_order, organization.score DESC, organization.name`,
+          )
+          .all<OrganizationRow>(),
+        db
+          .prepare(
+            `SELECT contact.id, contact.email, contact.phone,
                     contact.display_name AS displayName,
-                    contact.organization,
+                    contact.organization, contact.organization_id AS organizationId,
+                    contact.role, contact.source,
+                    contact.source_url AS sourceUrl,
+                    contact.source_date AS sourceDate,
+                    contact.contact_basis AS contactBasis,
+                    contact.role_relevance AS roleRelevance,
+                    contact.dncl_status AS dnclStatus,
+                    contact.email_status AS emailStatus,
+                    contact.unsubscribed_at AS unsubscribedAt,
+                    contact.do_not_call AS doNotCall,
+                    contact.do_not_contact AS doNotContact,
+                    contact.last_contact_at AS lastContactAt,
+                    contact.next_follow_up_at AS nextFollowUpAt,
+                    contact.validated_at AS validatedAt,
                     COUNT(c.id) AS conversationCount
              FROM contacts contact
              LEFT JOIN conversations c ON c.contact_id = contact.id
-             GROUP BY contact.id, contact.email, contact.display_name, contact.organization
+             WHERE contact.deleted_at IS NULL
+             GROUP BY contact.id
              ORDER BY contact.display_name, contact.email`,
           )
           .all<ContactRow>(),
@@ -174,7 +256,7 @@ export async function GET(request: Request) {
              JOIN mailboxes mb ON mb.id = c.mailbox_id
              LEFT JOIN contacts contact ON contact.id = c.contact_id
              LEFT JOIN deals d ON d.conversation_id = c.id
-             ${where}
+             ${conversationWhere}
              ORDER BY c.last_message_at DESC
              LIMIT 100`,
           )
@@ -211,21 +293,33 @@ export async function GET(request: Request) {
           .all<MessageEventRow>(),
         db
           .prepare(
-            `SELECT d.id, c.contact_id AS contactId,
+            `SELECT d.id, d.organization_id AS organizationId,
+                    COALESCE(d.contact_id, c.contact_id) AS contactId,
                     d.conversation_id AS conversationId,
                     c.subject,
                     contact.display_name AS contactName,
-                    contact.organization,
+                    COALESCE(organization.name, contact.organization) AS organization,
+                    COALESCE(organization.source_label, contact.source, 'Non renseignée') AS source,
                     d.stage, d.project_type AS projectType,
                     d.next_action AS nextAction,
                     d.next_action_at AS nextActionAt,
                     d.note
              FROM deals d
              JOIN conversations c ON c.id = d.conversation_id
-             LEFT JOIN contacts contact ON contact.id = c.contact_id
+             LEFT JOIN contacts contact ON contact.id = COALESCE(d.contact_id, c.contact_id)
+             LEFT JOIN organizations organization ON organization.id = d.organization_id
              ORDER BY d.updated_at DESC`,
           )
           .all<DealRow>(),
+        db
+          .prepare(
+            `SELECT id, deal_id AS dealId, kind, summary,
+                    occurred_at AS occurredAt, created_by AS createdBy
+             FROM interactions
+             WHERE deal_id IS NOT NULL
+             ORDER BY occurred_at DESC, created_at DESC`,
+          )
+          .all<InteractionRow>(),
         db
           .prepare(
             `SELECT id, title, status, due_at AS dueAt, deal_id AS dealId
@@ -234,6 +328,15 @@ export async function GET(request: Request) {
              ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at`,
           )
           .all<TaskRow>(),
+        db
+          .prepare(
+            `SELECT id, organization_name AS organizationName,
+                    contact_name AS contactName, contact_email AS contactEmail,
+                    project_type AS projectType, message, created_at AS createdAt
+             FROM intake_submissions WHERE status='pending'
+             ORDER BY created_at DESC LIMIT 100`,
+          )
+          .all<IntakeRow>(),
       ]);
 
     const messagesByConversation = new Map<string, MessageRow[]>();
@@ -262,6 +365,12 @@ export async function GET(request: Request) {
       deliveryEventsByMessage.set(event.messageId, current);
     }
     const contactById = new Map(contacts.results.map((contact) => [contact.id, contact]));
+    const interactionsByDeal = new Map<string, InteractionRow[]>();
+    for (const interaction of interactions.results) {
+      const current = interactionsByDeal.get(interaction.dealId) ?? [];
+      current.push(interaction);
+      interactionsByDeal.set(interaction.dealId, current);
+    }
 
     return Response.json(
       {
@@ -341,36 +450,81 @@ export async function GET(request: Request) {
             }),
           };
         }),
+        organizations: organizations.results.map((organization) => ({
+          ...organization,
+          score: organization.score === null ? null : Number(organization.score),
+          budgetMinCents: organization.budgetMinCents === null ? null : Number(organization.budgetMinCents),
+          budgetMaxCents: organization.budgetMaxCents === null ? null : Number(organization.budgetMaxCents),
+          budgetIsHypothesis: Boolean(organization.budgetIsHypothesis),
+          doNotContact: Boolean(organization.doNotContact),
+          contactCount: Number(organization.contactCount ?? 0),
+        })),
         contacts: contacts.results.map((contact) => ({
           id: contact.id,
           name: contact.displayName ?? contact.email,
           email: contact.email,
+          phone: contact.phone ?? "",
           organization: contact.organization ?? "",
-          source: "Courriel",
-          status: "Contact",
+          organizationId: contact.organizationId ?? "",
+          role: contact.role ?? "",
+          source: contact.source,
+          sourceUrl: contact.sourceUrl,
+          sourceDate: contact.sourceDate,
+          contactBasis: contact.contactBasis,
+          roleRelevance: contact.roleRelevance,
+          dnclStatus: contact.dnclStatus,
+          emailStatus: contact.emailStatus,
+          unsubscribed: Boolean(contact.unsubscribedAt),
+          doNotCall: Boolean(contact.doNotCall),
+          doNotContact: Boolean(contact.doNotContact),
+          lastContactAt: contact.lastContactAt,
+          nextFollowUpAt: contact.nextFollowUpAt,
+          validated: Boolean(contact.validatedAt),
+          status: contact.doNotContact || contact.unsubscribedAt
+            ? "Bloqué"
+            : contact.validatedAt && contact.emailStatus === "valid" && contact.roleRelevance === "relevant" && contact.contactBasis !== "unknown"
+              ? "Validé"
+              : "À valider",
           conversationCount: Number(contact.conversationCount ?? 0),
         })),
         deals: deals.results.map((deal) => ({
           id: deal.id,
+          organizationId: deal.organizationId ?? "",
           contactId: deal.contactId ?? "",
           conversationId: deal.conversationId,
-          title: deal.organization || deal.subject,
-          contactName: deal.contactName ?? "Contact inconnu",
+          title: deal.subject,
+          contactName: deal.contactName ?? "Aucun contact vérifié",
           organization: deal.organization ?? "",
           projectType: presentationProjectType(deal.projectType),
           stage: presentationStage(deal.stage),
-          source: "Courriel",
+          source: deal.source,
           nextAction: deal.nextAction ?? "",
           nextActionDate: deal.nextActionAt?.slice(0, 10) ?? "",
           note: deal.note,
+          interactions: (interactionsByDeal.get(deal.id) ?? []).map(
+            (interaction) => ({
+              id: interaction.id,
+              kind: interaction.kind,
+              summary: interaction.summary,
+              occurredAt: interaction.occurredAt,
+              occurredLabel: displayDate(interaction.occurredAt),
+              createdBy: interaction.createdBy,
+            }),
+          ),
         })),
         tasks: tasks.results.map((task) => ({
           id: task.id,
           title: task.title,
           dueLabel: task.dueAt ? displayDate(task.dueAt) : "À planifier",
+          dueAt: task.dueAt,
+          overdue:
+            task.status === "open" &&
+            Boolean(task.dueAt) &&
+            new Date(task.dueAt as string).valueOf() < Date.now(),
           completed: task.status === "done",
           dealId: task.dealId,
         })),
+        intakes: intakes.results.map((intake) => ({ ...intake, createdLabel: displayDate(intake.createdAt) })),
         live: true,
       },
       { headers: { "cache-control": "private, no-store" } },

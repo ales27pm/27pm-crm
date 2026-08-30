@@ -11,6 +11,61 @@ import {
 const timestamp = (name: string) =>
   text(name).notNull().default(sql`CURRENT_TIMESTAMP`);
 
+export const organizations = sqliteTable(
+  "organizations",
+  {
+    id: text("id").primaryKey(),
+    externalKey: text("external_key").notNull(),
+    name: text("name").notNull(),
+    website: text("website"),
+    sourceLabel: text("source_label").notNull(),
+    sourceUrl: text("source_url"),
+    sourceDate: text("source_date"),
+    score: integer("score"),
+    priority: text("priority").notNull().default("normal"),
+    budgetMinCents: integer("budget_min_cents"),
+    budgetMaxCents: integer("budget_max_cents"),
+    budgetIsHypothesis: integer("budget_is_hypothesis", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    ownerEmail: text("owner_email"),
+    doNotContact: integer("do_not_contact", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    lastContactAt: text("last_contact_at"),
+    nextFollowUpAt: text("next_follow_up_at"),
+    nextStep: text("next_step"),
+    notes: text("notes").notNull().default(""),
+    sortOrder: integer("sort_order").notNull().default(1000),
+    deletedAt: text("deleted_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("organizations_external_key_unique").on(table.externalKey),
+    index("organizations_score_priority_idx").on(table.score, table.priority),
+    index("organizations_follow_up_idx").on(
+      table.doNotContact,
+      table.nextFollowUpAt,
+    ),
+    check(
+      "organizations_score_check",
+      sql`${table.score} is null or (${table.score} >= 0 and ${table.score} <= 100)`,
+    ),
+    check(
+      "organizations_priority_check",
+      sql`${table.priority} in ('very_high', 'high', 'normal', 'low')`,
+    ),
+    check(
+      "organizations_budget_check",
+      sql`(${table.budgetMinCents} is null or ${table.budgetMinCents} >= 0)
+          and (${table.budgetMaxCents} is null or ${table.budgetMaxCents} >= 0)
+          and (${table.budgetMinCents} is null or ${table.budgetMaxCents} is null
+               or ${table.budgetMaxCents} >= ${table.budgetMinCents})`,
+    ),
+  ],
+);
+
 export const mailboxes = sqliteTable(
   "mailboxes",
   {
@@ -42,10 +97,57 @@ export const contacts = sqliteTable(
     displayName: text("display_name"),
     organization: text("organization"),
     phone: text("phone"),
+    source: text("source").notNull().default("Courriel"),
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
+    role: text("role"),
+    sourceUrl: text("source_url"),
+    sourceDate: text("source_date"),
+    contactBasis: text("contact_basis").notNull().default("unknown"),
+    roleRelevance: text("role_relevance").notNull().default("unknown"),
+    dnclStatus: text("dncl_status").notNull().default("not_checked"),
+    dnclCheckedAt: text("dncl_checked_at"),
+    emailStatus: text("email_status").notNull().default("unknown"),
+    unsubscribedAt: text("unsubscribed_at"),
+    doNotCall: integer("do_not_call", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    doNotContact: integer("do_not_contact", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    lastContactAt: text("last_contact_at"),
+    nextFollowUpAt: text("next_follow_up_at"),
+    validatedAt: text("validated_at"),
+    deletedAt: text("deleted_at"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
   },
-  (table) => [uniqueIndex("contacts_email_unique").on(table.email)],
+  (table) => [
+    uniqueIndex("contacts_email_unique").on(table.email),
+    index("contacts_organization_idx").on(table.organizationId),
+    index("contacts_contactability_idx").on(
+      table.doNotContact,
+      table.unsubscribedAt,
+      table.deletedAt,
+    ),
+    check(
+      "contacts_basis_check",
+      sql`${table.contactBasis} in ('unknown', 'inbound_request', 'explicit_consent', 'legitimate_interest', 'existing_client')`,
+    ),
+    check(
+      "contacts_role_relevance_check",
+      sql`${table.roleRelevance} in ('unknown', 'relevant', 'not_relevant')`,
+    ),
+    check(
+      "contacts_dncl_status_check",
+      sql`${table.dnclStatus} in ('not_checked', 'not_listed', 'listed', 'not_applicable')`,
+    ),
+    check(
+      "contacts_email_status_check",
+      sql`${table.emailStatus} in ('unknown', 'valid', 'bounced', 'invalid', 'unsubscribed')`,
+    ),
+  ],
 );
 
 export const conversations = sqliteTable(
@@ -171,6 +273,12 @@ export const deals = sqliteTable(
     conversationId: text("conversation_id")
       .notNull()
       .references(() => conversations.id, { onDelete: "cascade" }),
+    organizationId: text("organization_id").references(() => organizations.id, {
+      onDelete: "restrict",
+    }),
+    contactId: text("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
     stage: text("stage").notNull().default("new"),
     projectType: text("project_type"),
     nextAction: text("next_action"),
@@ -194,6 +302,47 @@ export const deals = sqliteTable(
   ],
 );
 
+export const interactions = sqliteTable(
+  "interactions",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id").references(
+      () => organizations.id,
+      { onDelete: "cascade" },
+    ),
+    contactId: text("contact_id").references(() => contacts.id, {
+      onDelete: "cascade",
+    }),
+    dealId: text("deal_id").references(() => deals.id, {
+      onDelete: "cascade",
+    }),
+    kind: text("kind").notNull(),
+    summary: text("summary").notNull(),
+    occurredAt: text("occurred_at").notNull(),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("interactions_contact_occurred_idx").on(
+      table.contactId,
+      table.occurredAt,
+    ),
+    index("interactions_deal_occurred_idx").on(table.dealId, table.occurredAt),
+    index("interactions_organization_occurred_idx").on(
+      table.organizationId,
+      table.occurredAt,
+    ),
+    check(
+      "interactions_parent_check",
+      sql`${table.organizationId} is not null or ${table.contactId} is not null`,
+    ),
+    check(
+      "interactions_kind_check",
+      sql`${table.kind} in ('call', 'email', 'meeting', 'note', 'other')`,
+    ),
+  ],
+);
+
 export const tasks = sqliteTable(
   "tasks",
   {
@@ -209,6 +358,10 @@ export const tasks = sqliteTable(
     status: text("status").notNull().default("open"),
     dueAt: text("due_at"),
     completedAt: text("completed_at"),
+    contactAction: integer("contact_action", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    contactChannel: text("contact_channel").notNull().default("internal"),
     createdAt: timestamp("created_at"),
     updatedAt: timestamp("updated_at"),
   },
@@ -222,6 +375,70 @@ export const tasks = sqliteTable(
       "tasks_parent_check",
       sql`${table.conversationId} is not null or ${table.dealId} is not null`,
     ),
+    check(
+      "tasks_contact_channel_check",
+      sql`${table.contactChannel} in ('internal', 'email', 'phone')`,
+    ),
+  ],
+);
+
+export const accountImports = sqliteTable(
+  "account_imports",
+  {
+    id: text("id").primaryKey(),
+    importKey: text("import_key").notNull(),
+    sourceLabel: text("source_label").notNull(),
+    sourceUrl: text("source_url"),
+    sourceDate: text("source_date"),
+    recordCount: integer("record_count").notNull(),
+    actorEmail: text("actor_email").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [uniqueIndex("account_imports_key_unique").on(table.importKey)],
+);
+
+export const intakeSubmissions = sqliteTable(
+  "intake_submissions",
+  {
+    id: text("id").primaryKey(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requesterHash: text("requester_hash").notNull(),
+    origin: text("origin").notNull(),
+    organizationName: text("organization_name").notNull(),
+    contactName: text("contact_name").notNull(),
+    contactEmail: text("contact_email").notNull(),
+    projectType: text("project_type"),
+    message: text("message").notNull(),
+    status: text("status").notNull().default("pending"),
+    reviewedBy: text("reviewed_by"),
+    reviewedAt: text("reviewed_at"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("intake_submissions_idempotency_unique").on(
+      table.idempotencyKey,
+    ),
+    index("intake_submissions_rate_idx").on(table.requesterHash, table.createdAt),
+    index("intake_submissions_status_created_idx").on(table.status, table.createdAt),
+    check(
+      "intake_submissions_status_check",
+      sql`${table.status} in ('pending', 'accepted', 'rejected')`,
+    ),
+  ],
+);
+
+export const intakeRateLimits = sqliteTable(
+  "intake_rate_limits",
+  {
+    bucketKey: text("bucket_key").primaryKey(),
+    requesterHash: text("requester_hash").notNull(),
+    count: integer("count").notNull().default(1),
+    expiresAt: text("expires_at").notNull(),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("intake_rate_limits_expiry_idx").on(table.expiresAt),
+    check("intake_rate_limits_count_check", sql`${table.count} > 0 and ${table.count} <= 5`),
   ],
 );
 

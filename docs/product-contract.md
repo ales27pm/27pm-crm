@@ -42,6 +42,8 @@ CRM data.
 ## Public HTTP seams
 
 - `GET /api/health` — non-sensitive service health.
+- `POST /api/public/intake` — anti-abuse public intake queued for review; never
+  creates an actionnable contact directly.
 - `POST /api/webhooks/mailgun/inbound` — signed inbound email callback.
 - `POST /api/webhooks/mailgun/events` — signed delivery-event callback.
 
@@ -51,6 +53,16 @@ CRM data.
 - `POST /api/messages/send` — send or reply from an allowed 27PM mailbox.
 - `PATCH /api/conversations/:id` — read/follow-up state.
 - `PATCH /api/deals/:id` — pipeline stage, project type, and next action.
+- `POST /api/organizations` and `PATCH /api/organizations/:id` — create and
+  maintain independent accounts and their opportunity context.
+- `POST /api/contacts` and `PATCH /api/contacts/:id` — create or update a
+  verified, sourced professional contact with compliance state.
+- `POST /api/accounts/import` — idempotent non-personal account import.
+- `PATCH /api/intake/:id` — operator review of a pending public request.
+- `POST /api/prospects` — retired with HTTP 410; callers must use the separate
+  account/contact workflow.
+- `POST /api/interactions` — record a manual call, meeting, completed email,
+  note, or other interaction without invoking the mail transport.
 
 ## Mailgun route target
 
