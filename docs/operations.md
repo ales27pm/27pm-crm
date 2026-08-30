@@ -33,13 +33,14 @@ them. Never commit a production value to `.env.example`.
 | `MAILGUN_API_BASE` | No | `https://api.mailgun.net` for US or `https://api.eu.mailgun.net` for EU. |
 | `MAILGUN_DOMAIN` | No | Must remain exactly `27pm.org`. |
 | `CRM_PUBLIC_ORIGIN` | No | Stable production HTTPS origin, normally `https://crm.27pm.org`. |
+| `CRM_UNSUBSCRIBE_SIGNING_KEY` | Yes | Dedicated secret (at least 32 random bytes) for opaque AES-GCM authenticated unsubscribe tokens. No production fallback exists. |
 | `CRM_WEBHOOK_MAX_AGE_SECONDS` | No | Maximum accepted webhook age; the current operational default is 900 seconds. |
 | `PUBLIC_SITE_ORIGIN` | No | Exact public site origin allowed to submit an intake. |
 | `TURNSTILE_SECRET_KEY` | Yes | Server-side Cloudflare Turnstile verification secret. |
 | `PUBLIC_INTAKE_HASH_SALT` | Yes | Random secret used only to hash requester IPs for rate limiting. |
 | `PUBLIC_INTAKE_TURNSTILE_ACTION` | No | Expected Turnstile widget action; defaults to `crm_intake`. |
 
-## Migrations CRM 0004 et 0005
+## Migrations CRM 0004 à 0008
 
 The Sites build packages the SQL migrations and the production D1 binding is
 owned by the Sites project. Do not run Wrangler against the placeholder local
@@ -62,8 +63,22 @@ and the prior Sites checkpoint together. If restoration is unavailable, keep
 the new schema and ship a reviewed forward-only corrective migration.
 Migration 0004 preserves legacy contacts, backfills organizations and seeds
 the five account hypotheses. Migration 0005 adds the atomic public-intake rate
-bucket and the explicit channel for contact tasks. A code rollback without a
-data rollback has not been claimed compatible.
+bucket and the explicit channel for contact tasks. Migration 0006 adds the
+per-channel evidence ledger, suppressions, fail-closed configuration, privacy
+requests and immutable triggers; every legacy contact is deliberately assigned
+`lawful_basis = 'none'`. Migration 0007 adds import and policy evidence fields.
+Migration 0008 marks Mailgun receipts as `reserved` until the message, event and
+attachments are durable, then `processed`; reserved callbacks may be resumed
+idempotently after an intermediate failure. Existing receipts are backfilled
+as processed.
+A code rollback without a data rollback has not been claimed compatible.
+
+Before applying 0006, validate the full export by restoring it to a disposable
+D1/SQLite target and record the source database, UTC timestamp, object count,
+checksum and exact restore command. A truncated SQL display or an untested
+download is not a restorable backup. After migration, run `PRAGMA
+foreign_key_check`, confirm the five cohort accounts remain ordered, and confirm
+that no cohort contact was created.
 
 ## Public intake contract
 
@@ -156,6 +171,10 @@ a rebond. Complaint events remain `complained`. The CRM stores the signed raw
 event for audit, but exposes only the canonical state, timestamp, and safe
 operator guidance in the browser. See Mailgun’s [event types](https://documentation.mailgun.com/docs/mailgun/user-manual/events/event-types)
 and [webhook payloads](https://documentation.mailgun.com/docs/mailgun/user-manual/webhooks/webhook-payloads).
+
+The receipt is not considered processed until all durable writes finish. A
+retry of a reserved callback resumes idempotently; a processed signature is a
+replay and a new signature for an already processed callback is a duplicate.
 
 Mailgun uses Python-style regular expressions for `match_recipient`; the
 anchors above exclude aliases, plus-addresses, other local parts, and other

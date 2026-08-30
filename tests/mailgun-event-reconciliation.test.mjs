@@ -8,6 +8,8 @@ import {
   reconcileMailgunEventsBestEffort,
   reconcileMailgunEventsForMessage,
 } from "../lib/mailgun-event-reconciliation.ts";
+import { recordMailgunEvent } from "../lib/mailgun-event-store.ts";
+import { markWebhookProcessed, reserveWebhook } from "../lib/webhook-receipts.ts";
 import {
   buildDeliveryTimeline,
   mailgunDeliveryState,
@@ -43,9 +45,9 @@ test("reconciles a callback received before its outbound message", async (t) => 
     .prepare(
       `INSERT INTO messages
         (id, conversation_id, mailbox_id, direction, external_message_id,
-         sender, status, occurred_at)
+         sender, recipients_json, status, occurred_at)
        VALUES ('message-race', 'conversation-race', 'mailbox_bonjour',
-               'outbound', ?, 'bonjour@27pm.org', 'accepted',
+               'outbound', ?, 'bonjour@27pm.org', '["race@example.com"]', 'accepted',
                '2026-08-25T13:00:00.000Z')`,
     )
     .run(providerMessageId);
@@ -81,9 +83,9 @@ test("uses callback insertion order consistently when provider timestamps tie", 
     .prepare(
       `INSERT INTO messages
         (id, conversation_id, mailbox_id, direction, external_message_id,
-         sender, status, occurred_at)
+         sender, recipients_json, status, occurred_at)
        VALUES ('message-tie', 'conversation-race', 'mailbox_bonjour',
-               'outbound', ?, 'bonjour@27pm.org', 'accepted',
+               'outbound', ?, 'bonjour@27pm.org', '["race@example.com"]', 'accepted',
                '2026-08-25T13:00:00.000Z')`,
     )
     .run(providerMessageId);
@@ -119,6 +121,13 @@ test("uses callback insertion order consistently when provider timestamps tie", 
       .get().status,
     "complained",
   );
+  assert.equal(database.prepare("SELECT do_not_contact AS blocked FROM contacts WHERE id='contact-race'").get().blocked, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contact_suppressions WHERE channel='email' AND address_normalized='race@example.com'").get().count, 1);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM audit_entries WHERE action='contact.provider_suppressed' AND entity_id='contact-race'").get().count, 1);
+  const version = database.prepare("SELECT compliance_version AS version FROM contacts WHERE id='contact-race'").get().version;
+  await reconcileMailgunEventsForMessage(db, providerMessageId);
+  assert.equal(database.prepare("SELECT compliance_version AS version FROM contacts WHERE id='contact-race'").get().version, version);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM audit_entries WHERE action='contact.provider_suppressed' AND entity_id='contact-race'").get().count, 1);
 
   const providerEvents = database
     .prepare(
@@ -147,6 +156,20 @@ test("uses callback insertion order consistently when provider timestamps tie", 
   assert.equal(timeline.at(-1)?.state, reconciliation.status);
 });
 
+test("provider suppression tombstones the historical recipient without blocking a changed identity", async (t) => {
+  const database = await migratedDatabase(); t.after(() => database.close()); seedConversation(database);
+  const providerMessageId = "mailgun-historical@example.com";
+  database.prepare(`INSERT INTO messages
+    (id, conversation_id, mailbox_id, direction, external_message_id, sender, recipients_json, status, occurred_at)
+    VALUES ('message-historical', 'conversation-race', 'mailbox_bonjour', 'outbound', ?, 'bonjour@27pm.org', '["race@example.com"]', 'accepted', '2026-08-25T13:00:00.000Z')`).run(providerMessageId);
+  database.prepare("UPDATE contacts SET email='new-race@example.com' WHERE id='contact-race'").run();
+  database.prepare(`INSERT INTO message_events (id, message_id, callback_key, event_type, event_timestamp, payload_json)
+    VALUES ('event-historical', 'message-historical', 'event:historical', 'complained', '2026-08-25T13:01:00.000Z', ?)`).run(eventPayload(providerMessageId));
+  await reconcileMailgunEventsForMessage(d1Adapter(database), providerMessageId);
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM contact_suppressions WHERE address_normalized='race@example.com'").get().count, 1);
+  assert.deepEqual({ ...database.prepare("SELECT email, do_not_contact AS blocked FROM contacts WHERE id='contact-race'").get() }, { email: "new-race@example.com", blocked: 0 });
+});
+
 test("a reconciliation failure cannot turn an accepted send into a retryable failure", async () => {
   const failingDb = {
     prepare() {
@@ -173,6 +196,25 @@ test("a reconciliation failure cannot turn an accepted send into a retryable fai
   );
 });
 
+test("a failed webhook reconciliation remains reserved and can resume", async (t) => {
+  const database = await migratedDatabase(); t.after(() => database.close()); seedConversation(database);
+  const db = d1Adapter(database);
+  const providerMessageId = "mailgun-resume@example.com";
+  database.prepare(`INSERT INTO messages
+    (id, conversation_id, mailbox_id, direction, external_message_id, sender, recipients_json, status, occurred_at)
+    VALUES ('message-resume', 'conversation-race', 'mailbox_bonjour', 'outbound', ?, 'bonjour@27pm.org', '["race@example.com"]', 'accepted', '2026-08-25T13:00:00.000Z')`).run(providerMessageId);
+  const callbackKey = "event:resume";
+  assert.equal(await reserveWebhook(db, { kind: "event", token: "resume-token", signatureTimestamp: 1, callbackKey }), "accepted");
+  const event = { messageId: providerMessageId, eventId: "provider-resume", eventType: "complained", severity: null, recipient: "race@example.com", eventTimestamp: "2026-08-25T13:01:00.000Z", raw: { event: "complained" } };
+  await assert.rejects(() => recordMailgunEvent(db, event, callbackKey, async () => { throw new Error("suppression_failed"); }), /suppression_failed/u);
+  assert.equal(database.prepare("SELECT status FROM webhook_receipts WHERE callback_key=?").get(callbackKey).status, "reserved");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM message_events WHERE callback_key=?").get(callbackKey).count, 1);
+  await recordMailgunEvent(db, event, callbackKey, async () => ({ messageId: "message-resume", linkedEvents: 0, status: "complained" }));
+  await markWebhookProcessed(db, callbackKey);
+  assert.equal(database.prepare("SELECT status FROM webhook_receipts WHERE callback_key=?").get(callbackKey).status, "processed");
+  assert.equal(database.prepare("SELECT COUNT(*) AS count FROM message_events WHERE callback_key=?").get(callbackKey).count, 1);
+});
+
 test("a stale reconciler cannot overwrite a concurrently persisted newer event", async (t) => {
   const database = await migratedDatabase();
   t.after(() => database.close());
@@ -183,9 +225,9 @@ test("a stale reconciler cannot overwrite a concurrently persisted newer event",
     .prepare(
       `INSERT INTO messages
         (id, conversation_id, mailbox_id, direction, external_message_id,
-         sender, status, occurred_at)
+         sender, recipients_json, status, occurred_at)
        VALUES ('message-cas', 'conversation-race', 'mailbox_bonjour',
-               'outbound', ?, 'bonjour@27pm.org', 'accepted',
+               'outbound', ?, 'bonjour@27pm.org', '["race@example.com"]', 'accepted',
                '2026-08-25T13:00:00.000Z')`,
     )
     .run(providerMessageId);

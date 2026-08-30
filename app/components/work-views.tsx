@@ -1,8 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Contact, CrmTask, Deal, IntakeSubmission, Mailbox, Organization, TransportState } from "../crm-types";
+import type { ActivityEntry, Contact, CrmTask, Deal, IntakeSubmission, Mailbox, Organization, TransportState } from "../crm-types";
 import { Icon } from "./icons";
+import { ComplianceSettings } from "./compliance-settings";
+import { PrivacyRequestsPanel } from "./privacy-requests-panel";
 
 export function AccountsView({ organizations, contacts, intakes, onEdit, onAddContact, onEditContact, onReviewIntake }: { organizations: Organization[]; contacts: Contact[]; intakes: IntakeSubmission[]; onEdit: (account: Organization) => void; onAddContact: (account: Organization) => void; onEditContact: (account: Organization, contact: Contact) => void; onReviewIntake: (id: string, status: "accepted" | "rejected") => void }) {
   const [query, setQuery] = useState("");
@@ -97,10 +99,14 @@ export function SettingsView({
   mailboxes,
   transportState,
   operatorEmail,
+  activities,
+  contacts,
 }: {
   mailboxes: Mailbox[];
   transportState: TransportState;
   operatorEmail: string;
+  activities: ActivityEntry[];
+  contacts: Contact[];
 }) {
   return (
     <section className="settings-view" aria-label="Paramètres">
@@ -114,6 +120,12 @@ export function SettingsView({
           </article>
         ))}
       </div>
+      <div className="settings-section">
+        <h2>Journal d’activité immuable</h2>
+        {activities.length === 0 ? <p className="empty-state">Aucune activité enregistrée.</p> : <ol className="interaction-history">{activities.map((activity) => <li key={activity.id}><strong>{activity.action}</strong><time dateTime={activity.createdAt}>{activity.createdLabel}</time><p>{activity.actorEmail} · {activity.entityType} · {activity.entityId}</p></li>)}</ol>}
+      </div>
+      <ComplianceSettings />
+      <PrivacyRequestsPanel contacts={contacts} />
       <div className="settings-section">
         <h2>Connexion</h2>
         <dl className="settings-facts">

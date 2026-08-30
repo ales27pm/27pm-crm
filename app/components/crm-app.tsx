@@ -327,7 +327,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
     }
   }
 
-  async function sendMessage(payload: Record<string, string>) {
+  async function sendMessage(payload: Record<string, string | boolean>) {
     if (!sendEnabled) return false;
     try {
       const response = await fetch("/api/messages/send", {
@@ -340,6 +340,11 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
     } catch {
       return false;
     }
+  }
+
+  function confirmReply(payload: Record<string, string>) {
+    if (!window.confirm("Confirmer la qualification, le fondement LCAP et les preuves à jour pour ce destinataire unique?")) return Promise.resolve(false);
+    return sendMessage({ ...payload, complianceConfirmed: true });
   }
 
   const inboxContext = (
@@ -421,7 +426,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
                 onOpenContext={() => setContextOpen(true)}
                 onSend={(body) =>
                   selectedConversation
-                    ? sendMessage({
+                    ? confirmReply({
                         conversationId: selectedConversation.id,
                         from: selectedConversation.mailboxAddress,
                         to: selectedConversation.contactEmail,
@@ -490,6 +495,8 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
             mailboxes={data.mailboxes}
             transportState={data.transportState}
             operatorEmail={operator.email}
+            activities={data.activities}
+            contacts={data.contacts}
           />
         ) : null}
       </main>
@@ -522,8 +529,8 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         onClose={() => setComposeOpen(false)}
         onSend={sendMessage}
       />
-      <AccountDialog account={editingAccount} open={accountOpen} onClose={() => setAccountOpen(false)} onSaved={refreshDashboard} />
-      <ContactDialog account={contactAccount} contact={editingContact} open={Boolean(contactAccount)} onClose={() => { setContactAccount(null); setEditingContact(null); }} onSaved={refreshDashboard} />
+      <AccountDialog account={editingAccount} open={accountOpen} onClose={() => setAccountOpen(false)} onSaved={async () => { await refreshDashboard(); }} />
+      <ContactDialog account={contactAccount} contact={editingContact} open={Boolean(contactAccount)} onClose={() => { setContactAccount(null); setEditingContact(null); }} onSaved={async () => { await refreshDashboard(); }} />
     </div>
   );
 }
@@ -532,11 +539,11 @@ function currentIsLive(data: DashboardData) {
   return data.live;
 }
 
-async function fetchDashboard(signal?: AbortSignal): Promise<DashboardData | null> {
+async function fetchDashboard(signal?: AbortSignal): Promise<DashboardData> {
   const response = await fetch("/api/dashboard", {
     headers: { accept: "application/json" },
     signal,
   });
-  if (!response.ok) return null;
+  if (!response.ok) throw new Error(`dashboard_http_${response.status}`);
   return (await response.json()) as DashboardData;
 }

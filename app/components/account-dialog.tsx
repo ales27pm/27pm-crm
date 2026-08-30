@@ -48,7 +48,7 @@ export function AccountDialog({ account, open, onClose, onSaved }: { account: Or
           <label>Budget indicatif max. (CAD)<input name="budgetMax" type="number" min="0" step="1" defaultValue={account?.budgetMaxCents == null ? "" : account.budgetMaxCents / 100} /></label>
           <label>Prochaine relance<input name="nextFollowUpAt" type="date" defaultValue={account?.nextFollowUpAt?.slice(0, 10) ?? ""} /></label>
           <label className="form-span">Prochaine étape<input name="nextStep" defaultValue={account?.nextStep ?? ""} maxLength={500} /></label>
-          <label className="form-span">Notes<textarea name="notes" defaultValue={account?.notes ?? ""} maxLength={10000} rows={3} /></label>
+          <label className="form-span">Notes — aucune donnée sensible ou non nécessaire<textarea name="notes" defaultValue={account?.notes ?? ""} maxLength={10000} rows={3} /></label>
           <label className="check-label form-span"><input name="doNotContact" type="checkbox" defaultChecked={account?.doNotContact} disabled={account?.doNotContact} /> Bloquer définitivement toute action de contact pour cette entreprise</label>
         </div>
         {error ? <p className="form-error" role="alert">Impossible d’enregistrer : {error}</p> : null}

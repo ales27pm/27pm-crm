@@ -172,7 +172,7 @@ export function ContextRail({
             <button type="button" onClick={onAddTask}><Icon name="plus" /> Ajouter une tâche</button>
           </div>
           <div className="context-note">
-            <span><Icon name="note" /> Notes</span>
+            <span><Icon name="note" /> Notes — aucune donnée sensible ou non nécessaire</span>
             <textarea
               key={`${deal.id}:${deal.note}`}
               aria-label="Notes du dossier"
@@ -182,7 +182,7 @@ export function ContextRail({
                   onDealChange({ note: event.target.value });
                 }
               }}
-              placeholder="Ajouter une note…"
+              placeholder="Conserver uniquement l’information professionnelle nécessaire…"
               rows={4}
             />
           </div>
@@ -216,7 +216,7 @@ export function ContextRail({
                 rows={3}
                 value={interactionSummary}
                 onChange={(event) => setInteractionSummary(event.target.value)}
-                placeholder="Résultat, décision et prochaine étape…"
+                placeholder="Résultat, décision et prochaine étape — aucune donnée sensible…"
               />
               <button type="submit" disabled={!interactionSummary.trim()}>
                 <Icon name="plus" /> Consigner

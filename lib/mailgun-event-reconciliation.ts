@@ -78,8 +78,71 @@ export async function reconcileMailgunEventsForMessage(
   }
 
   const status = await refreshDeliveryStatus(db, message.id);
+  if (status === "complained" || status === "bounced" || status === "permanent-failure") {
+    await suppressFailedRecipient(db, message.id, status);
+  }
 
   return { messageId: message.id, linkedEvents, status };
+}
+
+async function suppressFailedRecipient(
+  db: CrmDatabase,
+  messageId: string,
+  status: "complained" | "bounced" | "permanent-failure",
+) {
+  const recipient = await db.prepare(`SELECT contact.id AS contactId, contact.email AS contactEmail,
+      message.recipients_json AS recipientsJson,
+      (SELECT event.recipient FROM message_events event WHERE event.message_id=message.id AND event.recipient IS NOT NULL ORDER BY event.rowid DESC LIMIT 1) AS eventRecipient
+    FROM messages message
+    JOIN conversations conversation ON conversation.id=message.conversation_id
+    LEFT JOIN contacts contact ON contact.id=conversation.contact_id
+    WHERE message.id=? LIMIT 1`).bind(messageId).first<{ contactId: string | null; contactEmail: string | null; recipientsJson: string | null; eventRecipient: string | null }>();
+  const historicalAddress = firstRecipient(recipient?.recipientsJson) ?? normalizedRecipient(recipient?.eventRecipient);
+  if (!historicalAddress) return;
+  const contactMatches = Boolean(recipient?.contactId && recipient.contactEmail?.toLowerCase() === historicalAddress);
+  const now = new Date().toISOString();
+  const reason = status === "complained" ? "provider_complaint" : status === "bounced" ? "provider_bounce" : "provider_permanent_failure";
+  const statements = [
+    db.prepare(`INSERT OR IGNORE INTO contact_suppressions
+      (id, channel, address_normalized, scope, category, reason, evidence_ref,
+       requested_at, effective_at, created_by)
+      VALUES (?, 'email', ?, 'global', 'all', ?, ?, ?, ?, 'mailgun:webhook')`)
+      .bind(`provider-suppression:${messageId}`, historicalAddress, reason, `message:${messageId}`, now, now),
+    ...(contactMatches && recipient?.contactId ? [
+      db.prepare(`UPDATE contact_channel_compliance SET status=?, updated_at=CURRENT_TIMESTAMP
+      WHERE contact_id=? AND channel='email'`).bind(status === "complained" ? "unsubscribed" : "bounced", recipient.contactId),
+      db.prepare(`UPDATE contacts SET
+      compliance_version=compliance_version + CASE WHEN do_not_contact=0 OR email_status<>? THEN 1 ELSE 0 END,
+      email_status=?, unsubscribed_at=CASE WHEN ?='complained' THEN COALESCE(unsubscribed_at, ?) ELSE unsubscribed_at END,
+      do_not_contact=1, updated_at=CURRENT_TIMESTAMP WHERE id=?`)
+      .bind(status === "complained" ? "unsubscribed" : "bounced", status === "complained" ? "unsubscribed" : "bounced", status, now, recipient.contactId),
+      db.prepare(`UPDATE tasks SET status='cancelled', updated_at=CURRENT_TIMESTAMP
+      WHERE contact_action=1 AND status='open'
+        AND (conversation_id IN (SELECT id FROM conversations WHERE contact_id=?)
+          OR deal_id IN (SELECT id FROM deals WHERE contact_id=?))`).bind(recipient.contactId, recipient.contactId),
+      db.prepare(`UPDATE send_commands SET status='cancelled', failure_code=?, updated_at=CURRENT_TIMESTAMP
+      WHERE contact_id=? AND status IN ('pending','authorized')`).bind(reason, recipient.contactId),
+    ] : []),
+    db.prepare(`INSERT OR IGNORE INTO audit_entries (id, actor_email, action, entity_type, entity_id, details_json)
+      VALUES (?, 'mailgun:webhook', 'contact.provider_suppressed', ?, ?, ?)`)
+      .bind(`provider-audit:${messageId}:${status}`, contactMatches ? "contact" : "message", contactMatches && recipient?.contactId ? recipient.contactId : messageId, JSON.stringify({ status, messageId, addressNormalized: historicalAddress, contactMatches })),
+  ];
+  await db.batch(statements);
+}
+
+function firstRecipient(recipientsJson: string | null | undefined): string | null {
+  try {
+    const recipients = JSON.parse(recipientsJson ?? "null") as unknown;
+    if (!Array.isArray(recipients) || recipients.length !== 1 || typeof recipients[0] !== "string") return null;
+    return normalizedRecipient(recipients[0]);
+  } catch {
+    return null;
+  }
+}
+
+function normalizedRecipient(value: string | null | undefined): string | null {
+  const address = value?.trim().toLowerCase() ?? "";
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(address) ? address : null;
 }
 
 export function mailgunMessageIdFromPayloadJson(

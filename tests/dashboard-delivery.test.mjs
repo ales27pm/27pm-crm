@@ -18,15 +18,15 @@ test("dashboard exposes exact timestamped delivery events without generic failed
   assert.doesNotMatch(dashboard, /return ["']failed["']/u);
 });
 
-test("webhook storage resolves the newest provider timestamp", async () => {
+test("webhook storage strictly resolves the newest provider timestamp", async () => {
   const store = await readFile(
-    new URL("../lib/webhook-store.ts", import.meta.url),
+    new URL("../lib/mailgun-event-store.ts", import.meta.url),
     "utf8",
   );
 
   assert.match(
     store,
-    /reconcileMailgunEventsBestEffort\(db, event\.messageId\)/u,
+    /reconcile\(db, event\.messageId\)/u,
   );
 
   const reconciliation = await readFile(

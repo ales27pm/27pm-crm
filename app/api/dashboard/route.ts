@@ -33,6 +33,26 @@ type ContactRow = {
   sourceDate: string | null;
   contactBasis: string;
   roleRelevance: string;
+  roleRelevanceDetail: string;
+  personalDataCategory: string;
+  qualificationMode: string;
+  provenanceType: string;
+  evidenceRef: string | null;
+  lawfulBasis: string;
+  basisEvidenceRef: string | null;
+  basisVerifiedBy: string | null;
+  basisVerifiedAt: string | null;
+  basisExpiresAt: string | null;
+  publicationByRecipient: number;
+  publicationNoRestriction: number;
+  publicationRoleRelevance: string;
+  directDisclosureNoRestriction: number;
+  b2bRelationshipEvidence: string;
+  b2bMessageRelevance: string;
+  phoneEvidenceRef: string | null;
+  recipientTimezone: string | null;
+  dnclCheckedAt: string | null;
+  dnclEvidenceRef: string | null;
   dnclStatus: string;
   emailStatus: string;
   unsubscribedAt: string | null;
@@ -124,6 +144,8 @@ type TaskRow = {
   dealId: string | null;
 };
 
+type ActivityRow = { id: string; actorEmail: string; action: string; entityType: string; entityId: string; createdAt: string };
+
 export async function GET(request: Request) {
   const auth = requireOperatorRequest(request);
   if (auth.response) return auth.response;
@@ -177,6 +199,7 @@ export async function GET(request: Request) {
       interactions,
       tasks,
       intakes,
+      activities,
     ] =
       await Promise.all([
         db
@@ -223,6 +246,26 @@ export async function GET(request: Request) {
                     contact.source_date AS sourceDate,
                     contact.contact_basis AS contactBasis,
                     contact.role_relevance AS roleRelevance,
+                    contact.role_relevance_detail AS roleRelevanceDetail,
+                    contact.personal_data_category AS personalDataCategory,
+                    contact.qualification_mode AS qualificationMode,
+                    email_channel.provenance_type AS provenanceType,
+                    email_channel.evidence_ref AS evidenceRef,
+                    email_channel.lawful_basis AS lawfulBasis,
+                    email_channel.basis_evidence_ref AS basisEvidenceRef,
+                    email_channel.basis_verified_by AS basisVerifiedBy,
+                    email_channel.basis_verified_at AS basisVerifiedAt,
+                    email_channel.basis_expires_at AS basisExpiresAt,
+                    email_channel.publication_by_recipient AS publicationByRecipient,
+                    email_channel.publication_no_restriction AS publicationNoRestriction,
+                    email_channel.publication_role_relevance AS publicationRoleRelevance,
+                    email_channel.direct_disclosure_no_restriction AS directDisclosureNoRestriction,
+                    email_channel.b2b_relationship_evidence AS b2bRelationshipEvidence,
+                    email_channel.b2b_message_relevance AS b2bMessageRelevance,
+                    phone_channel.evidence_ref AS phoneEvidenceRef,
+                    phone_channel.recipient_timezone AS recipientTimezone,
+                    phone_channel.dncl_checked_at AS dnclCheckedAt,
+                    phone_channel.dncl_evidence_ref AS dnclEvidenceRef,
                     contact.dncl_status AS dnclStatus,
                     contact.email_status AS emailStatus,
                     contact.unsubscribed_at AS unsubscribedAt,
@@ -234,6 +277,8 @@ export async function GET(request: Request) {
                     COUNT(c.id) AS conversationCount
              FROM contacts contact
              LEFT JOIN conversations c ON c.contact_id = contact.id
+             LEFT JOIN contact_channel_compliance email_channel ON email_channel.contact_id=contact.id AND email_channel.channel='email'
+             LEFT JOIN contact_channel_compliance phone_channel ON phone_channel.contact_id=contact.id AND phone_channel.channel='phone'
              WHERE contact.deleted_at IS NULL
              GROUP BY contact.id
              ORDER BY contact.display_name, contact.email`,
@@ -337,6 +382,11 @@ export async function GET(request: Request) {
              ORDER BY created_at DESC LIMIT 100`,
           )
           .all<IntakeRow>(),
+        db
+          .prepare(`SELECT id, actor_email AS actorEmail, action, entity_type AS entityType,
+                    entity_id AS entityId, created_at AS createdAt
+             FROM audit_entries ORDER BY created_at DESC, rowid DESC LIMIT 100`)
+          .all<ActivityRow>(),
       ]);
 
     const messagesByConversation = new Map<string, MessageRow[]>();
@@ -472,6 +522,26 @@ export async function GET(request: Request) {
           sourceDate: contact.sourceDate,
           contactBasis: contact.contactBasis,
           roleRelevance: contact.roleRelevance,
+          roleRelevanceDetail: contact.roleRelevanceDetail,
+          personalDataCategory: contact.personalDataCategory,
+          qualificationMode: contact.qualificationMode,
+          provenanceType: contact.provenanceType,
+          evidenceRef: contact.evidenceRef,
+          lawfulBasis: contact.lawfulBasis,
+          basisEvidenceRef: contact.basisEvidenceRef,
+          basisVerifiedBy: contact.basisVerifiedBy,
+          basisVerifiedAt: contact.basisVerifiedAt,
+          basisExpiresAt: contact.basisExpiresAt,
+          publicationByRecipient: Boolean(contact.publicationByRecipient),
+          publicationNoRestriction: Boolean(contact.publicationNoRestriction),
+          publicationRoleRelevance: contact.publicationRoleRelevance,
+          directDisclosureNoRestriction: Boolean(contact.directDisclosureNoRestriction),
+          b2bRelationshipEvidence: contact.b2bRelationshipEvidence,
+          b2bMessageRelevance: contact.b2bMessageRelevance,
+          phoneEvidenceRef: contact.phoneEvidenceRef,
+          recipientTimezone: contact.recipientTimezone,
+          dnclCheckedAt: contact.dnclCheckedAt,
+          dnclEvidenceRef: contact.dnclEvidenceRef,
           dnclStatus: contact.dnclStatus,
           emailStatus: contact.emailStatus,
           unsubscribed: Boolean(contact.unsubscribedAt),
@@ -482,8 +552,8 @@ export async function GET(request: Request) {
           validated: Boolean(contact.validatedAt),
           status: contact.doNotContact || contact.unsubscribedAt
             ? "Bloqué"
-            : contact.validatedAt && contact.emailStatus === "valid" && contact.roleRelevance === "relevant" && contact.contactBasis !== "unknown"
-              ? "Validé"
+            : contact.validatedAt && contact.emailStatus === "valid" && contact.roleRelevance === "relevant" && contact.roleRelevanceDetail && contact.lawfulBasis !== "none" && contact.basisEvidenceRef && contact.evidenceRef
+              ? "Documenté"
               : "À valider",
           conversationCount: Number(contact.conversationCount ?? 0),
         })),
@@ -525,6 +595,7 @@ export async function GET(request: Request) {
           dealId: task.dealId,
         })),
         intakes: intakes.results.map((intake) => ({ ...intake, createdLabel: displayDate(intake.createdAt) })),
+        activities: activities.results.map((activity) => ({ ...activity, createdLabel: displayDate(activity.createdAt) })),
         live: true,
       },
       { headers: { "cache-control": "private, no-store" } },

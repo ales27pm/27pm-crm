@@ -44,6 +44,8 @@ CRM data.
 - `GET /api/health` — non-sensitive service health.
 - `POST /api/public/intake` — anti-abuse public intake queued for review; never
   creates an actionnable contact directly.
+- `GET` and `POST /api/public/unsubscribe` — opaque authenticated confirmation and immediate,
+  idempotent suppression; never sends a message.
 - `POST /api/webhooks/mailgun/inbound` — signed inbound email callback.
 - `POST /api/webhooks/mailgun/events` — signed delivery-event callback.
 
@@ -58,6 +60,9 @@ CRM data.
 - `POST /api/contacts` and `PATCH /api/contacts/:id` — create or update a
   verified, sourced professional contact with compliance state.
 - `POST /api/accounts/import` — idempotent non-personal account import.
+- `GET` and `PATCH /api/compliance` — fail-closed operator compliance settings.
+- `GET` and `POST /api/privacy-requests`, `PATCH /api/privacy-requests/:id` —
+  audited manual workflow for privacy rights.
 - `PATCH /api/intake/:id` — operator review of a pending public request.
 - `POST /api/prospects` — retired with HTTP 410; callers must use the separate
   account/contact workflow.

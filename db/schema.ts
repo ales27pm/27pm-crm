@@ -102,6 +102,12 @@ export const contacts = sqliteTable(
       onDelete: "restrict",
     }),
     role: text("role"),
+    roleRelevanceDetail: text("role_relevance_detail").notNull().default(""),
+    personalDataCategory: text("personal_data_category")
+      .notNull()
+      .default("work_contact"),
+    qualificationMode: text("qualification_mode").notNull().default("manual"),
+    complianceVersion: integer("compliance_version").notNull().default(1),
     sourceUrl: text("source_url"),
     sourceDate: text("source_date"),
     contactBasis: text("contact_basis").notNull().default("unknown"),
@@ -146,6 +152,194 @@ export const contacts = sqliteTable(
     check(
       "contacts_email_status_check",
       sql`${table.emailStatus} in ('unknown', 'valid', 'bounced', 'invalid', 'unsubscribed')`,
+    ),
+    check(
+      "contacts_personal_data_category_check",
+      sql`${table.personalDataCategory} in ('work_contact', 'other_personal')`,
+    ),
+    check(
+      "contacts_qualification_mode_check",
+      sql`${table.qualificationMode} in ('manual', 'assisted', 'fully_automated')`,
+    ),
+  ],
+);
+
+export const contactChannelCompliance = sqliteTable(
+  "contact_channel_compliance",
+  {
+    id: text("id").primaryKey(),
+    contactId: text("contact_id")
+      .notNull()
+      .references(() => contacts.id, { onDelete: "cascade" }),
+    channel: text("channel").notNull(),
+    addressNormalized: text("address_normalized").notNull(),
+    provenanceType: text("provenance_type").notNull().default("unknown"),
+    sourceUrl: text("source_url"),
+    capturedAt: text("captured_at"),
+    evidenceRef: text("evidence_ref"),
+    lawfulBasis: text("lawful_basis").notNull().default("none"),
+    basisVerifiedBy: text("basis_verified_by"),
+    basisVerifiedAt: text("basis_verified_at"),
+    basisEvidenceRef: text("basis_evidence_ref"),
+    basisExpiresAt: text("basis_expires_at"),
+    publicationByRecipient: integer("publication_by_recipient", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    publicationNoRestriction: integer("publication_no_restriction", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    publicationRoleRelevance: text("publication_role_relevance").notNull().default(""),
+    directDisclosureNoRestriction: integer("direct_disclosure_no_restriction", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    b2bRelationshipEvidence: text("b2b_relationship_evidence").notNull().default(""),
+    b2bMessageRelevance: text("b2b_message_relevance").notNull().default(""),
+    dnclStatus: text("dncl_status").notNull().default("not_checked"),
+    dnclCheckedAt: text("dncl_checked_at"),
+    dnclEvidenceRef: text("dncl_evidence_ref"),
+    recipientTimezone: text("recipient_timezone"),
+    status: text("status").notNull().default("unknown"),
+    validatedAt: text("validated_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("contact_channel_address_unique").on(
+      table.channel,
+      table.addressNormalized,
+    ),
+    uniqueIndex("contact_channel_contact_unique").on(table.contactId, table.channel),
+    index("contact_channel_contact_idx").on(table.contactId),
+    check("contact_channel_type_check", sql`${table.channel} in ('email', 'phone')`),
+    check(
+      "contact_channel_provenance_check",
+      sql`${table.provenanceType} in ('first_party_inbound', 'recipient_published', 'authorized_publication', 'direct_disclosure', 'existing_relationship', 'third_party', 'unknown')`,
+    ),
+    check(
+      "contact_channel_basis_check",
+      sql`${table.lawfulBasis} in ('explicit_consent', 'existing_business_relationship', 'conspicuous_publication', 'direct_disclosure', 'b2b_exemption', 'requested_response', 'none')`,
+    ),
+    check(
+      "contact_channel_status_check",
+      sql`${table.status} in ('unknown', 'valid', 'bounced', 'invalid', 'unsubscribed')`,
+    ),
+    check(
+      "contact_channel_dncl_check",
+      sql`${table.dnclStatus} in ('not_checked', 'not_listed', 'listed', 'not_applicable')`,
+    ),
+  ],
+);
+
+export const contactSuppressions = sqliteTable(
+  "contact_suppressions",
+  {
+    id: text("id").primaryKey(),
+    channel: text("channel").notNull(),
+    addressNormalized: text("address_normalized").notNull(),
+    scope: text("scope").notNull().default("global"),
+    category: text("category").notNull().default("all"),
+    reason: text("reason").notNull(),
+    evidenceRef: text("evidence_ref").notNull(),
+    requestedAt: text("requested_at").notNull(),
+    effectiveAt: text("effective_at").notNull(),
+    retainUntil: text("retain_until"),
+    createdBy: text("created_by").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("contact_suppression_identity_unique").on(
+      table.channel,
+      table.addressNormalized,
+      table.scope,
+      table.category,
+    ),
+    index("contact_suppression_lookup_idx").on(
+      table.channel,
+      table.addressNormalized,
+    ),
+    check("contact_suppression_channel_check", sql`${table.channel} in ('email', 'phone')`),
+    check("contact_suppression_scope_check", sql`${table.scope} in ('global', 'category')`),
+  ],
+);
+
+export const complianceConfiguration = sqliteTable(
+  "compliance_configuration",
+  {
+    id: text("id").primaryKey(),
+    version: integer("version").notNull().default(1),
+    senderName: text("sender_name").notNull().default(""),
+    organizationName: text("organization_name").notNull().default(""),
+    postalAddress: text("postal_address").notNull().default(""),
+    contactMethod: text("contact_method").notNull().default(""),
+    identityValidUntil: text("identity_valid_until"),
+    unsubscribeMechanismValidatedAt: text("unsubscribe_mechanism_validated_at"),
+    unsubscribeMechanismValidUntil: text("unsubscribe_mechanism_valid_until"),
+    dnclRegistrationConfirmed: integer("dncl_registration_confirmed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    dnclRegistrationVerifiedAt: text("dncl_registration_verified_at"),
+    dnclRegistrationEvidenceRef: text("dncl_registration_evidence_ref").notNull().default(""),
+    businessNumberConfirmed: integer("business_number_confirmed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    businessNumber: text("business_number").notNull().default(""),
+    businessNumberEvidenceRef: text("business_number_evidence_ref").notNull().default(""),
+    callerIdentity: text("caller_identity").notNull().default(""),
+    callerDisplayNumber: text("caller_display_number").notNull().default(""),
+    automatedDialerDisabled: integer("automated_dialer_disabled", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    prerecordedCallsDisabled: integer("prerecorded_calls_disabled", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    sequentialDialingDisabled: integer("sequential_dialing_disabled", { mode: "boolean" })
+      .notNull()
+      .default(true),
+    crossBorderEfvpConfirmed: integer("cross_border_efvp_confirmed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    crossBorderContractConfirmed: integer("cross_border_contract_confirmed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    crossBorderLegalValidationConfirmed: integer("cross_border_legal_validation_confirmed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    crossBorderEvidenceRef: text("cross_border_evidence_ref").notNull().default(""),
+    automatedQualificationLegalValidationConfirmed: integer("automated_qualification_legal_validation_confirmed", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    automatedQualificationEvidenceRef: text("automated_qualification_evidence_ref").notNull().default(""),
+    updatedBy: text("updated_by"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [check("compliance_configuration_singleton", sql`${table.id} = 'default'`)],
+);
+
+export const privacyRequests = sqliteTable(
+  "privacy_requests",
+  {
+    id: text("id").primaryKey(),
+    contactId: text("contact_id").references(() => contacts.id, { onDelete: "set null" }),
+    requestType: text("request_type").notNull(),
+    status: text("status").notNull().default("received"),
+    requesterReference: text("requester_reference").notNull(),
+    requestedAt: text("requested_at").notNull(),
+    dueAt: text("due_at"),
+    handledBy: text("handled_by"),
+    resolutionNote: text("resolution_note").notNull().default(""),
+    completedAt: text("completed_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    index("privacy_requests_status_due_idx").on(table.status, table.dueAt),
+    check(
+      "privacy_requests_type_check",
+      sql`${table.requestType} in ('access', 'rectification', 'withdrawal', 'destruction', 'structured_export')`,
+    ),
+    check(
+      "privacy_requests_status_check",
+      sql`${table.status} in ('received', 'identity_pending', 'in_progress', 'completed', 'refused')`,
     ),
   ],
 );
@@ -387,6 +581,7 @@ export const accountImports = sqliteTable(
   {
     id: text("id").primaryKey(),
     importKey: text("import_key").notNull(),
+    requestHash: text("request_hash"),
     sourceLabel: text("source_label").notNull(),
     sourceUrl: text("source_url"),
     sourceDate: text("source_date"),
@@ -450,6 +645,8 @@ export const webhookReceipts = sqliteTable(
     signatureToken: text("signature_token").notNull(),
     signatureTimestamp: integer("signature_timestamp").notNull(),
     callbackKey: text("callback_key").notNull(),
+    status: text("status").notNull().default("reserved"),
+    processedAt: text("processed_at"),
     receivedAt: timestamp("received_at"),
   },
   (table) => [
@@ -460,6 +657,10 @@ export const webhookReceipts = sqliteTable(
     check(
       "webhook_receipts_kind_check",
       sql`${table.kind} in ('inbound', 'event')`,
+    ),
+    check(
+      "webhook_receipts_status_check",
+      sql`${table.status} in ('reserved', 'processed')`,
     ),
   ],
 );
@@ -506,6 +707,15 @@ export const sendCommands = sqliteTable(
       { onDelete: "set null" },
     ),
     status: text("status").notNull().default("pending"),
+    contactId: text("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    contactComplianceVersion: integer("contact_compliance_version"),
+    configurationVersion: integer("configuration_version"),
+    authorizedAt: text("authorized_at"),
+    dispatchedAt: text("dispatched_at"),
+    operatorConfirmedAt: text("operator_confirmed_at"),
+    complianceSnapshotJson: text("compliance_snapshot_json"),
     providerMessageId: text("provider_message_id"),
     responseStatus: integer("response_status"),
     failureCode: text("failure_code"),
@@ -521,7 +731,7 @@ export const sendCommands = sqliteTable(
     ),
     check(
       "send_commands_status_check",
-      sql`${table.status} in ('pending', 'sent', 'failed')`,
+      sql`${table.status} in ('pending', 'authorized', 'dispatching', 'sent', 'failed', 'cancelled')`,
     ),
   ],
 );

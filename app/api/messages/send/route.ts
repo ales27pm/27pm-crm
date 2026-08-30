@@ -1,9 +1,13 @@
 import { requireOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import {
-  emailContactability,
-  type ContactabilityRow,
-} from "@/lib/crm-accounts";
+  advanceSendAuthorization,
+  canEmail,
+  complianceEvidenceSnapshot,
+  loadComplianceConfiguration,
+  loadContactCompliance,
+  type ContactCompliance,
+} from "@/lib/compliance";
 import { jsonError, readJsonObject } from "@/lib/http";
 import { sendMailgunMessage } from "@/lib/mailgun-client";
 import { reconcileMailgunEventsBestEffort } from "@/lib/mailgun-event-reconciliation";
@@ -19,12 +23,13 @@ import {
   parseAddressList,
 } from "@/lib/mailboxes";
 import { requireRuntimeString, runtimeString } from "@/lib/runtime";
+import { appendComplianceFooter, createUnsubscribeToken, validUnsubscribeSecret } from "@/lib/unsubscribe";
 
 export const dynamic = "force-dynamic";
 
 type SendCommandRow = {
   requestHash: string;
-  status: "pending" | "sent" | "failed";
+  status: "pending" | "authorized" | "dispatching" | "sent" | "failed" | "cancelled";
   providerMessageId: string | null;
   conversationId: string | null;
 };
@@ -44,6 +49,7 @@ export async function POST(request: Request) {
   if (!idempotencyKey) return jsonError(400, "idempotency_key_invalid");
   const command = parseSendCommand(payload);
   if (!command) return jsonError(400, "message_invalid");
+  if (payload.complianceConfirmed !== true) return jsonError(409, "operator_compliance_confirmation_required");
 
   const requestHash = await requestFingerprint(command);
   const db = crmDatabase();
@@ -54,6 +60,7 @@ export async function POST(request: Request) {
     contactEmail: string | null;
     externalMessageId: string | null;
   } | null = null;
+  let contact: ContactCompliance | null = null;
 
   try {
     if (command.conversationId) {
@@ -82,18 +89,25 @@ export async function POST(request: Request) {
       }
     }
 
-    for (const recipient of command.to) {
-      const contact = await contactabilityForEmail(db, recipient);
-      if (!contact) return jsonError(409, "recipient_not_qualified");
-      const blocked = emailContactability(contact);
-      if (blocked) return jsonError(409, blocked);
-    }
+    // Every operator-composed CRM message is treated as prospecting. Choosing
+    // another mailbox must never bypass a category suppression.
+    const suppressionCategory = "prospecting";
+    contact = await loadContactCompliance(db, "email", command.to[0], suppressionCategory);
+    if (!contact) return jsonError(409, "recipient_not_qualified");
+    const unsubscribeSecret = runtimeString("CRM_UNSUBSCRIBE_SIGNING_KEY");
+    const configuration = await loadComplianceConfiguration(db);
+    configuration.unsubscribeSigningKeyConfigured = validUnsubscribeSecret(unsubscribeSecret);
+    const complianceDecision = canEmail(contact, configuration);
+    if (!complianceDecision.allowed) return jsonError(409, complianceDecision.reasons[0] ?? "recipient_not_qualified", complianceDecision.reasons.join(","));
+    const authorizationSnapshot = { decision: complianceDecision, evidence: complianceEvidenceSnapshot(contact, configuration) };
 
     const inserted = await db
       .prepare(
         `INSERT OR IGNORE INTO send_commands
-          (id, idempotency_key, request_hash, mailbox_id, conversation_id, status)
-         VALUES (?, ?, ?, ?, ?, 'pending')`,
+          (id, idempotency_key, request_hash, mailbox_id, conversation_id, status,
+           contact_id, contact_compliance_version, configuration_version,
+           operator_confirmed_at, compliance_snapshot_json)
+         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
       )
       .bind(
         commandId,
@@ -101,6 +115,11 @@ export async function POST(request: Request) {
         requestHash,
         command.mailbox.id,
         command.conversationId,
+        contact.contactId,
+        contact.complianceVersion,
+        configuration.version,
+        new Date().toISOString(),
+        JSON.stringify(authorizationSnapshot),
       )
       .run();
 
@@ -133,7 +152,34 @@ export async function POST(request: Request) {
       if (existing.status === "pending") {
         return jsonError(409, "send_command_in_progress");
       }
+      if (existing.status === "authorized" || existing.status === "dispatching") return jsonError(409, "send_command_in_progress");
+      if (existing.status === "cancelled") return jsonError(409, "send_command_cancelled");
       return jsonError(502, "send_command_failed");
+    }
+
+    const authorized = await advanceSendAuthorization(db, commandId, contact, configuration, "pending", "authorized", authorizationSnapshot, auth.operator.email, suppressionCategory);
+    if (!authorized) {
+      await cancelSendCommand(db, commandId, "compliance_state_changed");
+      return jsonError(409, "compliance_state_changed");
+    }
+    const publicOrigin = new URL(requireRuntimeString("CRM_PUBLIC_ORIGIN"));
+    if (publicOrigin.protocol !== "https:") {
+      await cancelSendCommand(db, commandId, "unsubscribe_origin_invalid");
+      return jsonError(503, "unsubscribe_origin_invalid");
+    }
+    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+    const unsubscribeToken = await createUnsubscribeToken(requireRuntimeString("CRM_UNSUBSCRIBE_SIGNING_KEY"), {
+      contactId: contact.contactId,
+      email: contact.addressNormalized,
+      expiresAt,
+    });
+    const unsubscribeUrl = new URL("/api/public/unsubscribe", publicOrigin);
+    unsubscribeUrl.searchParams.set("token", unsubscribeToken);
+    const compliantContent = appendComplianceFooter(command.text, command.html, configuration, unsubscribeUrl.toString());
+    const dispatching = await advanceSendAuthorization(db, commandId, contact, configuration, "authorized", "dispatching", authorizationSnapshot, auth.operator.email, suppressionCategory);
+    if (!dispatching) {
+      await cancelSendCommand(db, commandId, "compliance_state_changed");
+      return jsonError(409, "compliance_state_changed");
     }
 
     const result = await sendMailgunMessage(
@@ -142,8 +188,8 @@ export async function POST(request: Request) {
         fromName: command.mailbox.displayName,
         to: command.to,
         subject: command.subject,
-        text: command.text,
-        html: command.html,
+        text: compliantContent.text,
+        html: compliantContent.html,
         inReplyTo: conversation?.externalMessageId,
         references: conversation?.externalMessageId
           ? [conversation.externalMessageId]
@@ -181,8 +227,8 @@ export async function POST(request: Request) {
           command.mailbox.address,
           JSON.stringify(command.to),
           command.subject,
-          command.text,
-          command.html,
+          compliantContent.text,
+          compliantContent.html,
           occurredAt,
         ),
       db
@@ -253,7 +299,7 @@ export async function POST(request: Request) {
           `UPDATE send_commands
            SET status = 'failed', response_status = 502,
                failure_code = 'transport_failure', updated_at = CURRENT_TIMESTAMP
-           WHERE id = ? AND status = 'pending'`,
+           WHERE id = ? AND status IN ('pending','authorized','dispatching')`,
         )
         .bind(commandId)
         .run();
@@ -262,6 +308,11 @@ export async function POST(request: Request) {
     }
     return jsonError(502, "mailgun_send_failed");
   }
+}
+
+async function cancelSendCommand(db: ReturnType<typeof crmDatabase>, commandId: string, reason: string) {
+  await db.prepare(`UPDATE send_commands SET status='cancelled', failure_code=?, updated_at=CURRENT_TIMESTAMP
+    WHERE id=? AND status IN ('pending','authorized')`).bind(reason, commandId).run();
 }
 
 function parseSendCommand(payload: Record<string, unknown>) {
@@ -274,7 +325,7 @@ function parseSendCommand(payload: Record<string, unknown>) {
   const mailbox =
     CRM_MAILBOXES.find((candidate) => candidate.id === mailboxValue) ??
     mailboxForAddress(mailboxValue);
-  if (!mailbox) return null;
+  if (!mailbox || mailbox.purpose !== "sales") return null;
 
   const recipientValues = Array.isArray(payload.to)
     ? payload.to
@@ -380,31 +431,4 @@ async function createOutboundConversation(
       .run();
   }
   return conversationId;
-}
-
-async function contactabilityForEmail(
-  db: ReturnType<typeof crmDatabase>,
-  email: string,
-) {
-  return db
-    .prepare(
-      `SELECT contact.id AS contactId,
-              contact.organization_id AS organizationId,
-              contact.phone AS phone,
-              contact.validated_at AS validatedAt,
-              contact.contact_basis AS contactBasis,
-              contact.role_relevance AS roleRelevance,
-              contact.email_status AS emailStatus,
-              contact.unsubscribed_at AS unsubscribedAt,
-              contact.do_not_call AS doNotCall,
-              contact.do_not_contact AS doNotContact,
-              contact.deleted_at AS deletedAt,
-              organization.do_not_contact AS organizationDoNotContact,
-              organization.deleted_at AS organizationDeletedAt
-       FROM contacts contact
-       LEFT JOIN organizations organization ON organization.id = contact.organization_id
-       WHERE contact.email = ? LIMIT 1`,
-    )
-    .bind(email)
-    .first<ContactabilityRow>();
 }

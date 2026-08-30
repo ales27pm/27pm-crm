@@ -1,4 +1,5 @@
 import { crmDatabase } from "@/lib/d1";
+import { boundedRequest } from "@/lib/bounded-request";
 import { jsonError } from "@/lib/http";
 import {
   eventCallbackKey,
@@ -7,15 +8,15 @@ import {
   verifyMailgunSignature,
 } from "@/lib/mailgun";
 import { runtimeString } from "@/lib/runtime";
-import {
-  hasWebhookToken,
-  recordMailgunEvent,
-  reserveWebhook,
-} from "@/lib/webhook-store";
+import { recordMailgunEvent } from "@/lib/mailgun-event-store";
+import { hasWebhookToken, markWebhookProcessed, reserveWebhook } from "@/lib/webhook-receipts";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const bounded = await boundedRequest(request, 1_000_000);
+  if (!bounded) return jsonError(413, "webhook_too_large");
+  request = bounded;
   let event;
   try {
     const contentType = request.headers.get("content-type")?.toLowerCase() ?? "";
@@ -58,6 +59,7 @@ export async function POST(request: Request) {
     }
 
     await recordMailgunEvent(db, event, callbackKey);
+    await markWebhookProcessed(db, callbackKey);
     return Response.json({ accepted: true }, { status: 202 });
   } catch {
     return jsonError(500, "mailgun_event_persistence_failed");

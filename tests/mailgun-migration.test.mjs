@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
+import { hasWebhookToken, markWebhookProcessed, reserveWebhook } from "../lib/webhook-receipts.ts";
 
 test("generated D1 migration seeds both identities and enforces idempotency", async () => {
   const database = new DatabaseSync(":memory:");
@@ -77,6 +78,14 @@ test("generated D1 migration seeds both identities and enforces idempotency", as
     () => insertReceipt.run("inbound", "token-two", 1_800_000_002, "inbound:one"),
     /unique constraint failed/i,
   );
+  const db = d1Adapter(database);
+  assert.equal(await hasWebhookToken(db, "token-one"), false);
+  assert.equal(await reserveWebhook(db, { kind: "inbound", token: "token-one", signatureTimestamp: 1_800_000_000, callbackKey: "inbound:one" }), "accepted");
+  assert.equal(await reserveWebhook(db, { kind: "inbound", token: "token-retry", signatureTimestamp: 1_800_000_003, callbackKey: "inbound:one" }), "accepted");
+  await markWebhookProcessed(db, "inbound:one");
+  assert.equal(await hasWebhookToken(db, "token-one"), true);
+  assert.equal(await reserveWebhook(db, { kind: "inbound", token: "token-one", signatureTimestamp: 1_800_000_000, callbackKey: "inbound:one" }), "replay");
+  assert.equal(await reserveWebhook(db, { kind: "inbound", token: "token-new", signatureTimestamp: 1_800_000_004, callbackKey: "inbound:one" }), "duplicate");
 
   const insertSendCommand = database.prepare(
     `INSERT INTO send_commands
@@ -153,3 +162,15 @@ test("generated D1 migration seeds both identities and enforces idempotency", as
 
   database.close();
 });
+
+function d1Adapter(database) {
+  return { prepare(query) { return preparedQuery(database, query, []); } };
+}
+
+function preparedQuery(database, query, bindings) {
+  return {
+    bind(...values) { return preparedQuery(database, query, values); },
+    async first() { return database.prepare(query).get(...bindings) ?? null; },
+    async run() { const result = database.prepare(query).run(...bindings); return { success: true, meta: { changes: Number(result.changes) } }; },
+  };
+}

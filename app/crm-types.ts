@@ -74,6 +74,26 @@ export type Contact = {
   sourceDate: string | null;
   contactBasis: string;
   roleRelevance: string;
+  roleRelevanceDetail?: string;
+  personalDataCategory?: string;
+  qualificationMode?: string;
+  provenanceType?: string;
+  evidenceRef?: string | null;
+  lawfulBasis?: string;
+  basisEvidenceRef?: string | null;
+  basisVerifiedBy?: string | null;
+  basisVerifiedAt?: string | null;
+  basisExpiresAt?: string | null;
+  publicationByRecipient?: boolean;
+  publicationNoRestriction?: boolean;
+  publicationRoleRelevance?: string;
+  directDisclosureNoRestriction?: boolean;
+  b2bRelationshipEvidence?: string;
+  b2bMessageRelevance?: string;
+  phoneEvidenceRef?: string | null;
+  recipientTimezone?: string | null;
+  dnclCheckedAt?: string | null;
+  dnclEvidenceRef?: string | null;
   dnclStatus: string;
   emailStatus: string;
   unsubscribed: boolean;
@@ -148,6 +168,11 @@ export type CrmTask = {
   dealId: string | null;
 };
 
+export type ActivityEntry = {
+  id: string; actorEmail: string; action: string; entityType: string;
+  entityId: string; createdAt: string; createdLabel: string;
+};
+
 export type DashboardData = {
   mailboxes: Mailbox[];
   transportState: TransportState;
@@ -157,5 +182,6 @@ export type DashboardData = {
   deals: Deal[];
   tasks: CrmTask[];
   intakes: IntakeSubmission[];
+  activities: ActivityEntry[];
   live: boolean;
 };

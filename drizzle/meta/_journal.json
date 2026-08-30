@@ -43,6 +43,27 @@
       "when": 1788047947960,
       "tag": "0005_known_naoko",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1788051099963,
+      "tag": "0006_compliance_hardening",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1788051782082,
+      "tag": "0007_compliance_evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1788053231259,
+      "tag": "0008_flippant_valeria_richards",
+      "breakpoints": true
     }
   ]
 }

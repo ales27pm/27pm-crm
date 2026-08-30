@@ -1,7 +1,7 @@
 import "server-only";
 
 import type { CrmDatabase } from "./d1";
-import { changedRows, isUniqueConstraintError } from "./d1";
+import { changedRows } from "./d1";
 import {
   deriveThreadKey,
   normalizeSubject,
@@ -9,61 +9,8 @@ import {
   sha256Hex,
   type InboundAttachment,
   type ParsedInboundMessage,
-  type ParsedMailgunEvent,
 } from "./mailgun";
-import { reconcileMailgunEventsBestEffort } from "./mailgun-event-reconciliation";
 import type { PrivateObjectBucket } from "./runtime";
-
-export type WebhookReservation = "accepted" | "duplicate" | "replay";
-
-export async function hasWebhookToken(
-  db: CrmDatabase,
-  token: string,
-): Promise<boolean> {
-  return Boolean(
-    await db
-      .prepare("SELECT 1 AS present FROM webhook_receipts WHERE signature_token = ? LIMIT 1")
-      .bind(token)
-      .first(),
-  );
-}
-
-export async function reserveWebhook(
-  db: CrmDatabase,
-  input: {
-    kind: "inbound" | "event";
-    token: string;
-    signatureTimestamp: number;
-    callbackKey: string;
-  },
-): Promise<WebhookReservation> {
-  try {
-    await db
-      .prepare(
-        `INSERT INTO webhook_receipts
-          (kind, signature_token, signature_timestamp, callback_key)
-         VALUES (?, ?, ?, ?)`,
-      )
-      .bind(input.kind, input.token, input.signatureTimestamp, input.callbackKey)
-      .run();
-    return "accepted";
-  } catch (error) {
-    if (!isUniqueConstraintError(error)) throw error;
-
-    const replay = await db
-      .prepare("SELECT 1 AS present FROM webhook_receipts WHERE signature_token = ? LIMIT 1")
-      .bind(input.token)
-      .first();
-    if (replay) return "replay";
-
-    const duplicate = await db
-      .prepare("SELECT 1 AS present FROM webhook_receipts WHERE callback_key = ? LIMIT 1")
-      .bind(input.callbackKey)
-      .first();
-    if (duplicate) return "duplicate";
-    throw error;
-  }
-}
 
 export async function recordInboundMessage(
   db: CrmDatabase,
@@ -95,7 +42,11 @@ export async function recordInboundMessage(
       `INSERT INTO contacts (id, email, display_name)
        VALUES (?, ?, ?)
        ON CONFLICT(email) DO UPDATE SET
-         display_name = COALESCE(excluded.display_name, contacts.display_name),
+         display_name = CASE
+           WHEN contacts.validated_at IS NULL AND (contacts.display_name IS NULL OR trim(contacts.display_name)='')
+             THEN excluded.display_name
+           ELSE contacts.display_name
+         END,
          updated_at = CURRENT_TIMESTAMP`,
     )
     .bind(contactCandidateId, inbound.sender, inbound.senderName)
@@ -282,47 +233,6 @@ export async function storeInboundAttachments(
     stored += changedRows(result);
   }
   return stored;
-}
-
-export async function recordMailgunEvent(
-  db: CrmDatabase,
-  event: ParsedMailgunEvent,
-  callbackKey: string,
-): Promise<void> {
-  const message = event.messageId
-    ? await db
-        .prepare("SELECT id FROM messages WHERE external_message_id = ? LIMIT 1")
-        .bind(event.messageId)
-        .first<{ id: string }>()
-    : null;
-
-  await db
-    .prepare(
-      `INSERT OR IGNORE INTO message_events
-        (id, message_id, provider_event_id, callback_key, event_type, severity,
-         recipient, event_timestamp, payload_json)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-    .bind(
-      crypto.randomUUID(),
-      message?.id ?? null,
-      event.eventId,
-      callbackKey,
-      event.eventType,
-      event.severity,
-      event.recipient,
-      event.eventTimestamp,
-      JSON.stringify(event.raw),
-    )
-    .run();
-
-  if (event.messageId) {
-    // Re-resolve after insertion so a concurrent outbound insert cannot leave
-    // this callback permanently detached from its message. The event is
-    // already durable, so a secondary reconciliation error must not turn the
-    // webhook response into a misleading persistence failure.
-    await reconcileMailgunEventsBestEffort(db, event.messageId);
-  }
 }
 
 function safeFileName(value: string): string {

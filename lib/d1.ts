@@ -40,3 +40,8 @@ export function isUniqueConstraintError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error);
   return /unique constraint failed|constraint failed/i.test(message);
 }
+
+export function isSuppressedChannelError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /suppressed_channel_reimport_blocked/u.test(message);
+}

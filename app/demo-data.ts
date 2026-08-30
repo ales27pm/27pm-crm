@@ -23,6 +23,7 @@ export const emptyDashboard: DashboardData = {
   deals: [],
   tasks: [],
   intakes: [],
+  activities: [],
 };
 
 function demoAccount(id: string, name: string, score: number, priority: "very_high" | "high", budgetMinCents: number, budgetMaxCents: number) {
@@ -312,4 +313,5 @@ export const demoDashboard: DashboardData = {
     },
   ],
   intakes: [],
+  activities: [],
 };

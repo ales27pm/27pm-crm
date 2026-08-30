@@ -1,6 +1,8 @@
 import { requireOperatorRequest } from "@/lib/api-auth";
-import { crmDatabase } from "@/lib/d1";
-import { emailContactability, phoneContactability, type ContactabilityRow } from "@/lib/crm-accounts";
+import { changedRows, crmDatabase } from "@/lib/d1";
+import { canCall, canEmail, complianceEvidenceSnapshot, loadComplianceConfiguration, loadContactCompliance, type ComplianceDecision, type ContactCompliance } from "@/lib/compliance";
+import { runtimeString } from "@/lib/runtime";
+import { validUnsubscribeSecret } from "@/lib/unsubscribe";
 import {
   jsonError,
   optionalTrimmedString,
@@ -38,6 +40,10 @@ export async function POST(request: Request) {
 
   try {
     const db = crmDatabase();
+    let contact: ContactCompliance | null = null;
+    let decision: ComplianceDecision | null = null;
+    let configurationVersion: number | null = null;
+    let evidenceSnapshot: ReturnType<typeof complianceEvidenceSnapshot> | null = null;
     const deal = dealId
       ? await db
           .prepare("SELECT conversation_id AS conversationId FROM deals WHERE id = ? LIMIT 1")
@@ -58,22 +64,10 @@ export async function POST(request: Request) {
     if (!conversation) return jsonError(404, "conversation_not_found");
 
     if (contactAction) {
-      const contact = await db
+      const actionChannel: "email" | "phone" = contactChannel === "phone" ? "phone" : "email";
+      const linked = await db
         .prepare(
-          `SELECT contact.id AS contactId,
-                  contact.organization_id AS organizationId,
-                  contact.phone AS phone,
-                  contact.validated_at AS validatedAt,
-                  contact.contact_basis AS contactBasis,
-                  contact.role_relevance AS roleRelevance,
-                  contact.email_status AS emailStatus,
-                  contact.unsubscribed_at AS unsubscribedAt,
-                  contact.do_not_call AS doNotCall,
-                  contact.do_not_contact AS doNotContact,
-                  contact.deleted_at AS deletedAt,
-                  contact.dncl_status AS dnclStatus,
-                  organization.do_not_contact AS organizationDoNotContact,
-                  organization.deleted_at AS organizationDeletedAt
+          `SELECT contact.id AS contactId, contact.email, contact.phone
            FROM conversations conversation
            LEFT JOIN deals deal ON deal.id = ? AND deal.conversation_id = conversation.id
            LEFT JOIN contacts contact ON contact.id = COALESCE(deal.contact_id, conversation.contact_id)
@@ -81,24 +75,39 @@ export async function POST(request: Request) {
            WHERE conversation.id = ? LIMIT 1`,
         )
         .bind(dealId, conversationId)
-        .first<ContactabilityRow & { dnclStatus: string }>();
-      if (!contact?.contactId) return jsonError(409, "contact_required_for_action");
-      const blocked = contactChannel === "phone"
-        ? phoneContactability(contact)
-        : emailContactability(contact);
-      if (blocked) return jsonError(409, blocked);
+        .first<{ contactId: string | null; email: string | null; phone: string | null }>();
+      const address = actionChannel === "phone" ? linked?.phone : linked?.email;
+      if (!linked?.contactId || !address) return jsonError(409, "contact_required_for_action");
+      contact = await loadContactCompliance(db, actionChannel, address);
+      if (!contact || contact.contactId !== linked.contactId) return jsonError(409, "contact_compliance_missing");
+      const configuration = await loadComplianceConfiguration(db);
+      configuration.unsubscribeSigningKeyConfigured = validUnsubscribeSecret(runtimeString("CRM_UNSUBSCRIBE_SIGNING_KEY"));
+      decision = actionChannel === "phone" ? canCall(contact, configuration) : canEmail(contact, configuration);
+      configurationVersion = configuration.version;
+      if (!decision.allowed) return jsonError(409, decision.reasons[0] ?? "contact_action_blocked", decision.reasons.join(","));
+      evidenceSnapshot = complianceEvidenceSnapshot(contact, configuration);
     }
 
     const id = crypto.randomUUID();
-    await db.batch([
-      db
-        .prepare(
-          `INSERT INTO tasks
-            (id, conversation_id, deal_id, title, status, due_at, contact_action, contact_channel)
-           VALUES (?, ?, ?, ?, 'open', ?, ?, ?)`,
-        )
-        .bind(id, conversationId, dealId, title, dueAt, contactAction ? 1 : 0, contactChannel),
-      db
+    const inserted = contactAction && contact && decision && configurationVersion !== null
+      ? await db.prepare(`INSERT INTO tasks
+          (id, conversation_id, deal_id, title, status, due_at, contact_action, contact_channel)
+          SELECT ?, ?, ?, ?, 'open', ?, 1, ?
+          WHERE EXISTS (SELECT 1 FROM contacts contact
+            JOIN organizations organization ON organization.id=contact.organization_id
+            WHERE contact.id=? AND contact.compliance_version=?
+              AND contact.do_not_contact=0 AND contact.unsubscribed_at IS NULL AND contact.deleted_at IS NULL
+              AND organization.do_not_contact=0 AND organization.deleted_at IS NULL)
+            AND EXISTS (SELECT 1 FROM compliance_configuration WHERE id='default' AND version=?)
+            AND NOT EXISTS (SELECT 1 FROM contact_suppressions WHERE channel=? AND address_normalized=?
+              AND (scope='global' OR (scope='category' AND category=?)))`)
+          .bind(id, conversationId, dealId, title, dueAt, contactChannel, contact.contactId, contact.complianceVersion, configurationVersion, contactChannel, contact.addressNormalized, contactChannel === "email" ? "prospecting" : "all").run()
+      : await db.prepare(`INSERT INTO tasks
+          (id, conversation_id, deal_id, title, status, due_at, contact_action, contact_channel)
+          VALUES (?, ?, ?, ?, 'open', ?, 0, 'internal')`)
+          .bind(id, conversationId, dealId, title, dueAt).run();
+    if (changedRows(inserted) !== 1) return jsonError(409, "compliance_state_changed");
+    await db
         .prepare(
           `INSERT INTO audit_entries
             (id, actor_email, action, entity_type, entity_id, details_json)
@@ -108,9 +117,9 @@ export async function POST(request: Request) {
           crypto.randomUUID(),
           auth.operator.email,
           id,
-          JSON.stringify({ conversationId, dealId, contactAction, contactChannel }),
-        ),
-    ]);
+          JSON.stringify({ conversationId, dealId, contactAction, contactChannel, complianceDecision: decision, evidenceSnapshot }),
+        )
+        .run();
 
     return Response.json(
       {

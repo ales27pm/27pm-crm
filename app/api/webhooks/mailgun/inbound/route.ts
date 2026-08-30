@@ -1,4 +1,5 @@
 import { crmDatabase } from "@/lib/d1";
+import { boundedRequest } from "@/lib/bounded-request";
 import { jsonError } from "@/lib/http";
 import {
   inboundCallbackKey,
@@ -9,16 +10,15 @@ import {
   getPrivateObjectBucket,
   runtimeString,
 } from "@/lib/runtime";
-import {
-  hasWebhookToken,
-  recordInboundMessage,
-  reserveWebhook,
-  storeInboundAttachments,
-} from "@/lib/webhook-store";
+import { hasWebhookToken, markWebhookProcessed, reserveWebhook } from "@/lib/webhook-receipts";
+import { recordInboundMessage, storeInboundAttachments } from "@/lib/webhook-store";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
+  const bounded = await boundedRequest(request, 12_000_000);
+  if (!bounded) return jsonError(413, "webhook_too_large");
+  request = bounded;
   let inbound;
   try {
     inbound = parseInboundForm(await request.formData());
@@ -59,7 +59,7 @@ export async function POST(request: Request) {
 
     const recorded = await recordInboundMessage(db, inbound);
     const attachmentCount =
-      recorded.created && inbound.attachments.length > 0
+      inbound.attachments.length > 0
         ? await storeInboundAttachments(
             db,
             getPrivateObjectBucket(),
@@ -67,6 +67,7 @@ export async function POST(request: Request) {
             inbound.attachments,
           )
         : 0;
+    await markWebhookProcessed(db, callbackKey);
     return Response.json(
       {
         accepted: true,

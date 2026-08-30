@@ -1,4 +1,5 @@
 import { crmDatabase } from "@/lib/d1";
+import { boundedRequest } from "@/lib/bounded-request";
 import { jsonError, optionalTrimmedString } from "@/lib/http";
 import { normalizeEmailAddress } from "@/lib/mailboxes";
 import { runtimeString } from "@/lib/runtime";
@@ -22,9 +23,9 @@ export async function POST(request: Request) {
   if (!secret || !hashSalt) return intakeError(503, "intake_not_configured", origin);
   const idempotencyKey = normalizedKey(request.headers.get("idempotency-key"));
   if (!idempotencyKey) return intakeError(400, "idempotency_key_invalid", origin);
-  const body = await readBoundedJson(request);
-  if (body.tooLarge) return intakeError(413, "request_too_large", origin);
-  const payload = body.payload;
+  const bounded = await boundedRequest(request, MAX_BODY_BYTES);
+  if (!bounded) return intakeError(413, "request_too_large", origin);
+  const payload = await jsonObject(bounded);
   if (!payload) return intakeError(400, "request_body_invalid", origin);
   if (optionalTrimmedString(payload.website, 200)) return accepted(origin);
   const organizationName = optionalTrimmedString(payload.organizationName, 200);
@@ -40,9 +41,11 @@ export async function POST(request: Request) {
     const db = crmDatabase();
     const existing = await db.prepare("SELECT id FROM intake_submissions WHERE idempotency_key=? LIMIT 1").bind(idempotencyKey).first();
     if (existing) return accepted(origin);
+    if (!(await verifyTurnstile(secret, token, ip, origin))) return intakeError(400, "human_verification_failed", origin);
     const windowStart = Math.floor(Date.now() / 900_000) * 900_000;
     const bucketKey = `${requesterHash}:${windowStart}`;
     const expiresAt = new Date(windowStart + 1_800_000).toISOString();
+    await db.prepare("DELETE FROM intake_rate_limits WHERE expires_at < ?").bind(new Date().toISOString()).run();
     const reservation = await db.prepare(
       `INSERT INTO intake_rate_limits (bucket_key, requester_hash, count, expires_at)
        VALUES (?, ?, 1, ?)
@@ -53,7 +56,6 @@ export async function POST(request: Request) {
        RETURNING count`,
     ).bind(bucketKey, requesterHash, expiresAt).first<{ count: number }>();
     if (!reservation) return intakeError(429, "intake_rate_limited", origin);
-    if (!(await verifyTurnstile(secret, token, ip, origin))) return intakeError(400, "human_verification_failed", origin);
     await db.prepare(`INSERT OR IGNORE INTO intake_submissions (id, idempotency_key, requester_hash, origin, organization_name, contact_name, contact_email, project_type, message, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`).bind(crypto.randomUUID(), idempotencyKey, requesterHash, origin, organizationName, contactName, contactEmail, projectType ?? null, message).run();
     return accepted(origin);
   } catch {
@@ -91,13 +93,11 @@ async function verifyTurnstile(secret: string, token: string, ip: string, origin
   } catch { return false; }
 }
 
-async function readBoundedJson(request: Request): Promise<{ payload: Record<string, unknown> | null; tooLarge: boolean }> {
+async function jsonObject(request: Request): Promise<Record<string, unknown> | null> {
   try {
-    const text = await request.text();
-    if (new TextEncoder().encode(text).byteLength > MAX_BODY_BYTES) return { payload: null, tooLarge: true };
-    const value = JSON.parse(text) as unknown;
-    return { payload: value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null, tooLarge: false };
+    const value = await request.json() as unknown;
+    return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
   } catch {
-    return { payload: null, tooLarge: false };
+    return null;
   }
 }
