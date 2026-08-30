@@ -18,6 +18,7 @@ test("declares a private, non-indexable operator surface", async () => {
   assert.match(layout, /follow:\s*false/u);
   assert.match(page, /isCrmOperator\(user\.email\)/u);
   assert.match(accessScreen, /Se connecter avec ChatGPT/u);
+  assert.match(accessScreen, /unoptimized/u);
   assert.match(worker, /x-frame-options["'],\s*["']DENY/u);
   assert.match(worker, /x-robots-tag["'],\s*["']noindex, nofollow, noarchive/u);
 });

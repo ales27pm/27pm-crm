@@ -12,7 +12,14 @@ export function AccessScreen({ state, email }: AccessScreenProps) {
   return (
     <main className="access-screen">
       <div className="access-brand" aria-label="27PM">
-        <Image src="/brand/27-mark.png" alt="" width={52} height={52} priority />
+        <Image
+          src="/brand/27-mark.png"
+          alt=""
+          width={52}
+          height={52}
+          priority
+          unoptimized
+        />
         <span>27PM</span>
       </div>
       <section className="access-panel" aria-labelledby="access-title">
