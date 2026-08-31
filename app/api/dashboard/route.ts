@@ -2,6 +2,7 @@ import { requireOperatorRequest } from "@/lib/api-auth";
 import { crmDatabase } from "@/lib/d1";
 import { jsonError } from "@/lib/http";
 import { CRM_MAILBOXES, mailboxForAddress } from "@/lib/mailboxes";
+import { demoDashboard } from "../../demo-data";
 import {
   buildDeliveryTimeline,
   mailgunDeliveryState,
@@ -142,6 +143,9 @@ type TaskRow = {
   status: string;
   dueAt: string | null;
   dealId: string | null;
+  conversationId: string | null;
+  organizationId: string | null;
+  organization: string | null;
 };
 
 type ActivityRow = { id: string; actorEmail: string; action: string; entityType: string; entityId: string; createdAt: string };
@@ -149,6 +153,12 @@ type ActivityRow = { id: string; actorEmail: string; action: string; entityType:
 export async function GET(request: Request) {
   const auth = requireOperatorRequest(request);
   if (auth.response) return auth.response;
+
+  if (runtimeString("CRM_DEMO_MODE") === "true") {
+    return Response.json(demoDashboard, {
+      headers: { "cache-control": "no-store" },
+    });
+  }
 
   const url = new URL(request.url);
   const mailboxFilter = resolveMailboxFilter(url.searchParams.get("mailbox"));
@@ -367,10 +377,18 @@ export async function GET(request: Request) {
           .all<InteractionRow>(),
         db
           .prepare(
-            `SELECT id, title, status, due_at AS dueAt, deal_id AS dealId
-             FROM tasks
-             WHERE status <> 'cancelled'
-             ORDER BY CASE WHEN due_at IS NULL THEN 1 ELSE 0 END, due_at`,
+            `SELECT task.id, task.title, task.status,
+                    task.due_at AS dueAt, task.deal_id AS dealId,
+                    task.conversation_id AS conversationId,
+                    COALESCE(deal.organization_id, contact.organization_id) AS organizationId,
+                    COALESCE(organization.name, contact.organization, '') AS organization
+             FROM tasks task
+             LEFT JOIN deals deal ON deal.id = task.deal_id
+             LEFT JOIN conversations conversation ON conversation.id = task.conversation_id
+             LEFT JOIN contacts contact ON contact.id = COALESCE(deal.contact_id, conversation.contact_id)
+             LEFT JOIN organizations organization ON organization.id = COALESCE(deal.organization_id, contact.organization_id)
+             WHERE task.status <> 'cancelled'
+             ORDER BY CASE WHEN task.due_at IS NULL THEN 1 ELSE 0 END, task.due_at`,
           )
           .all<TaskRow>(),
         db
@@ -593,6 +611,9 @@ export async function GET(request: Request) {
             new Date(task.dueAt as string).valueOf() < Date.now(),
           completed: task.status === "done",
           dealId: task.dealId,
+          conversationId: task.conversationId,
+          organizationId: task.organizationId ?? "",
+          organization: task.organization ?? "",
         })),
         intakes: intakes.results.map((intake) => ({ ...intake, createdLabel: displayDate(intake.createdAt) })),
         activities: activities.results.map((activity) => ({ ...activity, createdLabel: displayDate(activity.createdAt) })),

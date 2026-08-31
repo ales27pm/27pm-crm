@@ -4,6 +4,7 @@ import type { NavView, TransportState } from "../crm-types";
 import { Icon, type IconName } from "./icons";
 
 const items: Array<{ id: NavView; label: string; icon: IconName }> = [
+  { id: "today", label: "Aujourd’hui", icon: "calendar" },
   { id: "inbox", label: "Réception", icon: "inbox" },
   { id: "contacts", label: "Comptes", icon: "contacts" },
   { id: "pipeline", label: "Pipeline", icon: "pipeline" },
@@ -33,7 +34,7 @@ export function Sidebar({
 
   return (
     <aside className="sidebar" aria-label="Navigation principale">
-      <button className="sidebar-brand" type="button" onClick={() => onNavigate("inbox")}>
+      <button className="sidebar-brand" type="button" onClick={() => onNavigate("today")}>
         <span>27PM</span>
       </button>
       <nav>

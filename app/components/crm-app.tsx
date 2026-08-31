@@ -10,6 +10,7 @@ import type {
   PipelineStage,
 } from "../crm-types";
 import { AccountDialog } from "./account-dialog";
+import { AccountsView } from "./account-workspace";
 import { ComposeDialog } from "./compose-dialog";
 import { ContactDialog } from "./contact-dialog";
 import { ContextRail } from "./context-rail";
@@ -18,8 +19,8 @@ import { Icon } from "./icons";
 import { PipelineView } from "./pipeline-view";
 import { Sidebar } from "./sidebar";
 import { ThreadView } from "./thread-view";
+import { TodayView } from "./today-view";
 import {
-  AccountsView,
   ProjectsView,
   SettingsView,
   TasksView,
@@ -31,6 +32,7 @@ type CrmAppProps = {
 };
 
 const viewTitles: Record<NavView, string> = {
+  today: "Aujourd’hui",
   inbox: "Réception",
   contacts: "Comptes",
   pipeline: "Pipeline",
@@ -41,7 +43,7 @@ const viewTitles: Record<NavView, string> = {
 
 export function CrmApp({ initialData, operator }: CrmAppProps) {
   const [data, setData] = useState(initialData);
-  const [activeView, setActiveView] = useState<NavView>("inbox");
+  const [activeView, setActiveView] = useState<NavView>("today");
   const [mailboxAddress, setMailboxAddress] = useState(
     initialData.mailboxes[0]?.address ?? "bonjour@27pm.org",
   );
@@ -58,8 +60,11 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   const [editingAccount, setEditingAccount] = useState<Organization | null>(null);
   const [contactAccount, setContactAccount] = useState<Organization | null>(null);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [requestedAccountId, setRequestedAccountId] = useState<string | null>(null);
+  const [requestedIntakeId, setRequestedIntakeId] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const contextTriggerRef = useRef<HTMLButtonElement>(null);
+  const workspaceTitleRef = useRef<HTMLHeadingElement>(null);
   const [mobileThreadOpen, setMobileThreadOpen] = useState(
     Boolean(initialData.conversations[0]),
   );
@@ -137,7 +142,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   const selectedPipelineContact = selectedPipelineDeal
     ? data.contacts.find((item) => item.id === selectedPipelineDeal.contactId) ?? null
     : null;
-  const unreadCount = data.mailboxes.reduce((sum, mailbox) => sum + mailbox.unreadCount, 0);
+  const unreadCount = data.conversations.filter((conversation) => conversation.unread).length;
   const sendEnabled = data.live && data.transportState === "operational";
 
   const closeInboxContext = useCallback(() => {
@@ -152,6 +157,14 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   function navigate(view: NavView) {
     setActiveView(view);
     setContextOpen(false);
+    if (view !== "contacts") {
+      setRequestedAccountId(null);
+      setRequestedIntakeId(null);
+    }
+  }
+
+  function focusWorkspaceTitle() {
+    window.requestAnimationFrame(() => workspaceTitleRef.current?.focus());
   }
 
   function selectConversation(id: string) {
@@ -240,6 +253,9 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
           overdue: false,
           completed: false,
           dealId: deal.id,
+          conversationId: deal.conversationId,
+          organizationId: deal.organizationId,
+          organization: deal.organization,
         },
       ],
     }));
@@ -379,7 +395,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       <main className="workspace">
         <header className="workspace-header">
           <div>
-            <h1>{viewTitles[activeView]}</h1>
+            <h1 ref={workspaceTitleRef} tabIndex={-1}>{viewTitles[activeView]}</h1>
             {syncMessage ? <p role="status">{syncMessage}</p> : null}
           </div>
           {activeView === "inbox" ? (
@@ -393,6 +409,36 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
             </button>
           ) : null}
         </header>
+
+        {activeView === "today" ? (
+          <TodayView
+            data={data}
+            operatorName={operator.displayName}
+            onOpenAccounts={(organizationId, intakeId) => {
+              setRequestedAccountId(organizationId ?? null);
+              setRequestedIntakeId(intakeId ?? null);
+              setContextOpen(false);
+              setActiveView("contacts");
+            }}
+            onOpenConversation={(id) => {
+              selectConversation(id);
+              setContextOpen(false);
+              setActiveView("inbox");
+              focusWorkspaceTitle();
+            }}
+            onOpenDeal={(id) => {
+              setSelectedDealId(id);
+              setContextOpen(true);
+              setActiveView("pipeline");
+              focusWorkspaceTitle();
+            }}
+            onOpenTasks={() => {
+              navigate("tasks");
+              focusWorkspaceTitle();
+            }}
+            onToggleTask={toggleTask}
+          />
+        ) : null}
 
         {activeView === "inbox" ? (
           <div className="inbox-workspace">
@@ -482,7 +528,47 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
           </div>
         ) : null}
 
-        {activeView === "contacts" ? <AccountsView organizations={data.organizations} contacts={data.contacts} intakes={data.intakes} onEdit={(account) => { setEditingAccount(account); setAccountOpen(true); }} onAddContact={(account) => { setEditingContact(null); setContactAccount(account); }} onEditContact={(account, contact) => { setEditingContact(contact); setContactAccount(account); }} onReviewIntake={(id, status) => { void fetch(`/api/intake/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) }).then((response) => { if (!response.ok) throw new Error(); return refreshDashboard(); }).catch(() => setSyncMessage("La demande n’a pas pu être revue.")); }} /> : null}
+        {activeView === "contacts" ? (
+          <AccountsView
+            key={`${requestedAccountId ?? "all"}:${requestedIntakeId ?? "none"}`}
+            requestedAccountId={requestedAccountId}
+            requestedIntakeId={requestedIntakeId}
+            organizations={data.organizations}
+            contacts={data.contacts}
+            deals={data.deals}
+            tasks={data.tasks}
+            intakes={data.intakes}
+            onEdit={(account) => {
+              setEditingAccount(account);
+              setAccountOpen(true);
+            }}
+            onAddContact={(account) => {
+              setEditingContact(null);
+              setContactAccount(account);
+            }}
+            onEditContact={(account, contact) => {
+              setEditingContact(contact);
+              setContactAccount(account);
+            }}
+            onReviewIntake={(id, status) => {
+              void fetch(`/api/intake/${encodeURIComponent(id)}`, {
+                method: "PATCH",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({ status }),
+              }).then((response) => {
+                if (!response.ok) throw new Error();
+                return refreshDashboard();
+              }).catch(() => setSyncMessage("La demande n’a pas pu être revue."));
+            }}
+            onOpenDeal={(id) => {
+              setSelectedDealId(id);
+              setContextOpen(true);
+              setActiveView("pipeline");
+              focusWorkspaceTitle();
+            }}
+            onToggleTask={toggleTask}
+          />
+        ) : null}
         {activeView === "projects" ? <ProjectsView deals={data.deals} /> : null}
         {activeView === "tasks" ? (
           <TasksView
@@ -504,6 +590,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       <nav className="mobile-nav" aria-label="Navigation mobile">
         {(
           [
+            ["today", "Aujourd’hui", "calendar"],
             ["inbox", "Réception", "inbox"],
             ["contacts", "Comptes", "contacts"],
             ["pipeline", "Pipeline", "pipeline"],

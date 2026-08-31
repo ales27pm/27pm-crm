@@ -40,7 +40,7 @@ them. Never commit a production value to `.env.example`.
 | `PUBLIC_INTAKE_HASH_SALT` | Yes | Random secret used only to hash requester IPs for rate limiting. |
 | `PUBLIC_INTAKE_TURNSTILE_ACTION` | No | Expected Turnstile widget action; defaults to `crm_intake`. |
 
-## Migrations CRM 0004 à 0008
+## Migrations CRM 0004 à 0009
 
 The Sites build packages the SQL migrations and the production D1 binding is
 owned by the Sites project. Do not run Wrangler against the placeholder local
@@ -71,6 +71,11 @@ Migration 0008 marks Mailgun receipts as `reserved` until the message, event and
 attachments are durable, then `processed`; reserved callbacks may be resumed
 idempotently after an intermediate failure. Existing receipts are backfilled
 as processed.
+Migration 0009 removes only the exact canary and public-intake QA identifiers
+recorded before the V2 release. It preserves the five approved organizations,
+their account conversations, opportunities and internal tasks, the cohort
+import record, both mailboxes, compliance configuration, suppressions and the
+immutable audit ledger. Reapplying 0009 is a no-op and unknown records survive.
 A code rollback without a data rollback has not been claimed compatible.
 
 Before applying 0006, validate the full export by restoring it to a disposable

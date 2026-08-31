@@ -6,6 +6,7 @@ import type {
 export type MailboxKind = "sales" | "operations";
 export type TransportState = "operational" | "configuration" | "degraded";
 export type NavView =
+  | "today"
   | "inbox"
   | "contacts"
   | "pipeline"
@@ -166,6 +167,9 @@ export type CrmTask = {
   overdue: boolean;
   completed: boolean;
   dealId: string | null;
+  conversationId: string | null;
+  organizationId: string;
+  organization: string;
 };
 
 export type ActivityEntry = {
