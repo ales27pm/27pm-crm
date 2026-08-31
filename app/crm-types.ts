@@ -172,6 +172,46 @@ export type CrmTask = {
   organization: string;
 };
 
+export type OutreachStep = {
+  id: string;
+  sequenceIndex: number;
+  businessDayOffset: number;
+  actionType: "research" | "review" | "email" | "call" | "nurture";
+  title: string;
+  purpose: string;
+  requiresContact: boolean;
+  status: "planned" | "ready" | "blocked" | "done" | "skipped";
+  scheduledAt: string;
+  scheduledLabel: string;
+  completedAt: string | null;
+};
+
+export type OutreachStrategy = {
+  id: string;
+  organizationId: string;
+  organization: string;
+  contactId: string | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  version: number;
+  status: "draft" | "ready" | "active" | "paused" | "completed" | "archived";
+  objective: string;
+  targetName: string | null;
+  targetRole: string;
+  valueProposition: string;
+  openingAngle: string;
+  timingRationale: string;
+  contactResearchNotes: string;
+  recommendedStartAt: string;
+  recipientTimezone: string;
+  researchSource: string;
+  researchSourceUrl: string | null;
+  researchCapturedAt: string | null;
+  emailReady: boolean;
+  emailBlockReasons: string[];
+  steps: OutreachStep[];
+};
+
 export type ActivityEntry = {
   id: string; actorEmail: string; action: string; entityType: string;
   entityId: string; createdAt: string; createdLabel: string;
@@ -185,6 +225,7 @@ export type DashboardData = {
   contacts: Contact[];
   deals: Deal[];
   tasks: CrmTask[];
+  strategies: OutreachStrategy[];
   intakes: IntakeSubmission[];
   activities: ActivityEntry[];
   live: boolean;

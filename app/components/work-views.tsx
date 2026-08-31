@@ -1,6 +1,8 @@
 "use client";
 
-import type { ActivityEntry, Contact, CrmTask, Deal, Mailbox, TransportState } from "../crm-types";
+import { useEffect, useState } from "react";
+import type { ActivityEntry, Contact, CrmTask, Deal, Mailbox, OutreachStrategy, TransportState } from "../crm-types";
+import { outreachStepTiming } from "../../lib/outreach-strategy";
 import { Icon } from "./icons";
 import { ComplianceSettings } from "./compliance-settings";
 import { PrivacyRequestsPanel } from "./privacy-requests-panel";
@@ -26,18 +28,42 @@ export function ProjectsView({ deals }: { deals: Deal[] }) {
 
 export function TasksView({
   tasks,
+  strategies = [],
   onToggle,
+  onOpenStrategy = () => undefined,
 }: {
   tasks: CrmTask[];
+  strategies?: OutreachStrategy[];
   onToggle: (id: string) => void;
+  onOpenStrategy?: (organizationId: string) => void;
 }) {
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setClock(Date.now()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const now = new Date(clock);
   const openTasks = tasks.filter((task) => !task.completed);
-  const overdueCount = openTasks.filter((task) => task.overdue).length;
+  const strategySteps = strategies
+    .filter((strategy) => !["paused", "completed", "archived"].includes(strategy.status))
+    .flatMap((strategy) => strategy.steps
+      .filter((step) => step.status !== "done" && step.status !== "skipped")
+      .map((step) => ({
+        strategy,
+        step,
+        timing: outreachStepTiming(step.scheduledAt, strategy.recipientTimezone, now),
+      })))
+    .toSorted((left, right) => left.step.scheduledAt.localeCompare(right.step.scheduledAt));
+  const overdueCount = openTasks.filter((task) => task.overdue).length +
+    strategySteps.filter(({ timing }) => timing === "overdue").length;
+  const blockedCount = strategySteps.filter(({ step }) => step.status === "blocked").length;
   return (
     <section className="task-view" aria-label="Tâches">
       <header className="task-summary">
         <div><strong>{openTasks.length}</strong><span>actions ouvertes</span></div>
         <div data-alert={overdueCount > 0 || undefined}><strong>{overdueCount}</strong><span>en retard</span></div>
+        <div><strong>{strategySteps.length}</strong><span>étapes planifiées</span></div>
+        <div data-alert={blockedCount > 0 || undefined}><strong>{blockedCount}</strong><span>à débloquer</span></div>
       </header>
       {tasks.map((task) => (
         <label
@@ -53,6 +79,22 @@ export function TasksView({
       {tasks.length === 0 ? (
         <p className="empty-state">Aucune action. Ajoutez une relance depuis un dossier du pipeline.</p>
       ) : null}
+      <section className="strategy-task-list" aria-labelledby="strategy-task-title">
+        <header><div><span>À l’avance</span><h2 id="strategy-task-title">Séquences de prospection</h2></div></header>
+        {strategySteps.map(({ strategy, step, timing }) => (
+          <article className="strategy-task-row" data-status={step.status} data-overdue={timing === "overdue" || undefined} key={step.id}>
+            <span className="strategy-task-kind">{strategyActionLabel(step.actionType)}</span>
+            <div>
+              <strong>{step.title}</strong>
+              <small>{strategy.organization} · {step.scheduledLabel} · {strategyStepStatus(step.status)}{timing === "overdue" ? " · En retard" : timing === "today" ? " · Aujourd’hui" : ""}</small>
+            </div>
+            <button type="button" className="secondary-action" onClick={() => onOpenStrategy(strategy.organizationId)}>
+              Ouvrir le plan
+            </button>
+          </article>
+        ))}
+        {strategySteps.length === 0 ? <p className="empty-state">Aucune séquence planifiée.</p> : null}
+      </section>
     </section>
   );
 }
@@ -120,4 +162,12 @@ function transportStateLabel(state: TransportState) {
     configuration: "Mailgun à connecter",
     degraded: "Mailgun à vérifier",
   }[state];
+}
+
+function strategyActionLabel(action: OutreachStrategy["steps"][number]["actionType"]) {
+  return ({ research: "Recherche", review: "Validation", email: "Courriel", call: "Appel", nurture: "Décision" })[action];
+}
+
+function strategyStepStatus(status: OutreachStrategy["steps"][number]["status"]) {
+  return ({ planned: "Planifiée", ready: "Prête", blocked: "Bloquée", done: "Terminée", skipped: "Ignorée" })[status];
 }

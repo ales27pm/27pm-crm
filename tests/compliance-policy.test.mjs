@@ -2,7 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { boundedRequest } from "../lib/bounded-request.ts";
-import { canCall, canEmail, isAllowedCallingTime } from "../lib/compliance.ts";
+import {
+  CASL_DISPATCH_VALIDITY_MARGIN_MS,
+  CASL_MINIMUM_POST_SEND_VALIDITY_MS,
+  UNSUBSCRIBE_TOKEN_VALIDITY_MS,
+  canCall,
+  canEmail,
+  isAllowedCallingTime,
+} from "../lib/compliance.ts";
 import { appendComplianceFooter, createUnsubscribeToken, validUnsubscribeSecret, verifyUnsubscribeToken } from "../lib/unsubscribe.ts";
 
 const NOW = new Date("2026-08-31T14:00:00.000Z");
@@ -116,6 +123,32 @@ test("unsubscribe tokens are opaque, authenticated and the server footer contain
   for (const expected of ["Alice Conseillère", "27PM", "123 rue Exemple", "514 555-0100", "Se désabonner"]) {
     assert.match(content.text, new RegExp(expected));
   }
+});
+
+test("sender identity and unsubscribe remain valid for sixty full days after dispatch", async () => {
+  const exactSixtyDays = new Date(NOW.valueOf() + CASL_MINIMUM_POST_SEND_VALIDITY_MS).toISOString();
+  assert.ok(canEmail(emailContact(), configuration({ identityValidUntil: exactSixtyDays }), NOW)
+    .reasons.includes("sender_identity_validity_insufficient"));
+  assert.ok(canEmail(emailContact(), configuration({ unsubscribeMechanismValidUntil: exactSixtyDays }), NOW)
+    .reasons.includes("unsubscribe_mechanism_incomplete"));
+
+  const guardedValidity = new Date(NOW.valueOf() + CASL_MINIMUM_POST_SEND_VALIDITY_MS +
+    CASL_DISPATCH_VALIDITY_MARGIN_MS).toISOString();
+  assert.equal(canEmail(emailContact(), configuration({
+    identityValidUntil: guardedValidity,
+    unsubscribeMechanismValidUntil: guardedValidity,
+  }), NOW).allowed, true);
+
+  const sentAt = new Date(NOW.valueOf() + 5 * 60 * 1000);
+  const payload = {
+    contactId: "contact-1",
+    email: "person@example.com",
+    expiresAt: new Date(NOW.valueOf() + UNSUBSCRIBE_TOKEN_VALIDITY_MS).toISOString(),
+  };
+  const secret = "test-secret-not-for-production-32-bytes";
+  const token = await createUnsubscribeToken(secret, payload);
+  const sixtyDaysAfterSend = new Date(sentAt.valueOf() + CASL_MINIMUM_POST_SEND_VALIDITY_MS);
+  assert.deepEqual(await verifyUnsubscribeToken(secret, token, sixtyDaysAfterSend), payload);
 });
 
 function emailContact(patch = {}) {

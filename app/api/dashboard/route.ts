@@ -2,6 +2,7 @@ import { requireOperatorRequest } from "@/lib/api-auth";
 import { crmDatabase } from "@/lib/d1";
 import { jsonError } from "@/lib/http";
 import { CRM_MAILBOXES, mailboxForAddress } from "@/lib/mailboxes";
+import { evaluateOutreachChannel } from "@/lib/outreach-readiness";
 import { demoDashboard } from "../../demo-data";
 import {
   buildDeliveryTimeline,
@@ -148,6 +149,43 @@ type TaskRow = {
   organization: string | null;
 };
 
+type OutreachStrategyRow = {
+  id: string;
+  organizationId: string;
+  organization: string;
+  contactId: string | null;
+  contactName: string | null;
+  contactEmail: string | null;
+  version: number;
+  status: "draft" | "ready" | "active" | "paused" | "completed" | "archived";
+  objective: string;
+  targetName: string | null;
+  targetRole: string;
+  valueProposition: string;
+  openingAngle: string;
+  timingRationale: string;
+  contactResearchNotes: string;
+  recommendedStartAt: string;
+  recipientTimezone: string;
+  researchSource: string;
+  researchSourceUrl: string | null;
+  researchCapturedAt: string | null;
+};
+
+type OutreachStepRow = {
+  id: string;
+  strategyId: string;
+  sequenceIndex: number;
+  businessDayOffset: number;
+  actionType: "research" | "review" | "email" | "call" | "nurture";
+  title: string;
+  purpose: string;
+  requiresContact: number;
+  status: "planned" | "ready" | "blocked" | "done" | "skipped";
+  scheduledAt: string;
+  completedAt: string | null;
+};
+
 type ActivityRow = { id: string; actorEmail: string; action: string; entityType: string; entityId: string; createdAt: string };
 
 export async function GET(request: Request) {
@@ -208,6 +246,8 @@ export async function GET(request: Request) {
       deals,
       interactions,
       tasks,
+      outreachStrategies,
+      outreachSteps,
       intakes,
       activities,
     ] =
@@ -393,6 +433,41 @@ export async function GET(request: Request) {
           .all<TaskRow>(),
         db
           .prepare(
+            `SELECT strategy.id, strategy.organization_id AS organizationId,
+                    organization.name AS organization,
+                    strategy.contact_id AS contactId,
+                    contact.display_name AS contactName, contact.email AS contactEmail,
+                    strategy.version, strategy.status, strategy.objective,
+                    strategy.target_name AS targetName, strategy.target_role AS targetRole,
+                    strategy.value_proposition AS valueProposition,
+                    strategy.opening_angle AS openingAngle,
+                    strategy.timing_rationale AS timingRationale,
+                    strategy.contact_research_notes AS contactResearchNotes,
+                    strategy.recommended_start_at AS recommendedStartAt,
+                    strategy.recipient_timezone AS recipientTimezone,
+                    strategy.research_source AS researchSource,
+                    strategy.research_source_url AS researchSourceUrl,
+                    strategy.research_captured_at AS researchCapturedAt
+             FROM outreach_strategies strategy
+             JOIN organizations organization ON organization.id=strategy.organization_id
+             LEFT JOIN contacts contact ON contact.id=strategy.contact_id AND contact.deleted_at IS NULL
+             WHERE organization.deleted_at IS NULL
+             ORDER BY strategy.recommended_start_at, strategy.id`,
+          )
+          .all<OutreachStrategyRow>(),
+        db
+          .prepare(
+            `SELECT id, strategy_id AS strategyId, sequence_index AS sequenceIndex,
+                    business_day_offset AS businessDayOffset,
+                    action_type AS actionType, title, purpose,
+                    requires_contact AS requiresContact, status,
+                    scheduled_at AS scheduledAt, completed_at AS completedAt
+             FROM outreach_steps
+             ORDER BY strategy_id, sequence_index`,
+          )
+          .all<OutreachStepRow>(),
+        db
+          .prepare(
             `SELECT id, organization_name AS organizationName,
                     contact_name AS contactName, contact_email AS contactEmail,
                     project_type AS projectType, message, created_at AS createdAt
@@ -406,6 +481,21 @@ export async function GET(request: Request) {
              FROM audit_entries ORDER BY created_at DESC, rowid DESC LIMIT 100`)
           .all<ActivityRow>(),
       ]);
+
+    const outreachStepsByStrategy = new Map<string, OutreachStepRow[]>();
+    for (const step of outreachSteps.results) {
+      const current = outreachStepsByStrategy.get(step.strategyId) ?? [];
+      current.push(step);
+      outreachStepsByStrategy.set(step.strategyId, current);
+    }
+    const outreachReadiness = new Map(
+      await Promise.all(
+        outreachStrategies.results.map(async (strategy) => [
+          strategy.id,
+          await evaluateOutreachChannel(db, strategy.contactId, "email"),
+        ] as const),
+      ),
+    );
 
     const messagesByConversation = new Map<string, MessageRow[]>();
     for (const message of messages.results) {
@@ -615,6 +705,19 @@ export async function GET(request: Request) {
           organizationId: task.organizationId ?? "",
           organization: task.organization ?? "",
         })),
+        strategies: outreachStrategies.results.map((strategy) => {
+          const readiness = outreachReadiness.get(strategy.id);
+          return {
+            ...strategy,
+            emailReady: readiness?.allowed ?? false,
+            emailBlockReasons: readiness?.reasons ?? ["strategy_contact_missing"],
+            steps: (outreachStepsByStrategy.get(strategy.id) ?? []).map((step) => ({
+              ...step,
+              requiresContact: Boolean(step.requiresContact),
+              scheduledLabel: displayDate(step.scheduledAt, strategy.recipientTimezone),
+            })),
+          };
+        }),
         intakes: intakes.results.map((intake) => ({ ...intake, createdLabel: displayDate(intake.createdAt) })),
         activities: activities.results.map((activity) => ({ ...activity, createdLabel: displayDate(activity.createdAt) })),
         live: true,
@@ -678,16 +781,20 @@ function presentationProjectType(
   return "Site web";
 }
 
-function displayDate(value: string): string {
+function displayDate(value: string, timeZone = "America/Toronto"): string {
   const date = new Date(value);
   if (Number.isNaN(date.valueOf())) return value;
-  return new Intl.DateTimeFormat("fr-CA", {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "America/Toronto",
-  }).format(date);
+  try {
+    return new Intl.DateTimeFormat("fr-CA", {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone,
+    }).format(date);
+  } catch {
+    return value;
+  }
 }
 
 function displayEventDate(value: string): string {

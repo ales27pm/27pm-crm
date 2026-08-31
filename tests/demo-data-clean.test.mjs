@@ -26,6 +26,7 @@ test("demo mode contains only the approved initial account cohort", () => {
     demoDashboard.contacts,
     demoDashboard.deals,
     demoDashboard.tasks,
+    demoDashboard.strategies,
     demoDashboard.intakes,
     demoDashboard.activities,
   ]) {

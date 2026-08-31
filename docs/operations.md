@@ -40,7 +40,7 @@ them. Never commit a production value to `.env.example`.
 | `PUBLIC_INTAKE_HASH_SALT` | Yes | Random secret used only to hash requester IPs for rate limiting. |
 | `PUBLIC_INTAKE_TURNSTILE_ACTION` | No | Expected Turnstile widget action; defaults to `crm_intake`. |
 
-## Migrations CRM 0004 à 0009
+## Migrations CRM 0004 à 0010
 
 The Sites build packages the SQL migrations and the production D1 binding is
 owned by the Sites project. Do not run Wrangler against the placeholder local
@@ -54,7 +54,7 @@ Before an authorized deployment:
 3. deploy the exact reviewed checkpoint through Sites so its packaged
    migrations apply to the correct binding;
 4. verify `GET /api/health`, operator denial/allowlist behavior, the five
-   accounts, zero cohort contacts, and `PRAGMA foreign_key_check` through the
+   accounts, six fail-closed research contacts, and `PRAGMA foreign_key_check` through the
    approved D1 console;
 5. verify a duplicate import key returns an idempotent no-change result.
 
@@ -76,14 +76,21 @@ recorded before the V2 release. It preserves the five approved organizations,
 their account conversations, opportunities and internal tasks, the cohort
 import record, both mailboxes, compliance configuration, suppressions and the
 immutable audit ledger. Reapplying 0009 is a no-op and unknown records survive.
+Migration 0010 adds one dated outreach strategy and six planning steps for
+each approved organization. It also records five shared business routes and
+one nominative professional address from an official company page. Every imported email
+has `email_status = 'unknown'`, `lawful_basis = 'none'` and channel status
+`unknown`; all 15 email steps are therefore blocked. The migration creates no
+message, send command or automatic transport action.
 A code rollback without a data rollback has not been claimed compatible.
 
 Before applying 0006, validate the full export by restoring it to a disposable
 D1/SQLite target and record the source database, UTC timestamp, object count,
 checksum and exact restore command. A truncated SQL display or an untested
 download is not a restorable backup. After migration, run `PRAGMA
-foreign_key_check`, confirm the five cohort accounts remain ordered, and confirm
-that no cohort contact was created.
+foreign_key_check`, confirm the five cohort accounts remain ordered, confirm
+the six research contacts retain their provenance and fail-closed state, and
+confirm all 30 planning steps exist without a message or send command.
 
 ## Public intake contract
 

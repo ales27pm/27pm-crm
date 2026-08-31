@@ -8,16 +8,22 @@ import type {
   Deal,
   IntakeSubmission,
   Organization,
+  OutreachStep,
+  OutreachStrategy,
 } from "../crm-types";
 import { Icon } from "./icons";
+import { OutreachStrategyPanel } from "./outreach-strategy-panel";
 
 type AccountsViewProps = {
   requestedAccountId?: string | null;
   requestedIntakeId?: string | null;
+  requestedStrategyAccountId?: string | null;
+  onStrategyRequestHandled?: () => void;
   organizations: Organization[];
   contacts: Contact[];
   deals: Deal[];
   tasks: CrmTask[];
+  strategies?: OutreachStrategy[];
   intakes: IntakeSubmission[];
   onEdit: (account: Organization) => void;
   onAddContact: (account: Organization) => void;
@@ -25,6 +31,13 @@ type AccountsViewProps = {
   onReviewIntake: (id: string, status: "accepted" | "rejected") => void;
   onOpenDeal: (id: string) => void;
   onToggleTask: (id: string) => void;
+  onEditStrategy?: (account: Organization, strategy: OutreachStrategy | null) => void;
+  onUpdateStrategyStep?: (
+    strategyId: string,
+    stepId: string,
+    patch: { status?: OutreachStep["status"]; scheduledAt?: string },
+  ) => void;
+  updatingStrategyStepIds?: ReadonlySet<string>;
 };
 
 type AccountFilter = "all" | "high" | "unassigned" | "blocked";
@@ -34,10 +47,13 @@ type TimelineEntry = CrmInteraction & { dealTitle: string };
 export function AccountsView({
   requestedAccountId,
   requestedIntakeId,
+  requestedStrategyAccountId,
+  onStrategyRequestHandled = () => undefined,
   organizations,
   contacts,
   deals,
   tasks,
+  strategies = [],
   intakes,
   onEdit,
   onAddContact,
@@ -45,6 +61,9 @@ export function AccountsView({
   onReviewIntake,
   onOpenDeal,
   onToggleTask,
+  onEditStrategy = () => undefined,
+  onUpdateStrategyStep = () => undefined,
+  updatingStrategyStepIds = new Set<string>(),
 }: AccountsViewProps) {
   const viewRef = useRef<HTMLElement>(null);
   const [query, setQuery] = useState("");
@@ -77,6 +96,19 @@ export function AccountsView({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [intakes, requestedIntakeId]);
+
+  useEffect(() => {
+    if (!requestedStrategyAccountId) return;
+    const frame = window.requestAnimationFrame(() => {
+      const target = Array.from(
+        viewRef.current?.querySelectorAll<HTMLElement>("[data-outreach-strategy-account-id]") ?? [],
+      ).find((item) => item.dataset.outreachStrategyAccountId === requestedStrategyAccountId);
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.focus({ preventScroll: true });
+      if (target) onStrategyRequestHandled();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [onStrategyRequestHandled, requestedStrategyAccountId]);
 
   const accountNameCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -129,6 +161,9 @@ export function AccountsView({
     : [];
   const openTasks = relatedTasks.filter((task) => !task.completed);
   const overdueTasks = openTasks.filter((task) => task.overdue);
+  const selectedStrategy = selectedAccount
+    ? strategies.find((strategy) => strategy.organizationId === selectedAccount.id) ?? null
+    : null;
   const timeline = relatedDeals
     .flatMap<TimelineEntry>((deal) =>
       deal.interactions.map((interaction) => ({
@@ -301,6 +336,14 @@ export function AccountsView({
                     ) : null}
                   </div>
                 </section>
+
+                <OutreachStrategyPanel
+                  account={selectedAccount}
+                  strategy={selectedStrategy}
+                  onEdit={() => onEditStrategy(selectedAccount, selectedStrategy)}
+                  onUpdateStep={onUpdateStrategyStep}
+                  updatingStepIds={updatingStrategyStepIds}
+                />
 
                 <section className="account-section">
                   <header><div><span>Vente</span><h3>Opportunités</h3></div></header>

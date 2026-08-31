@@ -22,6 +22,7 @@ export const emptyDashboard: DashboardData = {
   contacts: [],
   deals: [],
   tasks: [],
+  strategies: [],
   intakes: [],
   activities: [],
 };

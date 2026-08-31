@@ -102,6 +102,10 @@ export type ComplianceDecision = {
   configurationVersion: number;
 };
 
+export const CASL_MINIMUM_POST_SEND_VALIDITY_MS = 60 * 24 * 60 * 60 * 1000;
+export const CASL_DISPATCH_VALIDITY_MARGIN_MS = 24 * 60 * 60 * 1000;
+export const UNSUBSCRIBE_TOKEN_VALIDITY_MS = 90 * 24 * 60 * 60 * 1000;
+
 export function canEmail(
   contact: ContactCompliance,
   configuration: ComplianceConfiguration,
@@ -138,10 +142,11 @@ export function canEmail(
     if (!contact.b2bRelationshipEvidence.trim()) reasons.push("b2b_relationship_unproven");
     if (!contact.b2bMessageRelevance.trim()) reasons.push("b2b_message_relevance_missing");
   }
-  const sixtyDays = now.valueOf() + 60 * 24 * 60 * 60 * 1000;
+  const requiredPostSendValidity = now.valueOf() +
+    CASL_MINIMUM_POST_SEND_VALIDITY_MS + CASL_DISPATCH_VALIDITY_MARGIN_MS;
   if (!configuration.senderName || !configuration.organizationName || !configuration.postalAddress || !configuration.contactMethod) reasons.push("sender_identity_incomplete");
-  if (!validDate(configuration.identityValidUntil) || new Date(configuration.identityValidUntil!).valueOf() < sixtyDays) reasons.push("sender_identity_validity_insufficient");
-  if (!validPastOrPresent(configuration.unsubscribeMechanismValidatedAt, now) || !validDate(configuration.unsubscribeMechanismValidUntil) || new Date(configuration.unsubscribeMechanismValidUntil!).valueOf() < sixtyDays || !configuration.unsubscribeSigningKeyConfigured) reasons.push("unsubscribe_mechanism_incomplete");
+  if (!validDate(configuration.identityValidUntil) || new Date(configuration.identityValidUntil!).valueOf() < requiredPostSendValidity) reasons.push("sender_identity_validity_insufficient");
+  if (!validPastOrPresent(configuration.unsubscribeMechanismValidatedAt, now) || !validDate(configuration.unsubscribeMechanismValidUntil) || new Date(configuration.unsubscribeMechanismValidUntil!).valueOf() < requiredPostSendValidity || !configuration.unsubscribeSigningKeyConfigured) reasons.push("unsubscribe_mechanism_incomplete");
   if (!Boolean(configuration.crossBorderEfvpConfirmed)) reasons.push("cross_border_efvp_unconfirmed");
   if (!Boolean(configuration.crossBorderContractConfirmed)) reasons.push("cross_border_contract_unconfirmed");
   if (!Boolean(configuration.crossBorderLegalValidationConfirmed)) reasons.push("cross_border_legal_validation_unconfirmed");

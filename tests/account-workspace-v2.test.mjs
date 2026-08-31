@@ -140,6 +140,60 @@ test("renders one isolated account 360 workspace with its commercial context", (
           organization: "Atelier Exemple",
         },
       ],
+      strategies: [
+        {
+          id: "strategy-atelier",
+          organizationId: "atelier",
+          organization: "Atelier Exemple",
+          contactId: "contact-atelier",
+          contactName: "Alex Tremblay",
+          contactEmail: "alex@atelier.example",
+          version: 1,
+          status: "draft",
+          objective: "Obtenir une discussion exploratoire.",
+          targetName: "Alex Tremblay",
+          targetRole: "Direction",
+          valueProposition: "Audit ciblé et aperçu concret.",
+          openingAngle: "Montrer une occasion commerciale précise.",
+          timingRationale: "Signal commercial actuel à valider.",
+          contactResearchNotes: "Adresse publique; fondement à confirmer.",
+          recommendedStartAt: "2026-09-02T13:30:00.000Z",
+          recipientTimezone: "America/Toronto",
+          researchSource: "Page officielle",
+          researchSourceUrl: "https://atelier.example/contact",
+          researchCapturedAt: "2026-08-30T12:00:00.000Z",
+          emailReady: false,
+          emailBlockReasons: ["email_lawful_basis_missing"],
+          steps: [
+            {
+              id: "strategy-atelier-step-00",
+              sequenceIndex: 0,
+              businessDayOffset: -2,
+              actionType: "research",
+              title: "Finaliser l’audit du compte",
+              purpose: "Confirmer les constats publics.",
+              requiresContact: false,
+              status: "planned",
+              scheduledAt: "2026-08-31T13:30:00.000Z",
+              scheduledLabel: "31 août",
+              completedAt: null,
+            },
+            {
+              id: "strategy-atelier-step-02",
+              sequenceIndex: 2,
+              businessDayOffset: 0,
+              actionType: "email",
+              title: "Premier courriel personnalisé",
+              purpose: "Présenter un angle précis.",
+              requiresContact: true,
+              status: "blocked",
+              scheduledAt: "2026-09-02T13:30:00.000Z",
+              scheduledLabel: "2 septembre",
+              completedAt: null,
+            },
+          ],
+        },
+      ],
       intakes: [
         {
           id: "intake-test",
@@ -169,6 +223,12 @@ test("renders one isolated account 360 workspace with its commercial context", (
   assert.match(markup, /Relancer Atelier Exemple/u);
   assert.match(markup, /Relance liée à la conversation/u);
   assert.match(markup, /Besoins et échéancier confirmés\./u);
+  assert.match(markup, /Stratégie d’approche/u);
+  assert.match(markup, /alex@atelier\.example/u);
+  assert.match(markup, /Courriel bloqué/u);
+  assert.match(markup, /Preuve consultée/u);
+  assert.match(markup, /href="https:\/\/atelier\.example\/contact"/u);
+  assert.match(markup, /Ce plan ne déclenche aucun envoi/u);
   assert.match(markup, /Ouvrir dans le pipeline/u);
   assert.match(markup, /Demandes publiques en attente/u);
   assert.doesNotMatch(markup, /ailleurs@autre\.example/u);
@@ -177,16 +237,23 @@ test("renders one isolated account 360 workspace with its commercial context", (
 });
 
 test("connects the account 360 workspace to CRM data and responsive layout", async () => {
-  const [app, dashboardRoute, css] = await Promise.all([
+  const [app, dashboardRoute, css, workspace, strategyDialog, strategyPanel] = await Promise.all([
     readFile(new URL("../app/components/crm-app.tsx", import.meta.url), "utf8"),
     readFile(new URL("../app/api/dashboard/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/account-workspace.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/outreach-strategy-dialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/outreach-strategy-panel.tsx", import.meta.url), "utf8"),
   ]);
 
   assert.match(app, /deals=\{data\.deals\}/u);
   assert.match(app, /tasks=\{data\.tasks\}/u);
   assert.match(app, /onOpenDeal=/u);
   assert.match(app, /onToggleTask=\{toggleTask\}/u);
+  assert.match(app, /onStrategyRequestHandled=\{\(\) => setRequestedStrategyAccountId\(null\)\}/u);
+  assert.match(workspace, /if \(target\) onStrategyRequestHandled\(\)/u);
+  assert.match(strategyDialog, /<fieldset className="form-grid" disabled=\{busy \|\| completed\}>/u);
+  assert.match(strategyPanel, /aria-labelledby=\{`outreach-strategy-title-/u);
   assert.match(dashboardRoute, /const auth = requireOperatorRequest\(request\);[\s\S]*if \(auth\.response\) return auth\.response;[\s\S]*CRM_DEMO_MODE/u);
   assert.match(dashboardRoute, /Response\.json\(demoDashboard,[\s\S]*cache-control["']:\s*["']no-store/u);
   assert.match(dashboardRoute, /task\.conversation_id AS conversationId[\s\S]*COALESCE\(deal\.organization_id, contact\.organization_id\) AS organizationId/u);

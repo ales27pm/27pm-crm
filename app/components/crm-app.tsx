@@ -7,6 +7,8 @@ import type {
   Deal,
   NavView,
   Organization,
+  OutreachStep,
+  OutreachStrategy,
   PipelineStage,
 } from "../crm-types";
 import { AccountDialog } from "./account-dialog";
@@ -16,10 +18,12 @@ import { ContactDialog } from "./contact-dialog";
 import { ContextRail } from "./context-rail";
 import { InboxRail, type InboxFilter } from "./inbox-rail";
 import { Icon } from "./icons";
+import { OutreachStrategyDialog } from "./outreach-strategy-dialog";
 import { PipelineView } from "./pipeline-view";
 import { Sidebar } from "./sidebar";
 import { ThreadView } from "./thread-view";
 import { TodayView } from "./today-view";
+import { outreachErrorMessage } from "../../lib/outreach-errors";
 import {
   ProjectsView,
   SettingsView,
@@ -60,8 +64,13 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   const [editingAccount, setEditingAccount] = useState<Organization | null>(null);
   const [contactAccount, setContactAccount] = useState<Organization | null>(null);
   const [editingContact, setEditingContact] = useState<Contact | null>(null);
+  const [strategyAccount, setStrategyAccount] = useState<Organization | null>(null);
+  const [editingStrategy, setEditingStrategy] = useState<OutreachStrategy | null>(null);
+  const [updatingStrategyStepIds, setUpdatingStrategyStepIds] = useState<Set<string>>(new Set());
+  const updatingStrategyStepIdsRef = useRef<Set<string>>(new Set());
   const [requestedAccountId, setRequestedAccountId] = useState<string | null>(null);
   const [requestedIntakeId, setRequestedIntakeId] = useState<string | null>(null);
+  const [requestedStrategyAccountId, setRequestedStrategyAccountId] = useState<string | null>(null);
   const [contextOpen, setContextOpen] = useState(false);
   const contextTriggerRef = useRef<HTMLButtonElement>(null);
   const workspaceTitleRef = useRef<HTMLHeadingElement>(null);
@@ -157,6 +166,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   function navigate(view: NavView) {
     setActiveView(view);
     setContextOpen(false);
+    setRequestedStrategyAccountId(null);
     if (view !== "contacts") {
       setRequestedAccountId(null);
       setRequestedIntakeId(null);
@@ -312,6 +322,62 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       }));
       setSyncMessage("La tâche n’a pas été mise à jour.");
     });
+  }
+
+  async function updateStrategyStep(
+    strategyId: string,
+    stepId: string,
+    patch: { status?: OutreachStep["status"]; scheduledAt?: string },
+  ) {
+    if (!currentIsLive(data) || updatingStrategyStepIdsRef.current.has(stepId)) return;
+    updatingStrategyStepIdsRef.current.add(stepId);
+    setUpdatingStrategyStepIds((current) => new Set(current).add(stepId));
+    try {
+      const response = await fetch(
+        `/api/strategies/${encodeURIComponent(strategyId)}/steps/${encodeURIComponent(stepId)}`,
+        {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(patch),
+          signal: AbortSignal.timeout(15_000),
+        },
+      );
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({})) as { error?: string; detail?: string };
+        throw new Error(body.detail || body.error || "outreach_step_update_failed");
+      }
+      setData((current) => ({
+        ...current,
+        strategies: current.strategies.map((strategy) => strategy.id === strategyId
+          ? {
+              ...strategy,
+              steps: strategy.steps.map((step) => step.id === stepId
+                ? {
+                    ...step,
+                    ...(patch.status ? { status: patch.status } : {}),
+                    ...(patch.scheduledAt ? { scheduledAt: patch.scheduledAt } : {}),
+                    ...(patch.status === "done" ? { completedAt: new Date().toISOString() } : {}),
+                  }
+                : step),
+            }
+          : strategy),
+      }));
+      try {
+        await refreshDashboard();
+      } catch {
+        setSyncMessage("Étape enregistrée; l’actualisation complète a échoué. Rechargez la page avant une autre modification.");
+      }
+    } catch (cause: unknown) {
+      const detail = cause instanceof Error ? cause.message : "outreach_step_update_failed";
+      setSyncMessage(outreachErrorMessage(detail));
+    } finally {
+      updatingStrategyStepIdsRef.current.delete(stepId);
+      setUpdatingStrategyStepIds((current) => {
+        const next = new Set(current);
+        next.delete(stepId);
+        return next;
+      });
+    }
   }
 
   async function refreshDashboard() {
@@ -533,10 +599,13 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
             key={`${requestedAccountId ?? "all"}:${requestedIntakeId ?? "none"}`}
             requestedAccountId={requestedAccountId}
             requestedIntakeId={requestedIntakeId}
+            requestedStrategyAccountId={requestedStrategyAccountId}
+            onStrategyRequestHandled={() => setRequestedStrategyAccountId(null)}
             organizations={data.organizations}
             contacts={data.contacts}
             deals={data.deals}
             tasks={data.tasks}
+            strategies={data.strategies}
             intakes={data.intakes}
             onEdit={(account) => {
               setEditingAccount(account);
@@ -567,13 +636,26 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
               focusWorkspaceTitle();
             }}
             onToggleTask={toggleTask}
+            onEditStrategy={(account, strategy) => {
+              setStrategyAccount(account);
+              setEditingStrategy(strategy);
+            }}
+            onUpdateStrategyStep={updateStrategyStep}
+            updatingStrategyStepIds={updatingStrategyStepIds}
           />
         ) : null}
         {activeView === "projects" ? <ProjectsView deals={data.deals} /> : null}
         {activeView === "tasks" ? (
           <TasksView
             tasks={data.tasks}
+            strategies={data.strategies}
             onToggle={toggleTask}
+            onOpenStrategy={(organizationId) => {
+              setRequestedAccountId(organizationId);
+              setRequestedIntakeId(null);
+              setRequestedStrategyAccountId(organizationId);
+              setActiveView("contacts");
+            }}
           />
         ) : null}
         {activeView === "settings" ? (
@@ -618,6 +700,23 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       />
       <AccountDialog account={editingAccount} open={accountOpen} onClose={() => setAccountOpen(false)} onSaved={async () => { await refreshDashboard(); }} />
       <ContactDialog account={contactAccount} contact={editingContact} open={Boolean(contactAccount)} onClose={() => { setContactAccount(null); setEditingContact(null); }} onSaved={async () => { await refreshDashboard(); }} />
+      <OutreachStrategyDialog
+        account={strategyAccount}
+        contacts={data.contacts}
+        strategy={editingStrategy}
+        open={Boolean(strategyAccount)}
+        onClose={() => {
+          setStrategyAccount(null);
+          setEditingStrategy(null);
+        }}
+        onSaved={async () => {
+          try {
+            await refreshDashboard();
+          } catch {
+            setSyncMessage("Stratégie enregistrée; l’actualisation complète a échoué. Rechargez la page avant une autre modification.");
+          }
+        }}
+      />
     </div>
   );
 }

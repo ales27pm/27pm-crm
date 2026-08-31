@@ -9,7 +9,7 @@ import { createAccount, createContact, deleteAccount, deleteContact, normalizePh
 import { createInteraction, parseInteractionInput } from "../lib/crm-prospects.ts";
 import { applyEmailUnsubscribe } from "../lib/unsubscribe.ts";
 
-test("migration seeds the ordered account cohort without personal contacts", async (t) => {
+test("migration seeds the ordered cohort and fail-closed public contact research", async (t) => {
   const database = await migratedDatabase(); t.after(() => database.close());
   const rows = database.prepare(`SELECT name, score, priority, budget_min_cents AS budgetMin, budget_max_cents AS budgetMax, source_url AS sourceUrl, source_date AS sourceDate FROM organizations WHERE external_key LIKE 'initial-cohort:%' ORDER BY sort_order`).all();
   assert.deepEqual(rows.map((row) => ({ ...row })), [
@@ -19,7 +19,25 @@ test("migration seeds the ordered account cohort without personal contacts", asy
     { name: "Machineries Pronovost", score: 89, priority: "high", budgetMin: 3_000_000, budgetMax: 5_000_000, sourceUrl: null, sourceDate: null },
     { name: "Groupe Industriel Interprovincial", score: 83, priority: "high", budgetMin: 1_200_000, budgetMax: 2_200_000, sourceUrl: null, sourceDate: null },
   ]);
-  assert.equal(database.prepare(`SELECT COUNT(*) AS count FROM contacts WHERE organization_id IN (SELECT id FROM organizations WHERE external_key LIKE 'initial-cohort:%')`).get().count, 0);
+  assert.equal(database.prepare(`SELECT COUNT(*) AS count FROM contacts WHERE organization_id IN (SELECT id FROM organizations WHERE external_key LIKE 'initial-cohort:%')`).get().count, 6);
+  assert.deepEqual(
+    database.prepare(`SELECT email, email_status AS emailStatus, contact_basis AS contactBasis
+      FROM contacts WHERE id LIKE 'contact-public-%' ORDER BY email`).all().map((row) => ({ ...row })),
+    [
+      { email: "danielb@jamec.ca", emailStatus: "unknown", contactBasis: "unknown" },
+      { email: "info@jamec.ca", emailStatus: "unknown", contactBasis: "unknown" },
+      { email: "info@pronovost.qc.ca", emailStatus: "unknown", contactBasis: "unknown" },
+      { email: "info@shuot.com", emailStatus: "unknown", contactBasis: "unknown" },
+      { email: "info@vallee.ca", emailStatus: "unknown", contactBasis: "unknown" },
+      { email: "projet@groupeinter.com", emailStatus: "unknown", contactBasis: "unknown" },
+    ],
+  );
+  assert.deepEqual(
+    { ...database.prepare(`SELECT COUNT(*) AS count, SUM(CASE WHEN lawful_basis='none' AND status='unknown' THEN 1 ELSE 0 END) AS blocked
+      FROM contact_channel_compliance WHERE contact_id LIKE 'contact-public-%' AND channel='email'`).get() },
+    { count: 6, blocked: 6 },
+  );
+  assert.equal(database.prepare(`SELECT COUNT(*) AS count FROM contacts WHERE email IN ('mtremblay@shuot.com','steve@groupeinter.com')`).get().count, 0);
   assert.equal(database.prepare(`SELECT COUNT(*) AS count FROM account_imports WHERE import_key='initial-cohort:v1'`).get().count, 1);
   assert.deepEqual({ ...database.prepare(`SELECT COUNT(*) AS count, SUM(contact_action) AS contactActions FROM tasks WHERE id LIKE 'task-cohort-%'`).get() }, { count: 5, contactActions: 0 });
 });
@@ -96,6 +114,9 @@ test("rejects unverified provenance and suppression cancels contact actions", as
   const normalizedUnsubscribe = parseContactInput(validContactPayload({ emailStatus: "unsubscribed", unsubscribed: false }));
   assert.equal(normalizedUnsubscribe.ok, true);
   if (normalizedUnsubscribe.ok) assert.equal(normalizedUnsubscribe.value.unsubscribed, true);
+  const failClosedResearch = parseContactInput(validContactPayload({ emailStatus: "unknown" }));
+  assert.equal(failClosedResearch.ok, true);
+  if (failClosedResearch.ok) assert.equal(failClosedResearch.value.emailStatus, "unknown");
   const database = await migratedDatabase(); t.after(() => database.close()); const db = d1Adapter(database);
   const account = parseAccountInput({ name: "Blocage Test", sourceLabel: "Test", nextStep: "Relancer" }); assert.equal(account.ok, true); if (!account.ok) return;
   const created = await createAccount(db, account.value, "operator@27pm.org");

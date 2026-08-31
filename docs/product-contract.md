@@ -68,6 +68,14 @@ CRM data.
   account/contact workflow.
 - `POST /api/interactions` — record a manual call, meeting, completed email,
   note, or other interaction without invoking the mail transport.
+- `PUT /api/strategies/:organizationId` — create or revise a versioned,
+  fail-closed outreach plan and its six-step working-day cadence.
+- `PATCH /api/strategies/:strategyId/steps/:stepId` — reschedule or complete a
+  planning step; contact steps revalidate the selected channel at action time.
+
+An outreach strategy is planning data, not send authorization. The strategy
+and step routes never write `messages` or `send_commands` and never call the
+mail transport.
 
 ## Mailgun route target
 

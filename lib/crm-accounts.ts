@@ -7,7 +7,7 @@ export const ACCOUNT_PRIORITIES = ["very_high", "high", "normal", "low"] as cons
 export const CONTACT_BASES = ["inbound_request", "explicit_consent", "legitimate_interest", "existing_client"] as const;
 export const ROLE_RELEVANCE = ["relevant", "not_relevant"] as const;
 export const DNCL_STATUSES = ["not_checked", "not_listed", "listed", "not_applicable"] as const;
-export const EMAIL_STATUSES = ["valid", "bounced", "invalid", "unsubscribed"] as const;
+export const EMAIL_STATUSES = ["unknown", "valid", "bounced", "invalid", "unsubscribed"] as const;
 export const PERSONAL_DATA_CATEGORIES = ["work_contact", "other_personal"] as const;
 export const QUALIFICATION_MODES = ["manual", "assisted", "fully_automated"] as const;
 

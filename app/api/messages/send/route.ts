@@ -7,6 +7,7 @@ import {
   loadComplianceConfiguration,
   loadContactCompliance,
   type ContactCompliance,
+  UNSUBSCRIBE_TOKEN_VALIDITY_MS,
 } from "@/lib/compliance";
 import { jsonError, readJsonObject } from "@/lib/http";
 import { sendMailgunMessage } from "@/lib/mailgun-client";
@@ -167,7 +168,7 @@ export async function POST(request: Request) {
       await cancelSendCommand(db, commandId, "unsubscribe_origin_invalid");
       return jsonError(503, "unsubscribe_origin_invalid");
     }
-    const expiresAt = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + UNSUBSCRIBE_TOKEN_VALIDITY_MS).toISOString();
     const unsubscribeToken = await createUnsubscribeToken(requireRuntimeString("CRM_UNSUBSCRIBE_SIGNING_KEY"), {
       contactId: contact.contactId,
       email: contact.addressNormalized,

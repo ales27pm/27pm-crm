@@ -576,6 +576,97 @@ export const tasks = sqliteTable(
   ],
 );
 
+export const outreachStrategies = sqliteTable(
+  "outreach_strategies",
+  {
+    id: text("id").primaryKey(),
+    organizationId: text("organization_id")
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    contactId: text("contact_id").references(() => contacts.id, {
+      onDelete: "set null",
+    }),
+    version: integer("version").notNull().default(1),
+    status: text("status").notNull().default("draft"),
+    objective: text("objective").notNull(),
+    targetName: text("target_name"),
+    targetRole: text("target_role").notNull(),
+    valueProposition: text("value_proposition").notNull(),
+    openingAngle: text("opening_angle").notNull(),
+    timingRationale: text("timing_rationale").notNull(),
+    contactResearchNotes: text("contact_research_notes").notNull().default(""),
+    recommendedStartAt: text("recommended_start_at").notNull(),
+    recipientTimezone: text("recipient_timezone")
+      .notNull()
+      .default("America/Toronto"),
+    researchSource: text("research_source").notNull().default(""),
+    researchSourceUrl: text("research_source_url"),
+    researchCapturedAt: text("research_captured_at"),
+    createdBy: text("created_by").notNull(),
+    updatedBy: text("updated_by").notNull(),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("outreach_strategies_organization_unique").on(
+      table.organizationId,
+    ),
+    index("outreach_strategies_status_start_idx").on(
+      table.status,
+      table.recommendedStartAt,
+    ),
+    check(
+      "outreach_strategies_status_check",
+      sql`${table.status} in ('draft', 'ready', 'active', 'paused', 'completed', 'archived')`,
+    ),
+  ],
+);
+
+export const outreachSteps = sqliteTable(
+  "outreach_steps",
+  {
+    id: text("id").primaryKey(),
+    strategyId: text("strategy_id")
+      .notNull()
+      .references(() => outreachStrategies.id, { onDelete: "cascade" }),
+    sequenceIndex: integer("sequence_index").notNull(),
+    businessDayOffset: integer("business_day_offset").notNull(),
+    actionType: text("action_type").notNull(),
+    title: text("title").notNull(),
+    purpose: text("purpose").notNull(),
+    requiresContact: integer("requires_contact", { mode: "boolean" })
+      .notNull()
+      .default(false),
+    status: text("status").notNull().default("planned"),
+    scheduledAt: text("scheduled_at").notNull(),
+    completedAt: text("completed_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("outreach_steps_strategy_sequence_unique").on(
+      table.strategyId,
+      table.sequenceIndex,
+    ),
+    index("outreach_steps_status_schedule_idx").on(
+      table.status,
+      table.scheduledAt,
+    ),
+    check(
+      "outreach_steps_action_type_check",
+      sql`${table.actionType} in ('research', 'review', 'email', 'call', 'nurture')`,
+    ),
+    check(
+      "outreach_steps_status_check",
+      sql`${table.status} in ('planned', 'ready', 'blocked', 'done', 'skipped')`,
+    ),
+    check(
+      "outreach_steps_offset_check",
+      sql`${table.businessDayOffset} >= -30 and ${table.businessDayOffset} <= 365`,
+    ),
+  ],
+);
+
 export const accountImports = sqliteTable(
   "account_imports",
   {

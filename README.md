@@ -22,10 +22,18 @@ séparés du CRM.
 
 ## CRM de prospection
 
-Le CRM sépare les entreprises, contacts vérifiés et opportunités. Il gère le
+Le CRM sépare les entreprises, contacts sourcés et opportunités. Il gère le
 pipeline, les relances, les interactions, la provenance, l’assignation et les
-blocages de conformité. La cohorte initiale contient uniquement cinq
-entreprises et des hypothèses de prospection — aucun contact personnel inventé.
+blocages de conformité. La cohorte initiale contient cinq entreprises, cinq
+routes professionnelles officielles et un contact professionnel nominatif
+publié sur le site de son entreprise. Les six adresses restent au statut
+`unknown` et ne sont jamais rendues envoyables par leur simple présence.
+
+Chaque entreprise peut avoir une stratégie datée : recherche, validation,
+premier courriel proposé, deux relances au maximum, puis fermeture ou veille.
+Les étapes apparaissent dans le dossier 360° et la vue Tâches. Une stratégie ne
+compose et n’envoie aucun message; une étape de contact demeure bloquée tant
+que le moteur de conformité ne dispose pas de toutes les preuves exigées.
 La portée et les limites du formulaire public, de l’authentification et du
 déploiement sont détaillées dans
 [docs/mvp-limitations.md](docs/mvp-limitations.md).
