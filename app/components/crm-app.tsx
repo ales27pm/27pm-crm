@@ -640,6 +640,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
               setStrategyAccount(account);
               setEditingStrategy(strategy);
             }}
+            onOpenComplianceSettings={() => navigate("settings")}
             onUpdateStrategyStep={updateStrategyStep}
             updatingStrategyStepIds={updatingStrategyStepIds}
           />
@@ -699,7 +700,20 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         onSend={sendMessage}
       />
       <AccountDialog account={editingAccount} open={accountOpen} onClose={() => setAccountOpen(false)} onSaved={async () => { await refreshDashboard(); }} />
-      <ContactDialog account={contactAccount} contact={editingContact} open={Boolean(contactAccount)} onClose={() => { setContactAccount(null); setEditingContact(null); }} onSaved={async () => { await refreshDashboard(); }} />
+      <ContactDialog
+        key={`${contactAccount?.id ?? "none"}:${editingContact?.id ?? "new"}`}
+        account={contactAccount}
+        contact={editingContact}
+        open={Boolean(contactAccount)}
+        onClose={() => { setContactAccount(null); setEditingContact(null); }}
+        onSaved={async () => {
+          try {
+            await refreshDashboard();
+          } catch {
+            setSyncMessage("Contact enregistré; l’actualisation complète a échoué. Rechargez la page avant une autre modification.");
+          }
+        }}
+      />
       <OutreachStrategyDialog
         account={strategyAccount}
         contacts={data.contacts}

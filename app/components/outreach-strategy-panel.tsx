@@ -1,13 +1,15 @@
 "use client";
 
 import type { OutreachStep, OutreachStrategy, Organization } from "../crm-types";
-import { outreachErrorMessage } from "../../lib/outreach-errors";
+import { isGlobalComplianceReason, outreachErrorMessage } from "../../lib/outreach-errors";
 import { replaceZonedDate, zonedDateValue } from "../../lib/zoned-date-time";
 
 type Props = {
   account: Organization;
   strategy: OutreachStrategy | null;
   onEdit: () => void;
+  onResolveContact?: () => void;
+  onOpenComplianceSettings?: () => void;
   onUpdateStep: (
     strategyId: string,
     stepId: string,
@@ -20,12 +22,17 @@ export function OutreachStrategyPanel({
   account,
   strategy,
   onEdit,
+  onResolveContact = () => undefined,
+  onOpenComplianceSettings = () => undefined,
   onUpdateStep,
   updatingStepIds = new Set<string>(),
 }: Props) {
   const strategyFrozen = strategy
     ? ["paused", "completed", "archived"].includes(strategy.status)
     : false;
+  const contactBlockers = strategy?.emailBlockReasons.filter((reason) => !isGlobalComplianceReason(reason)) ?? [];
+  const globalBlockers = strategy?.emailBlockReasons.filter(isGlobalComplianceReason) ?? [];
+  const missingContact = strategy?.emailBlockReasons.includes("strategy_contact_missing") || !strategy?.contactId;
   return (
     <section
       className="account-section outreach-strategy-panel"
@@ -73,11 +80,33 @@ export function OutreachStrategyPanel({
 
           <div className="outreach-readiness" data-ready={strategy.emailReady || undefined} role="status">
             <strong>{strategy.emailReady ? "Courriel admissible à la préparation" : "Courriel bloqué"}</strong>
-            <p>
-              {strategy.emailReady
-                ? "Le dossier est documenté; la conformité sera revérifiée au moment de chaque action."
-                : outreachErrorMessage(strategy.emailBlockReasons.slice(0, 3).join(","))}
-            </p>
+            {strategy.emailReady ? (
+              <p>Le dossier est documenté; la conformité sera revérifiée au moment de chaque action.</p>
+            ) : (
+              <>
+                <ul>
+                  {strategy.emailBlockReasons.map((reason) => (
+                    <li key={reason}>{outreachErrorMessage(reason)}</li>
+                  ))}
+                </ul>
+                <div className="outreach-readiness-actions">
+                  {missingContact ? (
+                    <button type="button" className="secondary-action" onClick={onEdit}>
+                      Choisir un contact
+                    </button>
+                  ) : contactBlockers.length > 0 ? (
+                    <button type="button" className="secondary-action" onClick={onResolveContact}>
+                      Réviser ce contact
+                    </button>
+                  ) : null}
+                  {globalBlockers.length > 0 ? (
+                    <button type="button" className="secondary-action" onClick={onOpenComplianceSettings}>
+                      Ouvrir les paramètres de conformité
+                    </button>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
 
           <div className="outreach-strategy-copy">
@@ -126,7 +155,13 @@ export function OutreachStrategyPanel({
                     Marquer faite
                   </button>
                 ) : !strategyFrozen && step.status === "blocked" ? (
-                  <span className="outreach-step-blocked">Résoudre le blocage</span>
+                  <button
+                    type="button"
+                    className="secondary-action outreach-step-action"
+                    onClick={missingContact ? onEdit : contactBlockers.length > 0 ? onResolveContact : onOpenComplianceSettings}
+                  >
+                    Résoudre les contrôles
+                  </button>
                 ) : strategyFrozen && step.status !== "done" && step.status !== "skipped" ? (
                   <span className="outreach-step-blocked">Plan en {strategy.status === "paused" ? "pause" : "lecture seule"}</span>
                 ) : null}

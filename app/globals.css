@@ -112,6 +112,28 @@
   color: var(--muted);
 }
 
+.outreach-readiness ul,
+.contact-lcap-summary ul,
+.contact-dialog-readiness ul {
+  margin: 0.55rem 0 0;
+  padding-left: 1.2rem;
+  color: var(--muted);
+}
+
+.outreach-readiness li + li,
+.contact-lcap-summary li + li,
+.contact-dialog-readiness li + li {
+  margin-top: 0.35rem;
+}
+
+.outreach-readiness-actions,
+.contact-lcap-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 0.8rem;
+}
+
 .outreach-strategy-copy {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2009,6 +2031,36 @@ h3 {
   text-align: left;
 }
 
+.account-contact-card {
+  border-bottom: 1px solid var(--line);
+}
+
+.account-contact-card .account-contact-row {
+  border-bottom: 0;
+}
+
+.contact-lcap-summary {
+  padding: 0.75rem 0.8rem 1rem 3.1rem;
+  border-top: 1px dashed var(--line);
+  background: #fff4e7;
+  font-size: 0.72rem;
+}
+
+.account-contact-card[data-ready] .contact-lcap-summary {
+  background: #e8f5ec;
+}
+
+.contact-lcap-summary p {
+  margin: 0.35rem 0 0;
+  color: var(--muted);
+}
+
+.contact-lcap-summary > small {
+  display: block;
+  margin-top: 0.65rem;
+  color: var(--muted);
+}
+
 .account-contact-row:hover,
 .account-contact-row:focus-visible {
   background: var(--blue-soft);
@@ -2568,6 +2620,15 @@ h3 {
 .form-grid .form-span { grid-column: 1 / -1; }
 .form-grid .check-label { display: flex; align-items: center; gap: 0.5rem; color: var(--ink); }
 .form-grid .check-label input { min-height: auto; }
+.contact-dialog-readiness { padding: 0.9rem 1rem; border-left: 4px solid #b56d2a; background: #fff4e7; }
+.contact-dialog-readiness[data-ready] { border-left-color: #2d7a4b; background: #e8f5ec; }
+.contact-dialog-readiness p { margin: 0.35rem 0 0; color: var(--muted); }
+.contact-dialog-readiness small { display: block; margin-top: 0.65rem; color: var(--muted); }
+.contact-form-section { min-width: 0; margin: 0; padding: 1rem 0 0; border: 0; border-top: 1px solid var(--line); }
+.contact-form-section legend { padding: 0 0.45rem 0 0; color: var(--ink); font-size: 0.78rem; font-weight: 800; }
+.contact-form-section-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.9rem; }
+.contact-form-section-grid .form-span { grid-column: 1 / -1; }
+.contact-form-guidance { margin: 0 0 0.8rem; color: var(--muted); font-size: 0.72rem; line-height: 1.55; }
 .crm-dialog footer { display: flex; justify-content: flex-end; gap: 0.75rem; padding: 1rem 1.2rem; border-top: 1px solid var(--line); }
 .dialog-spacer { flex: 1; }
 .danger-action { min-height: 2.75rem; padding: 0 1rem; border: 1px solid var(--red); background: transparent; color: var(--red); font: inherit; font-weight: 700; }
@@ -3847,6 +3908,20 @@ h3 {
 
   .form-grid .form-span {
     grid-column: auto;
+  }
+
+  .contact-form-section,
+  .contact-form-section-grid,
+  .contact-form-section-grid .form-span {
+    grid-column: auto;
+  }
+
+  .contact-form-section-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .contact-lcap-summary {
+    padding-left: 1rem;
   }
 
   .account-card dl > div {

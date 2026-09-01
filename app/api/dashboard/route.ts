@@ -2,7 +2,7 @@ import { requireOperatorRequest } from "@/lib/api-auth";
 import { crmDatabase } from "@/lib/d1";
 import { jsonError } from "@/lib/http";
 import { CRM_MAILBOXES, mailboxForAddress } from "@/lib/mailboxes";
-import { evaluateOutreachChannel } from "@/lib/outreach-readiness";
+import { evaluateOutreachChannels } from "@/lib/outreach-readiness";
 import { demoDashboard } from "../../demo-data";
 import {
   buildDeliveryTimeline,
@@ -488,13 +488,10 @@ export async function GET(request: Request) {
       current.push(step);
       outreachStepsByStrategy.set(step.strategyId, current);
     }
-    const outreachReadiness = new Map(
-      await Promise.all(
-        outreachStrategies.results.map(async (strategy) => [
-          strategy.id,
-          await evaluateOutreachChannel(db, strategy.contactId, "email"),
-        ] as const),
-      ),
+    const emailReadinessByContact = await evaluateOutreachChannels(
+      db,
+      contacts.results.map((contact) => contact.id),
+      "email",
     );
 
     const messagesByConversation = new Map<string, MessageRow[]>();
@@ -617,54 +614,60 @@ export async function GET(request: Request) {
           doNotContact: Boolean(organization.doNotContact),
           contactCount: Number(organization.contactCount ?? 0),
         })),
-        contacts: contacts.results.map((contact) => ({
-          id: contact.id,
-          name: contact.displayName ?? contact.email,
-          email: contact.email,
-          phone: contact.phone ?? "",
-          organization: contact.organization ?? "",
-          organizationId: contact.organizationId ?? "",
-          role: contact.role ?? "",
-          source: contact.source,
-          sourceUrl: contact.sourceUrl,
-          sourceDate: contact.sourceDate,
-          contactBasis: contact.contactBasis,
-          roleRelevance: contact.roleRelevance,
-          roleRelevanceDetail: contact.roleRelevanceDetail,
-          personalDataCategory: contact.personalDataCategory,
-          qualificationMode: contact.qualificationMode,
-          provenanceType: contact.provenanceType,
-          evidenceRef: contact.evidenceRef,
-          lawfulBasis: contact.lawfulBasis,
-          basisEvidenceRef: contact.basisEvidenceRef,
-          basisVerifiedBy: contact.basisVerifiedBy,
-          basisVerifiedAt: contact.basisVerifiedAt,
-          basisExpiresAt: contact.basisExpiresAt,
-          publicationByRecipient: Boolean(contact.publicationByRecipient),
-          publicationNoRestriction: Boolean(contact.publicationNoRestriction),
-          publicationRoleRelevance: contact.publicationRoleRelevance,
-          directDisclosureNoRestriction: Boolean(contact.directDisclosureNoRestriction),
-          b2bRelationshipEvidence: contact.b2bRelationshipEvidence,
-          b2bMessageRelevance: contact.b2bMessageRelevance,
-          phoneEvidenceRef: contact.phoneEvidenceRef,
-          recipientTimezone: contact.recipientTimezone,
-          dnclCheckedAt: contact.dnclCheckedAt,
-          dnclEvidenceRef: contact.dnclEvidenceRef,
-          dnclStatus: contact.dnclStatus,
-          emailStatus: contact.emailStatus,
-          unsubscribed: Boolean(contact.unsubscribedAt),
-          doNotCall: Boolean(contact.doNotCall),
-          doNotContact: Boolean(contact.doNotContact),
-          lastContactAt: contact.lastContactAt,
-          nextFollowUpAt: contact.nextFollowUpAt,
-          validated: Boolean(contact.validatedAt),
-          status: contact.doNotContact || contact.unsubscribedAt
-            ? "Bloqué"
-            : contact.validatedAt && contact.emailStatus === "valid" && contact.roleRelevance === "relevant" && contact.roleRelevanceDetail && contact.lawfulBasis !== "none" && contact.basisEvidenceRef && contact.evidenceRef
-              ? "Documenté"
-              : "À valider",
-          conversationCount: Number(contact.conversationCount ?? 0),
-        })),
+        contacts: contacts.results.map((contact) => {
+          const readiness = emailReadinessByContact.get(contact.id);
+          return {
+            id: contact.id,
+            name: contact.displayName ?? contact.email,
+            email: contact.email,
+            phone: contact.phone ?? "",
+            organization: contact.organization ?? "",
+            organizationId: contact.organizationId ?? "",
+            role: contact.role ?? "",
+            source: contact.source,
+            sourceUrl: contact.sourceUrl,
+            sourceDate: contact.sourceDate,
+            contactBasis: contact.contactBasis,
+            roleRelevance: contact.roleRelevance,
+            roleRelevanceDetail: contact.roleRelevanceDetail,
+            personalDataCategory: contact.personalDataCategory,
+            qualificationMode: contact.qualificationMode,
+            provenanceType: contact.provenanceType,
+            evidenceRef: contact.evidenceRef,
+            lawfulBasis: contact.lawfulBasis,
+            basisEvidenceRef: contact.basisEvidenceRef,
+            basisVerifiedBy: contact.basisVerifiedBy,
+            basisVerifiedAt: contact.basisVerifiedAt,
+            basisExpiresAt: contact.basisExpiresAt,
+            publicationByRecipient: Boolean(contact.publicationByRecipient),
+            publicationNoRestriction: Boolean(contact.publicationNoRestriction),
+            publicationRoleRelevance: contact.publicationRoleRelevance,
+            directDisclosureNoRestriction: Boolean(contact.directDisclosureNoRestriction),
+            b2bRelationshipEvidence: contact.b2bRelationshipEvidence,
+            b2bMessageRelevance: contact.b2bMessageRelevance,
+            phoneEvidenceRef: contact.phoneEvidenceRef,
+            recipientTimezone: contact.recipientTimezone,
+            dnclCheckedAt: contact.dnclCheckedAt,
+            dnclEvidenceRef: contact.dnclEvidenceRef,
+            dnclStatus: contact.dnclStatus,
+            emailStatus: contact.emailStatus,
+            unsubscribed: Boolean(contact.unsubscribedAt),
+            doNotCall: Boolean(contact.doNotCall),
+            doNotContact: Boolean(contact.doNotContact),
+            lastContactAt: contact.lastContactAt,
+            nextFollowUpAt: contact.nextFollowUpAt,
+            validated: Boolean(contact.validatedAt),
+            emailReady: readiness?.allowed ?? false,
+            emailBlockReasons: readiness?.reasons ?? ["contact_compliance_missing"],
+            emailEvaluatedAt: readiness?.decision?.evaluatedAt ?? null,
+            status: contact.doNotContact || contact.unsubscribedAt
+              ? "Bloqué"
+              : readiness?.allowed
+                ? "Dossier documenté"
+                : "LCAP à valider",
+            conversationCount: Number(contact.conversationCount ?? 0),
+          };
+        }),
         deals: deals.results.map((deal) => ({
           id: deal.id,
           organizationId: deal.organizationId ?? "",
@@ -706,7 +709,9 @@ export async function GET(request: Request) {
           organization: task.organization ?? "",
         })),
         strategies: outreachStrategies.results.map((strategy) => {
-          const readiness = outreachReadiness.get(strategy.id);
+          const readiness = strategy.contactId
+            ? emailReadinessByContact.get(strategy.contactId)
+            : undefined;
           return {
             ...strategy,
             emailReady: readiness?.allowed ?? false,

@@ -103,6 +103,9 @@ export type Contact = {
   lastContactAt: string | null;
   nextFollowUpAt: string | null;
   validated: boolean;
+  emailReady: boolean;
+  emailBlockReasons: string[];
+  emailEvaluatedAt: string | null;
   status: string;
   conversationCount: number;
 };

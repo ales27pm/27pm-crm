@@ -15,6 +15,7 @@ import {
 } from "../lib/zoned-date-time.ts";
 import { uniqueOperationTimestamp } from "../lib/operation-stamp.ts";
 import { outreachErrorMessage } from "../lib/outreach-errors.ts";
+import { OUTREACH_CONTACT_COMPLIANCE_SQL } from "../lib/outreach-readiness-sql.ts";
 
 const migrationDirectory = new URL("../drizzle/", import.meta.url);
 
@@ -92,6 +93,8 @@ test("translates every error emitted by outreach routes and readiness", async ()
   const routeSources = await Promise.all([
     readFile(new URL("../app/api/strategies/[strategyId]/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/strategies/[strategyId]/steps/[stepId]/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/contacts/route.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/api/contacts/[id]/route.ts", import.meta.url), "utf8"),
   ]);
   const emittedCodes = new Set([
     "authentication_required",
@@ -99,6 +102,9 @@ test("translates every error emitted by outreach routes and readiness", async ()
     "allowlist_unconfigured",
     "email_address_missing",
     "phone_address_missing",
+    "contact_id_invalid",
+    "contact_not_found",
+    "contact_or_account_not_found",
     ...routeSources.flatMap((source) =>
       [...source.matchAll(/jsonError\([^\n]*?"([a-z_]+)"/gu)].map((match) => match[1])),
   ]);
@@ -201,6 +207,19 @@ test("migration reuses a matching existing contact without overwriting its evide
   assert.equal(database.prepare(`SELECT contact_id AS contactId FROM outreach_strategies
     WHERE organization_id='org-cohort-s-huot'`).get().contactId, "existing-shuot");
   assert.equal(database.prepare("PRAGMA foreign_key_check").all().length, 0);
+});
+
+test("bulk readiness query loads every email dossier in one set-based statement", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  t.after(() => database.close());
+  database.exec("PRAGMA foreign_keys = ON");
+  await migrate(database);
+
+  const rows = database.prepare(OUTREACH_CONTACT_COMPLIANCE_SQL).all("email");
+  assert.equal(rows.length, 6);
+  assert.equal(new Set(rows.map((row) => row.contactId)).size, 6);
+  assert.ok(rows.every((row) => row.channel === "email"));
+  assert.ok(rows.every((row) => Number(row.suppressionCount) === 0));
 });
 
 test("strategy routes are operator-only planning surfaces and never send a message", async () => {

@@ -4,6 +4,34 @@ const OUTREACH_ERROR_LABELS: Readonly<Record<string, string>> = {
   allowlist_unconfigured: "La liste des opérateurs autorisés n’est pas configurée.",
   account_not_found: "L’entreprise demandée n’existe plus ou n’est pas accessible.",
   request_body_invalid: "La demande envoyée au CRM n’est pas valide.",
+  contact_organization_invalid: "L’entreprise liée au contact n’est pas valide.",
+  contact_identity_invalid: "Le nom, le rôle ou l’adresse courriel professionnelle est invalide.",
+  contact_phone_invalid: "Le numéro de téléphone professionnel n’est pas valide.",
+  contact_source_required: "La source, sa date, son URL et sa référence de preuve sont obligatoires.",
+  contact_source_date_future: "La date de capture de la source ne peut pas être future.",
+  contact_basis_required: "Choisissez un fondement LCAP, ou conservez explicitement « Aucun » pour bloquer le courriel.",
+  contact_basis_proof_required: "Ajoutez une référence de preuve pour le fondement LCAP déclaré.",
+  contact_basis_expiry_required: "Ajoutez la date d’expiration du fondement LCAP à durée limitée.",
+  contact_basis_expiry_invalid: "La date d’expiration du fondement LCAP n’est pas valide.",
+  contact_role_relevance_required: "Documentez la pertinence du rôle professionnel pour cette approche.",
+  contact_privacy_classification_required: "Classez le renseignement et le mode de qualification du contact.",
+  contact_status_required: "Indiquez le statut du courriel et, s’il y a lieu, du contrôle téléphonique.",
+  contact_dncl_date_invalid: "La date de contrôle LNNTE n’est pas valide.",
+  contact_dncl_date_future: "La date de contrôle LNNTE ne peut pas être future.",
+  contact_phone_proof_required: "Ajoutez la provenance du téléphone et le fuseau du destinataire.",
+  contact_dncl_proof_required: "Ajoutez la date et la référence de preuve du contrôle LNNTE.",
+  contact_follow_up_invalid: "La date de prochaine relance n’est pas valide.",
+  contact_validation_required: "Confirmez la vérification humaine du dossier avant de l’enregistrer.",
+  contact_already_exists: "Cette adresse professionnelle existe déjà dans le CRM.",
+  contact_create_failed: "Le contact n’a pas pu être créé.",
+  contact_update_failed: "Le contact n’a pas pu être mis à jour.",
+  contact_delete_failed: "Le contact n’a pas pu être supprimé.",
+  contact_id_invalid: "L’identifiant du contact n’est pas valide.",
+  contact_not_found: "Ce contact n’existe plus. Actualisez le CRM.",
+  contact_or_account_not_found: "Ce contact ou son entreprise n’existe plus. Actualisez le CRM.",
+  suppressed_contact_identity_locked: "Cette identité de contact est verrouillée par une suppression.",
+  suppressed_contact_record_locked: "Ce contact est verrouillé et ne peut pas être réactivé.",
+  linked_contact_account_locked: "Le contact est lié à un dossier et ne peut pas changer d’entreprise ici.",
   no_changes: "Aucune modification n’a été fournie.",
   strategy_organization_invalid: "L’entreprise sélectionnée n’est pas valide.",
   strategy_contact_invalid: "Le contact sélectionné n’est pas valide.",
@@ -89,4 +117,19 @@ export function outreachErrorMessage(value: string): string {
     .filter(Boolean)
     .map((code) => OUTREACH_ERROR_LABELS[code] ?? code.replaceAll("_", " "))
     .join(" · ");
+}
+
+const GLOBAL_COMPLIANCE_REASONS = new Set([
+  "sender_identity_incomplete",
+  "sender_identity_validity_insufficient",
+  "unsubscribe_mechanism_incomplete",
+  "cross_border_efvp_unconfirmed",
+  "cross_border_contract_unconfirmed",
+  "cross_border_legal_validation_unconfirmed",
+  "cross_border_evidence_missing",
+  "automated_qualification_unapproved",
+]);
+
+export function isGlobalComplianceReason(code: string): boolean {
+  return GLOBAL_COMPLIANCE_REASONS.has(code);
 }

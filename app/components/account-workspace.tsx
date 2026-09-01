@@ -11,6 +11,7 @@ import type {
   OutreachStep,
   OutreachStrategy,
 } from "../crm-types";
+import { isGlobalComplianceReason, outreachErrorMessage } from "../../lib/outreach-errors";
 import { Icon } from "./icons";
 import { OutreachStrategyPanel } from "./outreach-strategy-panel";
 
@@ -32,6 +33,7 @@ type AccountsViewProps = {
   onOpenDeal: (id: string) => void;
   onToggleTask: (id: string) => void;
   onEditStrategy?: (account: Organization, strategy: OutreachStrategy | null) => void;
+  onOpenComplianceSettings?: () => void;
   onUpdateStrategyStep?: (
     strategyId: string,
     stepId: string,
@@ -62,6 +64,7 @@ export function AccountsView({
   onOpenDeal,
   onToggleTask,
   onEditStrategy = () => undefined,
+  onOpenComplianceSettings = () => undefined,
   onUpdateStrategyStep = () => undefined,
   updatingStrategyStepIds = new Set<string>(),
 }: AccountsViewProps) {
@@ -314,23 +317,63 @@ export function AccountsView({
                     </button>
                   </header>
                   <div className="account-section-list">
-                    {relatedContacts.map((contact) => (
-                      <button
-                        type="button"
-                        className="account-contact-row"
-                        data-blocked={contact.doNotContact || contact.unsubscribed || undefined}
-                        key={contact.id}
-                        onClick={() => onEditContact(selectedAccount, contact)}
-                      >
-                        <span className="account-contact-initials">{initials(contact.name)}</span>
-                        <span>
-                          <strong>{contact.name}</strong>
-                          <small>{contact.role || "Rôle à documenter"} · {contact.status}</small>
-                          <span>{contact.email}</span>
-                        </span>
-                        <Icon name="chevron" />
-                      </button>
-                    ))}
+                    {relatedContacts.map((contact) => {
+                      const reasons = contact.emailBlockReasons?.length
+                        ? contact.emailBlockReasons
+                        : contact.emailReady
+                          ? []
+                          : ["contact_compliance_missing"];
+                      const hasGlobalBlocker = reasons.some(isGlobalComplianceReason);
+                      return (
+                        <article
+                          className="account-contact-card"
+                          data-ready={contact.emailReady || undefined}
+                          key={contact.id}
+                        >
+                          <button
+                            type="button"
+                            className="account-contact-row"
+                            data-blocked={contact.doNotContact || contact.unsubscribed || undefined}
+                            onClick={() => onEditContact(selectedAccount, contact)}
+                          >
+                            <span className="account-contact-initials">{initials(contact.name)}</span>
+                            <span>
+                              <strong>{contact.name}</strong>
+                              <small>{contact.role || "Rôle à documenter"} · {contact.status}</small>
+                              <span>{contact.email}</span>
+                            </span>
+                            <Icon name="chevron" />
+                          </button>
+                          <div className="contact-lcap-summary" role="status">
+                            <strong>{contact.emailReady ? "Dossier LCAP documenté" : "Validation LCAP requise"}</strong>
+                            {contact.emailReady ? (
+                              <p>Le dossier permet la préparation. Le serveur le revérifiera avant toute action; aucun envoi n’est autorisé ici.</p>
+                            ) : (
+                              <ul>
+                                {reasons.map((reason) => <li key={reason}>{outreachErrorMessage(reason)}</li>)}
+                              </ul>
+                            )}
+                            <div className="contact-lcap-actions">
+                              <button
+                                type="button"
+                                className="secondary-action"
+                                onClick={() => onEditContact(selectedAccount, contact)}
+                              >
+                                {contact.emailReady ? "Revoir le dossier LCAP" : "Compléter la validation LCAP"}
+                              </button>
+                              {hasGlobalBlocker ? (
+                                <button type="button" className="secondary-action" onClick={onOpenComplianceSettings}>
+                                  Ouvrir les paramètres de conformité
+                                </button>
+                              ) : null}
+                            </div>
+                            {contact.emailEvaluatedAt ? (
+                              <small>Décision serveur évaluée le {formatDate(contact.emailEvaluatedAt)}.</small>
+                            ) : null}
+                          </div>
+                        </article>
+                      );
+                    })}
                     {relatedContacts.length === 0 ? (
                       <p className="account-section-empty">Aucun contact vérifié. Ajoutez uniquement un rôle professionnel dont la provenance est documentée.</p>
                     ) : null}
@@ -341,6 +384,13 @@ export function AccountsView({
                   account={selectedAccount}
                   strategy={selectedStrategy}
                   onEdit={() => onEditStrategy(selectedAccount, selectedStrategy)}
+                  onResolveContact={() => {
+                    const contact = selectedStrategy?.contactId
+                      ? relatedContacts.find((candidate) => candidate.id === selectedStrategy.contactId)
+                      : null;
+                    if (contact) onEditContact(selectedAccount, contact);
+                  }}
+                  onOpenComplianceSettings={onOpenComplianceSettings}
                   onUpdateStep={onUpdateStrategyStep}
                   updatingStepIds={updatingStrategyStepIds}
                 />
