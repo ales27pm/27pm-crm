@@ -5,6 +5,30 @@ import { demoDashboard } from "../app/demo-data.ts";
 
 test("demo mode contains only the approved initial account cohort", () => {
   assert.deepEqual(
+    demoDashboard.mailboxes.map(({ address, label, kind }) => ({
+      address,
+      label,
+      kind,
+    })),
+    [
+      {
+        address: "bonjour@27pm.org",
+        label: "Prospects et clients",
+        kind: "sales",
+      },
+      {
+        address: "alexis@27pm.org",
+        label: "Alexis Boulet",
+        kind: "sales",
+      },
+      {
+        address: "admin@27pm.org",
+        label: "Comptes et opérations",
+        kind: "operations",
+      },
+    ],
+  );
+  assert.deepEqual(
     demoDashboard.organizations.map((organization) => organization.name),
     [
       "S.Huot",

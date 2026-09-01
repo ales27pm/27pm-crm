@@ -9,6 +9,12 @@ export const emptyDashboard: DashboardData = {
       unreadCount: 0,
     },
     {
+      address: "alexis@27pm.org",
+      label: "Alexis Boulet",
+      kind: "sales",
+      unreadCount: 0,
+    },
+    {
       address: "admin@27pm.org",
       label: "Comptes et opérations",
       kind: "operations",

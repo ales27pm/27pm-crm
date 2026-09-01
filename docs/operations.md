@@ -6,8 +6,9 @@ change.
 
 ## Safety contract
 
-- Only `bonjour@27pm.org` and `admin@27pm.org` may enter the CRM.
-- The Mailgun route is account-global, so inspect all routes before changing
+- Only `bonjour@27pm.org`, `alexis@27pm.org`, and `admin@27pm.org` may enter
+  the CRM.
+- The Mailgun routes are account-global, so inspect all routes before changing
   one. Mailgun documents `GET /v3/routes` and `POST /v3/routes` as account route
   operations in its [Routes API](https://documentation.mailgun.com/docs/mailgun/api-reference/send/mailgun/routes/post-v3-routes).
 - The provisioner is read-only unless `--apply` is present. It never calls a
@@ -40,7 +41,7 @@ them. Never commit a production value to `.env.example`.
 | `PUBLIC_INTAKE_HASH_SALT` | Yes | Random secret used only to hash requester IPs for rate limiting. |
 | `PUBLIC_INTAKE_TURNSTILE_ACTION` | No | Expected Turnstile widget action; defaults to `crm_intake`. |
 
-## Migrations CRM 0004 à 0010
+## Migrations CRM 0004 à 0011
 
 The Sites build packages the SQL migrations and the production D1 binding is
 owned by the Sites project. Do not run Wrangler against the placeholder local
@@ -74,14 +75,18 @@ as processed.
 Migration 0009 removes only the exact canary and public-intake QA identifiers
 recorded before the V2 release. It preserves the five approved organizations,
 their account conversations, opportunities and internal tasks, the cohort
-import record, both mailboxes, compliance configuration, suppressions and the
-immutable audit ledger. Reapplying 0009 is a no-op and unknown records survive.
+import record, the two mailboxes that existed at that point, compliance
+configuration, suppressions and the immutable audit ledger. Reapplying 0009
+is a no-op and unknown records survive.
 Migration 0010 adds one dated outreach strategy and six planning steps for
 each approved organization. It also records five shared business routes and
 one nominative professional address from an official company page. Every imported email
 has `email_status = 'unknown'`, `lawful_basis = 'none'` and channel status
 `unknown`; all 15 email steps are therefore blocked. The migration creates no
 message, send command or automatic transport action.
+Migration 0011 adds the active `alexis@27pm.org` sales identity with the
+display name `Alexis Boulet — 27PM`. It does not create a Mailgun route, a
+message, a send command, a DNS record, or a separate IMAP/POP mailbox.
 A code rollback without a data rollback has not been claimed compatible.
 
 Before applying 0006, validate the full export by restoring it to a disposable
@@ -131,19 +136,22 @@ Do these steps in order. Do not create the Mailgun route early.
 6. Load `MAILGUN_API_KEY` locally without echoing it. Set
    `CRM_PUBLIC_ORIGIN=https://crm.27pm.org` and, if needed, the official US/EU
    `MAILGUN_API_BASE`.
-7. Inspect the plan. This performs only paginated `GET /v3/routes` requests:
+7. Inspect both managed plans. These commands perform only paginated
+   `GET /v3/routes` requests:
 
    ```sh
-   node scripts/provision-mailgun-route.mjs --dry-run
+   npm run mailgun:route -- --dry-run
+   npm run mailgun:route:alexis -- --dry-run
    ```
 
 8. Review any conflict in the Mailgun dashboard. The script refuses to replace
    a route with the same managed description or recipient expression.
-9. Apply exactly once. The command re-inspects first, checks production health,
-   creates only when absent, and re-inspects afterward:
+9. Apply only the missing exact route. For the Alexis identity, the command
+   re-inspects first, checks production health, creates only the non-overlapping
+   `alexis@` route when absent, and re-inspects afterward:
 
    ```sh
-   node scripts/provision-mailgun-route.mjs --apply
+   npm run mailgun:route:alexis -- --apply
    ```
 
 10. Record the returned route ID in the private change record, not in source.
@@ -153,7 +161,7 @@ Do these steps in order. Do not create the Mailgun route early.
     documented below. Do not replace an unrelated callback without a separate
     review.
 12. Remove `MAILGUN_API_KEY` from the local environment.
-13. Run the two-mailbox canary below before announcing availability.
+13. Run the three-mailbox canary below before announcing availability.
 
 Running the apply command again is safe: an existing exact route produces a
 no-change result. If a network failure occurs after a create request, run the
@@ -161,7 +169,7 @@ dry-run first; do not blindly repeat an apply.
 
 ## Exact Mailgun contract
 
-The provisioner can create only this route:
+The default provisioner manages only the historical route:
 
 ```text
 priority:    0
@@ -169,6 +177,19 @@ expression:  match_recipient("^(bonjour|admin)@27pm\.org$")
 action 1:    store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")
 action 2:    stop()
 ```
+
+With `--mailbox=alexis` (or `npm run mailgun:route:alexis`), it manages only
+this additive route:
+
+```text
+priority:    0
+expression:  match_recipient("^alexis@27pm\.org$")
+action 1:    store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")
+action 2:    stop()
+```
+
+The two recipient expressions are disjoint. Do not replace the historical
+route and do not create a combined three-address route alongside it.
 
 Configure each delivery-event webhook above with this exact HTTPS target:
 
@@ -202,41 +223,43 @@ message. Mailgun documents the signed fields in
 
 ## Strict mailbox separation
 
-The single transport route does not merge the two business identities. Enforce
-these rules at every application boundary:
+The two non-overlapping transport routes do not merge the three business
+identities. Enforce these rules at every application boundary:
 
 | Mailbox | Allowed content | Forbidden use |
 | --- | --- | --- |
 | `bonjour@27pm.org` | Prospects, clients, project intake, estimates, and project replies | Password recovery, vendor administration, security alerts, or Google ownership notices |
+| `alexis@27pm.org` | Commercial conversations explicitly initiated by or assigned to Alexis Boulet | Generic public intake, password recovery, vendor administration, security alerts, or impersonating another sender |
 | `admin@27pm.org` | Service accounts, supplier administration, security/recovery, billing operations, and Search Console | Lead intake, sales follow-ups, project replies, or public contact |
 
 - Classify inbound mail from Mailgun's validated envelope recipient, not a
   display name or an untrusted `To` header.
-- Reject every recipient outside the two exact addresses even if a callback is
+- Reject every recipient outside the three exact addresses even if a callback is
   otherwise correctly signed.
 - Persist the mailbox identity on the message and conversation. Do not infer it
   later from participants.
 - Permit outbound mail only when the authenticated operator selected the same
   mailbox as the conversation. Audit every override or rejection.
 - Keep `admin` messages out of contact, sales-pipeline, and marketing views.
-  Keep `bonjour` out of credential-recovery workflows.
+  Keep both `bonjour` and `alexis` out of credential-recovery workflows.
 - Do not create catch-all, alias, wildcard, or plus-address behavior as an
   incidental extension of this route.
 
-## Two-mailbox canary
+## Three-mailbox canary
 
 From an external address not hosted at `27pm.org`:
 
 1. Send a uniquely titled plain-text message to `bonjour@27pm.org`.
-2. Send a different uniquely titled message to `admin@27pm.org`.
-3. Verify one and only one CRM record for each message.
-4. Verify the `bonjour` message appears only in the client mailbox and the
-   `admin` message only in the operational mailbox.
-5. Verify the raw body is not rendered as trusted HTML and attachments remain
+2. Send a different uniquely titled message to `alexis@27pm.org`.
+3. Send a third uniquely titled message to `admin@27pm.org`.
+4. Verify one and only one CRM record for each message.
+5. Verify the `bonjour` and `alexis` messages appear only in their respective
+   sales inboxes and the `admin` message only in the operational inbox.
+6. Verify the raw body is not rendered as trusted HTML and attachments remain
    unavailable while marked `unscanned`.
-6. Reply from each conversation and verify the envelope/header identity and
+7. Reply from each conversation and verify the envelope/header identity and
    Mailgun delivery event match that conversation's mailbox.
-7. Check Mailgun delivery logs for duplicates, bounce, complaint, or callback
+8. Check Mailgun delivery logs for duplicates, bounce, complaint, or callback
    failure, then retain only the normal audit record.
 
 ## Rollback
@@ -245,11 +268,14 @@ The provisioner intentionally has no delete mode.
 
 1. Stop canary and operator sends, but leave the deployed checkpoint running so
    already-issued notifications can finish.
-2. In the Mailgun dashboard, find the recorded route ID and compare its
-   expression and both actions with the exact contract above.
-3. Delete **only that route** in the dashboard, or use Mailgun's documented
-   `DELETE /v3/routes/{id}` operation with the approved account credential.
-4. Run the provisioner in dry-run mode and confirm the exact route is absent.
+2. In the Mailgun dashboard, find the recorded target route ID and compare its
+   expression and both actions with the corresponding exact contract above.
+3. Delete **only that target route** in the dashboard, or use Mailgun's
+   documented `DELETE /v3/routes/{id}` operation with the approved account
+   credential.
+4. Run the corresponding provisioner in dry-run mode and confirm the exact
+   route is absent. For Alexis, use
+   `npm run mailgun:route:alexis -- --dry-run`.
 5. Confirm no new callbacks arrive. Review messages retained by `store()` before
    the three-day temporary-storage window expires.
 6. Keep DNS and the Sites checkpoint unchanged while diagnosing. A route

@@ -7,6 +7,13 @@ export const CRM_MAILBOXES = [
     purpose: "sales",
   },
   {
+    id: "mailbox_alexis",
+    address: "alexis@27pm.org",
+    localPart: "alexis",
+    displayName: "Alexis Boulet — 27PM",
+    purpose: "sales",
+  },
+  {
     id: "mailbox_admin",
     address: "admin@27pm.org",
     localPart: "admin",

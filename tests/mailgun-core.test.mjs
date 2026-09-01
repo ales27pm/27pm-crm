@@ -93,7 +93,7 @@ test("rejects invalid, expired, future, and replayed signatures", async (t) => {
   });
 });
 
-test("normalizes addresses and classifies only the two exact CRM mailboxes", () => {
+test("normalizes addresses and classifies only the three exact CRM mailboxes", () => {
   assert.equal(extractEmailAddress('"Ada Lovelace" <ADA@example.com>'), "ada@example.com");
   assert.deepEqual(
     parseAddressList('"Lovelace, Ada" <ada@example.com>, Bob <bob@example.net>'),
@@ -103,8 +103,19 @@ test("normalizes addresses and classifies only the two exact CRM mailboxes", () 
     mailboxFromRecipients(["Prospect <BONJOUR@27PM.ORG>"])?.purpose,
     "sales",
   );
+  assert.equal(
+    mailboxFromRecipients(["Alexis Boulet <ALEXIS@27PM.ORG>"])?.id,
+    "mailbox_alexis",
+  );
+  assert.equal(
+    mailboxFromRecipients(["alexis@27pm.org"])?.purpose,
+    "sales",
+  );
   assert.equal(mailboxFromRecipients(["admin@27pm.org"])?.purpose, "operations");
-  assert.equal(mailboxFromRecipients(["bonjour@27pm.org", "admin@27pm.org"]), null);
+  assert.equal(
+    mailboxFromRecipients(["bonjour@27pm.org", "alexis@27pm.org"]),
+    null,
+  );
   assert.equal(mailboxFromRecipients(["bonjour@attacker.example"]), null);
 });
 

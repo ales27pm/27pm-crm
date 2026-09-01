@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  ALEXIS_ROUTE_DESCRIPTION,
+  ALEXIS_ROUTE_EXPRESSION,
   ROUTE_DESCRIPTION,
   ROUTE_EXPRESSION,
   expectedRoute,
@@ -29,6 +31,10 @@ function exactRoute(id = "route-27pm") {
   return { id, ...expectedRoute(CALLBACK) };
 }
 
+function exactAlexisRoute(id = "route-27pm-alexis") {
+  return { id, ...expectedRoute(CALLBACK, "alexis") };
+}
+
 test("recipient expression accepts only the two lowercase 27pm.org mailboxes", () => {
   const prefix = 'match_recipient("';
   const pattern = ROUTE_EXPRESSION.slice(prefix.length, -2);
@@ -40,6 +46,111 @@ test("recipient expression accepts only the two lowercase 27pm.org mailboxes", (
   assert.equal(recipient.test("bonjour+test@27pm.org"), false);
   assert.equal(recipient.test("bonjour@sub.27pm.org"), false);
   assert.equal(recipient.test("Bonjour@27pm.org"), false);
+});
+
+test("the additive Alexis route is exact and cannot overlap the historical route", () => {
+  const prefix = 'match_recipient("';
+  const historical = new RegExp(ROUTE_EXPRESSION.slice(prefix.length, -2));
+  const alexis = new RegExp(ALEXIS_ROUTE_EXPRESSION.slice(prefix.length, -2));
+
+  assert.equal(historical.test("alexis@27pm.org"), false);
+  assert.equal(alexis.test("alexis@27pm.org"), true);
+  assert.equal(alexis.test("bonjour@27pm.org"), false);
+  assert.equal(alexis.test("admin@27pm.org"), false);
+  assert.equal(alexis.test("Alexis@27pm.org"), false);
+  assert.equal(alexis.test("alexis+test@27pm.org"), false);
+  assert.equal(alexis.test("alexis@sub.27pm.org"), false);
+});
+
+test("Alexis dry run ignores the non-overlapping historical route and remains read-only", async () => {
+  const calls = [];
+  const logs = [];
+  const fetchImpl = async (input, init = {}) => {
+    calls.push({ url: String(input), method: init.method ?? "GET" });
+    return jsonResponse({ total_count: 1, items: [exactRoute("historical")] });
+  };
+
+  const result = await runProvisioner({
+    args: ["--mailbox=alexis"],
+    env: ENV,
+    fetchImpl,
+    log: (message) => logs.push(message),
+  });
+
+  assert.deepEqual(result, { status: "planned" });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
+  assert.match(logs.join("\n"), /alexis@27pm/);
+  assert.doesNotMatch(logs.join("\n"), new RegExp(SECRET));
+});
+
+test("Alexis apply creates and verifies only the additive exact route", async () => {
+  const calls = [];
+  let routeListReadCount = 0;
+  const fetchImpl = async (input, init = {}) => {
+    const url = new URL(String(input));
+    const method = init.method ?? "GET";
+    calls.push({ url, method, init });
+
+    if (url.href === `${ORIGIN}/api/health` && method === "GET") {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/v3/routes" && method === "GET") {
+      routeListReadCount += 1;
+      const items = routeListReadCount === 1
+        ? [exactRoute("historical")]
+        : [exactRoute("historical"), exactAlexisRoute()];
+      return jsonResponse({ total_count: items.length, items });
+    }
+    if (url.pathname === "/v3/routes" && method === "POST") {
+      return jsonResponse({ message: "created", route: exactAlexisRoute() });
+    }
+
+    throw new Error(`Unexpected fake request: ${method} ${url.href}`);
+  };
+
+  const result = await runProvisioner({
+    args: ["--mailbox=alexis", "--apply"],
+    env: ENV,
+    fetchImpl,
+    log: () => {},
+  });
+
+  assert.deepEqual(result, {
+    status: "created",
+    routeId: "route-27pm-alexis",
+  });
+  const post = calls.find((call) => call.method === "POST");
+  assert.ok(post);
+  assert.equal(post.init.body.get("description"), ALEXIS_ROUTE_DESCRIPTION);
+  assert.equal(post.init.body.get("expression"), ALEXIS_ROUTE_EXPRESSION);
+  assert.deepEqual(post.init.body.getAll("action"), [
+    `store(notify="${CALLBACK}")`,
+    "stop()",
+  ]);
+});
+
+test("Alexis apply is idempotent when the additive route already exists", async () => {
+  const calls = [];
+  const fetchImpl = async (input, init = {}) => {
+    calls.push({ url: String(input), method: init.method ?? "GET" });
+    return jsonResponse({
+      total_count: 2,
+      items: [exactRoute("historical"), exactAlexisRoute("existing-alexis")],
+    });
+  };
+
+  const result = await runProvisioner({
+    args: ["--mailbox=alexis", "--apply"],
+    env: ENV,
+    fetchImpl,
+    log: () => {},
+  });
+
+  assert.deepEqual(result, {
+    status: "unchanged",
+    routeId: "existing-alexis",
+  });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
 });
 
 test("default mode inspects routes and remains read-only", async () => {

@@ -1,9 +1,10 @@
 # 27PM CRM
 
 CRM privé de 27PM : réception des courriels, conversations, contacts, projets,
-pipeline et suivis. L’application gère deux identités distinctes :
+pipeline et suivis. L’application gère trois identités distinctes :
 
 - `bonjour@27pm.org` pour les demandes commerciales et les clients;
+- `alexis@27pm.org` pour les échanges commerciaux nominatifs d’Alexis Boulet;
 - `admin@27pm.org` pour Google Search Console et les comptes de service.
 
 ## Architecture
@@ -67,7 +68,11 @@ Le provisionneur Mailgun est en lecture seule par défaut :
 
 ```sh
 node scripts/provision-mailgun-route.mjs
+npm run mailgun:route:alexis
 ```
 
-Il n’applique une route qu’avec `--apply`, après avoir confirmé que le point de
-terminaison HTTPS de production est sain. Il ne modifie jamais le DNS.
+La seconde commande inspecte uniquement la route additive, exacte et
+non chevauchante d’`alexis@27pm.org`. Le provisionneur n’applique une route
+qu’avec `--apply`, après avoir confirmé que le point de terminaison HTTPS de
+production est sain. Il ne modifie jamais le DNS et ne crée pas de boîte
+IMAP/POP distincte du CRM.

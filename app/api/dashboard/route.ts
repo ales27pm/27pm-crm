@@ -260,7 +260,12 @@ export async function GET(request: Request) {
              LEFT JOIN conversations c ON c.mailbox_id = mb.id
              WHERE mb.is_active = 1
              GROUP BY mb.id, mb.address, mb.purpose
-             ORDER BY CASE mb.purpose WHEN 'sales' THEN 0 ELSE 1 END`,
+             ORDER BY CASE mb.id
+               WHEN 'mailbox_bonjour' THEN 0
+               WHEN 'mailbox_alexis' THEN 1
+               WHEN 'mailbox_admin' THEN 2
+               ELSE 3
+             END, mb.address`,
           )
           .all<MailboxRow>(),
         db
@@ -532,7 +537,9 @@ export async function GET(request: Request) {
         mailboxes: mailboxes.results.map((mailbox) => ({
           address: mailbox.address,
           label:
-            mailbox.purpose === "sales"
+            mailbox.id === "mailbox_alexis"
+              ? "Alexis Boulet"
+              : mailbox.purpose === "sales"
               ? "Prospects et clients"
               : "Comptes et opérations",
           kind: mailbox.purpose,

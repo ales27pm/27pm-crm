@@ -1,8 +1,8 @@
 # Google identity and Search Console for 27PM
 
 Use `admin@27pm.org` as the operational Google identity. Do not use
-`bonjour@27pm.org`: client correspondence and account ownership/recovery must
-remain separate.
+`bonjour@27pm.org` or `alexis@27pm.org`: client correspondence and account
+ownership/recovery must remain separate.
 
 Creating a Google Account with an existing address creates a Google identity;
 it does **not** create a Gmail mailbox, change the Mailgun MX records, or move
@@ -16,7 +16,7 @@ mail away from the CRM. Google documents the existing-address flow in
 - Use a private browser window to avoid attaching ownership to the wrong Google
   session.
 - Have an independent recovery method and approved password manager available.
-  A recovery address should not be `bonjour@27pm.org`.
+  A recovery address should not be `bonjour@27pm.org` or `alexis@27pm.org`.
 - If Google says the address is already in use, stop and use account recovery;
   do not create a second identity or switch to a personal Gmail account.
 

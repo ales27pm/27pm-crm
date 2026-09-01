@@ -7,6 +7,10 @@ export const ROUTE_DESCRIPTION =
   "27PM CRM inbound: bonjour@27pm.org + admin@27pm.org";
 export const ROUTE_EXPRESSION =
   'match_recipient("^(bonjour|admin)@27pm\\.org$")';
+export const ALEXIS_ROUTE_DESCRIPTION =
+  "27PM CRM inbound: alexis@27pm.org";
+export const ALEXIS_ROUTE_EXPRESSION =
+  'match_recipient("^alexis@27pm\\.org$")';
 export const ROUTE_PRIORITY = 0;
 
 const ALLOWED_MAILGUN_API_BASES = new Set([
@@ -107,11 +111,16 @@ export function configFromEnvironment(env = process.env) {
   };
 }
 
-export function expectedRoute(callbackUrl) {
+export function expectedRoute(callbackUrl, mailbox = "core") {
+  if (mailbox !== "core" && mailbox !== "alexis") {
+    throw new ProvisioningError("Unknown managed mailbox route.");
+  }
   return {
     priority: ROUTE_PRIORITY,
-    description: ROUTE_DESCRIPTION,
-    expression: ROUTE_EXPRESSION,
+    description:
+      mailbox === "alexis" ? ALEXIS_ROUTE_DESCRIPTION : ROUTE_DESCRIPTION,
+    expression:
+      mailbox === "alexis" ? ALEXIS_ROUTE_EXPRESSION : ROUTE_EXPRESSION,
     actions: [`store(notify="${callbackUrl}")`, "stop()"],
   };
 }
@@ -282,12 +291,15 @@ export function parseArguments(args) {
   let apply = false;
   let explicitDryRun = false;
   let help = false;
+  let mailbox = "core";
 
   for (const argument of args) {
     if (argument === "--apply") {
       apply = true;
     } else if (argument === "--dry-run") {
       explicitDryRun = true;
+    } else if (argument === "--mailbox=alexis") {
+      mailbox = "alexis";
     } else if (argument === "--help" || argument === "-h") {
       help = true;
     } else {
@@ -300,14 +312,15 @@ export function parseArguments(args) {
   if (apply && explicitDryRun) {
     throw new ProvisioningError("Use either --apply or --dry-run, not both.");
   }
-  return { apply, help };
+  return { apply, help, mailbox };
 }
 
 export function usage() {
   return [
-    "Usage: node scripts/provision-mailgun-route.mjs [--dry-run | --apply]",
+    "Usage: node scripts/provision-mailgun-route.mjs [--mailbox=alexis] [--dry-run | --apply]",
     "",
     "No flag (or --dry-run): inspect Mailgun routes and print the planned change.",
+    "--mailbox=alexis: manage only the non-overlapping alexis@27pm.org route.",
     "--apply: create the exact 27PM route only when it is absent and conflict-free.",
   ].join("\n");
 }
@@ -318,7 +331,7 @@ export async function runProvisioner({
   fetchImpl = globalThis.fetch,
   log = console.log,
 } = {}) {
-  const { apply, help } = parseArguments(args);
+  const { apply, help, mailbox } = parseArguments(args);
   if (help) {
     log(usage());
     return { status: "help" };
@@ -328,7 +341,7 @@ export async function runProvisioner({
   }
 
   const config = configFromEnvironment(env);
-  const route = expectedRoute(config.callbackUrl);
+  const route = expectedRoute(config.callbackUrl, mailbox);
 
   log(`Mode: ${apply ? "APPLY" : "DRY RUN (read-only)"}`);
   const currentRoutes = await listRoutes(fetchImpl, config);

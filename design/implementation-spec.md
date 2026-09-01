@@ -26,16 +26,17 @@ Source concepts:
 - Context rail with contact, deal, next action, task, and notes.
 - Pipeline columns with keyboard-operable stage movement and selected detail.
 - Open-list views for contacts, projects, and tasks.
-- Settings view for the two mailbox identities and provider readiness.
+- Settings view for the three mailbox identities and provider readiness.
 - Mobile bottom navigation plus context sheet.
 
 ## Above-the-fold copy lock
 
 Allowed primary labels: `27PM`, `Réception`, `Nouveau courriel`,
-`bonjour@27pm.org`, `Tous`, `Non lus`, `À suivre`, `Contacts`, `Pipeline`,
-`Projets`, `Tâches`, `Paramètres`, and operational state text. Authentication
-and provider-configuration messages are functional necessities and may replace
-the working surface when those boundaries are unavailable.
+`bonjour@27pm.org`, `alexis@27pm.org`, `Tous`, `Non lus`, `À suivre`,
+`Contacts`, `Pipeline`, `Projets`, `Tâches`, `Paramètres`, and operational state
+text. Authentication and provider-configuration messages are functional
+necessities and may replace the working surface when those boundaries are
+unavailable.
 
 ## Responsive contract
 

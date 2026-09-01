@@ -2,10 +2,12 @@
 
 ## Outcome
 
-The private CRM is the durable working surface for two distinct 27PM email
+The private CRM is the durable working surface for three distinct 27PM email
 identities:
 
 - `bonjour@27pm.org` receives prospects, clients, project intake, and replies.
+- `alexis@27pm.org` sends and receives commercial conversations explicitly
+  assigned to Alexis Boulet.
 - `admin@27pm.org` receives service-account, supplier, security, recovery, and
   Google Search Console messages.
 
@@ -79,22 +81,27 @@ mail transport.
 
 ## Mailgun route target
 
-Once a stable CRM origin and Mailgun account access are available, create one
-account route matching exactly:
+Once a stable CRM origin and Mailgun account access are available, create two
+non-overlapping account routes matching exactly:
 
 ```text
 ^(bonjour|admin)@27pm\.org$
+^alexis@27pm\.org$
 ```
 
-Use `store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")` followed
-by `stop()`. Mailgun temporary storage is the short recovery buffer; D1/R2 is
-the durable application record.
+Each route uses
+`store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")` followed by
+`stop()`. The second expression cannot match either historical address, so it
+can be added without replacing or overlapping the existing route. Mailgun
+temporary storage is the short recovery buffer; D1/R2 is the durable
+application record.
 
 ## Completion evidence
 
-- Database migration contains both mailbox identities and unique idempotency
-  constraints.
+- Database migrations contain all three mailbox identities and unique
+  idempotency constraints.
 - Unit tests reject invalid, expired, and replayed webhook signatures.
 - Route tests prove inbound classification and protected operator mutations.
 - Production build emits the Sites worker, hosting metadata, and migrations.
-- A checkpoint deployment succeeds before any Mailgun route is created.
+- The matching checkpoint deployment succeeds before a new Mailgun route is
+  created.

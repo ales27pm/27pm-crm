@@ -4,7 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import { hasWebhookToken, markWebhookProcessed, reserveWebhook } from "../lib/webhook-receipts.ts";
 
-test("generated D1 migration seeds both identities and enforces idempotency", async () => {
+test("generated D1 migrations seed all three identities and enforce idempotency", async () => {
   const database = new DatabaseSync(":memory:");
   database.exec("PRAGMA foreign_keys = ON");
   const migrationDirectory = new URL("../drizzle/", import.meta.url);
@@ -21,7 +21,9 @@ test("generated D1 migration seeds both identities and enforces idempotency", as
   assert.deepEqual(
     database
       .prepare(
-        "SELECT id, address, purpose FROM mailboxes ORDER BY address",
+        `SELECT id, address, display_name AS displayName, purpose,
+                is_active AS isActive
+         FROM mailboxes ORDER BY address`,
       )
       .all()
       .map((row) => ({ ...row })),
@@ -29,12 +31,23 @@ test("generated D1 migration seeds both identities and enforces idempotency", as
       {
         id: "mailbox_admin",
         address: "admin@27pm.org",
+        displayName: "27PM — Administration",
         purpose: "operations",
+        isActive: 1,
+      },
+      {
+        id: "mailbox_alexis",
+        address: "alexis@27pm.org",
+        displayName: "Alexis Boulet — 27PM",
+        purpose: "sales",
+        isActive: 1,
       },
       {
         id: "mailbox_bonjour",
         address: "bonjour@27pm.org",
+        displayName: "27PM — Bonjour",
         purpose: "sales",
+        isActive: 1,
       },
     ],
   );
