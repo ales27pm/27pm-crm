@@ -71,8 +71,10 @@ node scripts/provision-mailgun-route.mjs
 npm run mailgun:route:alexis
 ```
 
-La seconde commande inspecte uniquement la route additive, exacte et
-non chevauchante d’`alexis@27pm.org`. Le provisionneur n’applique une route
-qu’avec `--apply`, après avoir confirmé que le point de terminaison HTTPS de
-production est sain. Il ne modifie jamais le DNS et ne crée pas de boîte
-IMAP/POP distincte du CRM.
+La seconde commande inspecte la couverture exacte d’`alexis@27pm.org`. Si le
+compte permet plusieurs routes, elle peut ajouter une route non chevauchante;
+si le forfait est limité à une route, elle élargit uniquement la route
+historique reconnue, en conservant son identifiant, sa priorité et ses actions.
+Le provisionneur n’applique rien sans `--apply` ni point de terminaison HTTPS
+sain. Il ne modifie jamais le DNS et ne crée pas de boîte IMAP/POP distincte du
+CRM.

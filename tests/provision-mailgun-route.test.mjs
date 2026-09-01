@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   ALEXIS_ROUTE_DESCRIPTION,
   ALEXIS_ROUTE_EXPRESSION,
+  COMBINED_ROUTE_DESCRIPTION,
+  COMBINED_ROUTE_EXPRESSION,
   ROUTE_DESCRIPTION,
   ROUTE_EXPRESSION,
   expectedRoute,
@@ -35,6 +37,16 @@ function exactAlexisRoute(id = "route-27pm-alexis") {
   return { id, ...expectedRoute(CALLBACK, "alexis") };
 }
 
+function exactCombinedRoute(id = "route-27pm") {
+  return {
+    id,
+    priority: 0,
+    description: COMBINED_ROUTE_DESCRIPTION,
+    expression: COMBINED_ROUTE_EXPRESSION,
+    actions: [`store(notify="${CALLBACK}")`, "stop()"],
+  };
+}
+
 test("recipient expression accepts only the two lowercase 27pm.org mailboxes", () => {
   const prefix = 'match_recipient("';
   const pattern = ROUTE_EXPRESSION.slice(prefix.length, -2);
@@ -62,7 +74,7 @@ test("the additive Alexis route is exact and cannot overlap the historical route
   assert.equal(alexis.test("alexis@sub.27pm.org"), false);
 });
 
-test("Alexis dry run ignores the non-overlapping historical route and remains read-only", async () => {
+test("Alexis dry run plans a guarded in-place expansion for a one-route account", async () => {
   const calls = [];
   const logs = [];
   const fetchImpl = async (input, init = {}) => {
@@ -79,7 +91,8 @@ test("Alexis dry run ignores the non-overlapping historical route and remains re
 
   assert.deepEqual(result, { status: "planned" });
   assert.deepEqual(calls.map((call) => call.method), ["GET"]);
-  assert.match(logs.join("\n"), /alexis@27pm/);
+  assert.match(logs.join("\n"), /bonjour\|admin\|alexis/);
+  assert.match(logs.join("\n"), /expand its exact historical route in place/);
   assert.doesNotMatch(logs.join("\n"), new RegExp(SECRET));
 });
 
@@ -97,8 +110,8 @@ test("Alexis apply creates and verifies only the additive exact route", async ()
     if (url.pathname === "/v3/routes" && method === "GET") {
       routeListReadCount += 1;
       const items = routeListReadCount === 1
-        ? [exactRoute("historical")]
-        : [exactRoute("historical"), exactAlexisRoute()];
+        ? []
+        : [exactAlexisRoute()];
       return jsonResponse({ total_count: items.length, items });
     }
     if (url.pathname === "/v3/routes" && method === "POST") {
@@ -127,6 +140,74 @@ test("Alexis apply creates and verifies only the additive exact route", async ()
     `store(notify="${CALLBACK}")`,
     "stop()",
   ]);
+});
+
+test("Alexis apply expands the exact historical route and preserves its transport", async () => {
+  const calls = [];
+  let routeListReadCount = 0;
+  const fetchImpl = async (input, init = {}) => {
+    const url = new URL(String(input));
+    const method = init.method ?? "GET";
+    calls.push({ url, method, init });
+
+    if (url.href === `${ORIGIN}/api/health` && method === "GET") {
+      return new Response(null, { status: 204 });
+    }
+    if (url.pathname === "/v3/routes" && method === "GET") {
+      routeListReadCount += 1;
+      const items = routeListReadCount === 1
+        ? [exactRoute("historical")]
+        : [exactCombinedRoute("historical")];
+      return jsonResponse({ total_count: 1, items });
+    }
+    if (url.pathname === "/v3/routes/historical" && method === "PUT") {
+      return jsonResponse({
+        message: "updated",
+        route: exactCombinedRoute("historical"),
+      });
+    }
+
+    throw new Error(`Unexpected fake request: ${method} ${url.href}`);
+  };
+
+  const result = await runProvisioner({
+    args: ["--mailbox=alexis", "--apply"],
+    env: ENV,
+    fetchImpl,
+    log: () => {},
+  });
+
+  assert.deepEqual(result, { status: "expanded", routeId: "historical" });
+  const put = calls.find((call) => call.method === "PUT");
+  assert.ok(put);
+  assert.equal(put.init.body.get("description"), COMBINED_ROUTE_DESCRIPTION);
+  assert.equal(put.init.body.get("expression"), COMBINED_ROUTE_EXPRESSION);
+  assert.deepEqual(put.init.body.getAll("action"), []);
+  assert.equal(put.init.body.get("priority"), null);
+});
+
+test("Alexis apply is idempotent when the combined route already exists", async () => {
+  const calls = [];
+  const fetchImpl = async (input, init = {}) => {
+    calls.push({ url: String(input), method: init.method ?? "GET" });
+    return jsonResponse({
+      total_count: 1,
+      items: [exactCombinedRoute("existing-combined")],
+    });
+  };
+
+  const result = await runProvisioner({
+    args: ["--mailbox=alexis", "--apply"],
+    env: ENV,
+    fetchImpl,
+    log: () => {},
+  });
+
+  assert.deepEqual(result, {
+    status: "unchanged",
+    routeId: "existing-combined",
+  });
+  assert.deepEqual(calls.map((call) => call.method), ["GET"]);
 });
 
 test("Alexis apply is idempotent when the additive route already exists", async () => {

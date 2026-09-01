@@ -11,6 +11,10 @@ export const ALEXIS_ROUTE_DESCRIPTION =
   "27PM CRM inbound: alexis@27pm.org";
 export const ALEXIS_ROUTE_EXPRESSION =
   'match_recipient("^alexis@27pm\\.org$")';
+export const COMBINED_ROUTE_DESCRIPTION =
+  "27PM CRM inbound: bonjour@27pm.org + admin@27pm.org + alexis@27pm.org";
+export const COMBINED_ROUTE_EXPRESSION =
+  'match_recipient("^(bonjour|admin|alexis)@27pm\\.org$")';
 export const ROUTE_PRIORITY = 0;
 
 const ALLOWED_MAILGUN_API_BASES = new Set([
@@ -20,6 +24,10 @@ const ALLOWED_MAILGUN_API_BASES = new Set([
 const INBOUND_PATH = "/api/webhooks/mailgun/inbound";
 const HEALTH_PATH = "/api/health";
 const PAGE_SIZE = 100;
+const TRUSTED_INBOUND_ORIGINS = new Set([
+  "https://crm.27pm.org",
+  "https://crm-27pm.ales27pm.chatgpt.site",
+]);
 
 export class ProvisioningError extends Error {
   constructor(message) {
@@ -134,6 +142,90 @@ function sameActions(actual, expected) {
         typeof action === "string" && action.trim() === expected[index],
     )
   );
+}
+
+function hasTrustedInboundActions(actions) {
+  if (!Array.isArray(actions) || actions.length !== 2 || actions[1] !== "stop()") {
+    return false;
+  }
+
+  const match = /^store\(notify="([^"]+)"\)$/u.exec(actions[0]);
+  if (!match) return false;
+
+  let callback;
+  try {
+    callback = new URL(match[1]);
+  } catch {
+    return false;
+  }
+
+  return (
+    callback.protocol === "https:" &&
+    callback.username === "" &&
+    callback.password === "" &&
+    TRUSTED_INBOUND_ORIGINS.has(callback.origin) &&
+    callback.pathname === INBOUND_PATH &&
+    callback.search === "" &&
+    callback.hash === ""
+  );
+}
+
+export function classifyAlexisCoverage(routes, expectedAdditive) {
+  const additive = classifyCurrentRoutes(routes, expectedAdditive);
+  if (additive.kind === "conflict") return additive;
+
+  const combinedExact = routes.filter(
+    (route) =>
+      route?.priority === ROUTE_PRIORITY &&
+      route?.description === COMBINED_ROUTE_DESCRIPTION &&
+      route?.expression === COMBINED_ROUTE_EXPRESSION &&
+      hasTrustedInboundActions(route.actions),
+  );
+  const combinedClaimed = routes.filter(
+    (route) =>
+      route?.description === COMBINED_ROUTE_DESCRIPTION ||
+      route?.expression === COMBINED_ROUTE_EXPRESSION,
+  );
+
+  if (combinedExact.length > 1) {
+    return {
+      kind: "conflict",
+      reason: "More than one route already has the combined 27PM contract.",
+    };
+  }
+  if (combinedClaimed.length !== combinedExact.length) {
+    return {
+      kind: "conflict",
+      reason:
+        "An existing route claims the combined 27PM recipients but has an untrusted contract.",
+    };
+  }
+  if (additive.kind === "existing" && combinedExact.length === 1) {
+    return {
+      kind: "conflict",
+      reason: "Both additive and combined routes cover alexis@27pm.org.",
+    };
+  }
+  if (additive.kind === "existing") {
+    return { ...additive, coverage: "additive" };
+  }
+  if (combinedExact.length === 1) {
+    return { kind: "existing", route: combinedExact[0], coverage: "combined" };
+  }
+
+  if (
+    routes.length === 1 &&
+    routes[0]?.priority === ROUTE_PRIORITY &&
+    routes[0]?.description === ROUTE_DESCRIPTION &&
+    routes[0]?.expression === ROUTE_EXPRESSION &&
+    hasTrustedInboundActions(routes[0].actions) &&
+    typeof routes[0]?.id === "string" &&
+    routes[0].id !== ""
+  ) {
+    return { kind: "expandable", route: routes[0] };
+  }
+
+  return { kind: "absent" };
 }
 
 export function classifyCurrentRoutes(routes, expected) {
@@ -287,6 +379,23 @@ async function createRoute(fetchImpl, config, route) {
   });
 }
 
+async function expandHistoricalRoute(fetchImpl, config, routeId) {
+  const body = new URLSearchParams();
+  body.set("description", COMBINED_ROUTE_DESCRIPTION);
+  body.set("expression", COMBINED_ROUTE_EXPRESSION);
+
+  return mailgunJsonRequest(
+    fetchImpl,
+    config,
+    `/v3/routes/${encodeURIComponent(routeId)}`,
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body,
+    },
+  );
+}
+
 export function parseArguments(args) {
   let apply = false;
   let explicitDryRun = false;
@@ -347,7 +456,10 @@ export async function runProvisioner({
   const currentRoutes = await listRoutes(fetchImpl, config);
   log(`Inspected ${currentRoutes.length} account route(s).`);
 
-  const current = classifyCurrentRoutes(currentRoutes, route);
+  const current =
+    mailbox === "alexis"
+      ? classifyAlexisCoverage(currentRoutes, route)
+      : classifyCurrentRoutes(currentRoutes, route);
   if (current.kind === "conflict") {
     throw new ProvisioningError(
       `Refusing to mutate Mailgun routes: ${current.reason} Review the account routes manually.`,
@@ -356,6 +468,39 @@ export async function runProvisioner({
   if (current.kind === "existing") {
     log("No change: the exact 27PM inbound route already exists.");
     return { status: "unchanged", routeId: current.route.id ?? null };
+  }
+
+  if (current.kind === "expandable") {
+    log(`Recipient filter: ${COMBINED_ROUTE_EXPRESSION}`);
+    log(`Actions preserved: ${current.route.actions.join(" -> ")}`);
+    if (!apply) {
+      log(
+        "Plan only: the one-route account would expand its exact historical route in place.",
+      );
+      return { status: "planned" };
+    }
+
+    await assertCheckpointHealthy(fetchImpl, config.healthUrl);
+    log("Production checkpoint health check passed.");
+    const original = current.route;
+    await expandHistoricalRoute(fetchImpl, config, original.id);
+
+    const verifiedRoutes = await listRoutes(fetchImpl, config);
+    const verified = classifyAlexisCoverage(verifiedRoutes, route);
+    if (
+      verified.kind !== "existing" ||
+      verified.coverage !== "combined" ||
+      verified.route.id !== original.id ||
+      verified.route.priority !== original.priority ||
+      !sameActions(verified.route.actions, original.actions)
+    ) {
+      throw new ProvisioningError(
+        "Mailgun accepted the route update, but the preserved combined contract could not be verified. Inspect the account route before retrying.",
+      );
+    }
+
+    log(`Expanded and verified route ${original.id}.`);
+    return { status: "expanded", routeId: original.id };
   }
 
   log(`Recipient filter: ${route.expression}`);

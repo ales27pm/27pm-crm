@@ -81,7 +81,7 @@ mail transport.
 
 ## Mailgun route target
 
-Once a stable CRM origin and Mailgun account access are available, create two
+Once a stable CRM origin and Mailgun account access are available, prefer two
 non-overlapping account routes matching exactly:
 
 ```text
@@ -92,9 +92,18 @@ non-overlapping account routes matching exactly:
 Each route uses
 `store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")` followed by
 `stop()`. The second expression cannot match either historical address, so it
-can be added without replacing or overlapping the existing route. Mailgun
-temporary storage is the short recovery buffer; D1/R2 is the durable
-application record.
+can be added without replacing or overlapping the existing route.
+
+When the Mailgun plan permits only one account route, the guarded fallback is
+one combined exact expression:
+
+```text
+^(bonjour|admin|alexis)@27pm\.org$
+```
+
+The provisioner may expand only the recognized historical route in place and
+must preserve its route ID, priority, and actions. Mailgun temporary storage is
+the short recovery buffer; D1/R2 is the durable application record.
 
 ## Completion evidence
 

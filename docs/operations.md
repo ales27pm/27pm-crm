@@ -9,14 +9,15 @@ change.
 - Only `bonjour@27pm.org`, `alexis@27pm.org`, and `admin@27pm.org` may enter
   the CRM.
 - The Mailgun routes are account-global, so inspect all routes before changing
-  one. Mailgun documents `GET /v3/routes` and `POST /v3/routes` as account route
-  operations in its [Routes API](https://documentation.mailgun.com/docs/mailgun/api-reference/send/mailgun/routes/post-v3-routes).
+  one. Mailgun documents `GET`, `POST`, and guarded `PUT /v3/routes/{id}`
+  operations in its [Routes API](https://documentation.mailgun.com/docs/inboxready/api-reference/optimize/mailgun/routes/put-v3-routes-id).
 - The provisioner is read-only unless `--apply` is present. It never calls a
-  DNS API, never updates or deletes a route, and never accepts credentials on
-  the command line.
+  DNS API, never deletes a route, and never accepts credentials on the command
+  line. Its only update path expands the exact recognized historical route for
+  a one-route account while preserving route ID, priority, and actions.
 - A production checkpoint must be deployed and healthy before the route is
-  created. The provisioner enforces a successful HTTPS `GET /api/health`
-  immediately before its only possible `POST`.
+  created or expanded. The provisioner enforces a successful HTTPS
+  `GET /api/health` immediately before its possible `POST` or `PUT`.
 - Do not paste keys into issue trackers, chat, checkpoint descriptions, shell
   commands, screenshots, or logs.
 
@@ -146,9 +147,11 @@ Do these steps in order. Do not create the Mailgun route early.
 
 8. Review any conflict in the Mailgun dashboard. The script refuses to replace
    a route with the same managed description or recipient expression.
-9. Apply only the missing exact route. For the Alexis identity, the command
-   re-inspects first, checks production health, creates only the non-overlapping
-   `alexis@` route when absent, and re-inspects afterward:
+9. Apply only the missing exact coverage. For the Alexis identity, the command
+   re-inspects first and checks production health. It creates a non-overlapping
+   `alexis@` route when possible; on an exact one-route account, it instead
+   expands the historical route in place and verifies that its ID, priority,
+   and actions did not change:
 
    ```sh
    npm run mailgun:route:alexis -- --apply
@@ -178,8 +181,8 @@ action 1:    store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")
 action 2:    stop()
 ```
 
-With `--mailbox=alexis` (or `npm run mailgun:route:alexis`), it manages only
-this additive route:
+With `--mailbox=alexis` (or `npm run mailgun:route:alexis`), the preferred
+contract is this additive route:
 
 ```text
 priority:    0
@@ -188,8 +191,18 @@ action 1:    store(notify="https://crm.27pm.org/api/webhooks/mailgun/inbound")
 action 2:    stop()
 ```
 
-The two recipient expressions are disjoint. Do not replace the historical
-route and do not create a combined three-address route alongside it.
+The two recipient expressions are disjoint. If the account quota is one route,
+the provisioner may instead update only the exact recognized historical route
+to this combined expression while preserving its transport:
+
+```text
+priority:    0
+expression:  match_recipient("^(bonjour|admin|alexis)@27pm\.org$")
+action 1:    unchanged store(notify=...) callback
+action 2:    stop()
+```
+
+Never create this combined route alongside an additive `alexis@` route.
 
 Configure each delivery-event webhook above with this exact HTTPS target:
 
@@ -223,8 +236,8 @@ message. Mailgun documents the signed fields in
 
 ## Strict mailbox separation
 
-The two non-overlapping transport routes do not merge the three business
-identities. Enforce these rules at every application boundary:
+The transport filters do not merge the three business identities. Enforce
+these rules at every application boundary:
 
 | Mailbox | Allowed content | Forbidden use |
 | --- | --- | --- |
@@ -270,11 +283,13 @@ The provisioner intentionally has no delete mode.
    already-issued notifications can finish.
 2. In the Mailgun dashboard, find the recorded target route ID and compare its
    expression and both actions with the corresponding exact contract above.
-3. Delete **only that target route** in the dashboard, or use Mailgun's
-   documented `DELETE /v3/routes/{id}` operation with the approved account
-   credential.
-4. Run the corresponding provisioner in dry-run mode and confirm the exact
-   route is absent. For Alexis, use
+3. For an additive Alexis route, delete **only that target route** in the
+   dashboard or with Mailgun's documented `DELETE /v3/routes/{id}` operation.
+   For a combined one-route account, do not delete the historical route;
+   restore only its prior description and two-address expression while keeping
+   the same ID, priority, and actions.
+4. Run the corresponding provisioner in dry-run mode and confirm the intended
+   rollback state. For Alexis, use
    `npm run mailgun:route:alexis -- --dry-run`.
 5. Confirm no new callbacks arrive. Review messages retained by `store()` before
    the three-day temporary-storage window expires.
@@ -282,10 +297,9 @@ The provisioner intentionally has no delete mode.
    rollback does not require an MX, SPF, DKIM, DMARC, A, AAAA, CNAME, or TLS
    change.
 
-If the API returned success but post-create verification failed, assume the
-route may exist. Use the route ID shown by the tool, or inspect the dashboard,
-before retrying. If a credential may have leaked, revoke it in Mailgun first,
-issue a replacement, then review account routes and logs.
+If the API returned success but post-change verification failed, inspect the
+recorded route ID before retrying. If a credential may have leaked, revoke it
+in Mailgun first, issue a replacement, then review account routes and logs.
 
 ## DNS boundary
 
