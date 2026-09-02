@@ -12,9 +12,9 @@ import {
 import { jsonError, readJsonObject } from "@/lib/http";
 import { sendMailgunMessage } from "@/lib/mailgun-client";
 import { reconcileMailgunEventsBestEffort } from "@/lib/mailgun-event-reconciliation";
+import { classifyMailgunFailure } from "@/lib/mailgun-send-outcome";
 import {
   normalizeCommandIdempotencyKey,
-  normalizeMessageId,
   requestFingerprint,
 } from "@/lib/mailgun";
 import {
@@ -33,6 +33,7 @@ type SendCommandRow = {
   status: "pending" | "authorized" | "dispatching" | "sent" | "failed" | "cancelled";
   providerMessageId: string | null;
   conversationId: string | null;
+  crmRecorded: number | boolean;
 };
 
 export async function POST(request: Request) {
@@ -52,7 +53,14 @@ export async function POST(request: Request) {
   if (!command) return jsonError(400, "message_invalid");
   if (payload.complianceConfirmed !== true) return jsonError(409, "operator_compliance_confirmation_required");
 
-  const requestHash = await requestFingerprint(command);
+  const requestHash = await requestFingerprint({
+    mailboxId: command.mailbox.id,
+    to: command.to,
+    subject: command.subject,
+    text: command.text,
+    html: command.html,
+    conversationId: command.conversationId,
+  });
   const db = crmDatabase();
   const commandId = crypto.randomUUID();
   let conversation: {
@@ -62,6 +70,10 @@ export async function POST(request: Request) {
     externalMessageId: string | null;
   } | null = null;
   let contact: ContactCompliance | null = null;
+  let providerDispatchStarted = false;
+  let providerAccepted = false;
+  let providerMessageId: string | null = null;
+  let recordedConversationId: string | null = null;
 
   try {
     if (command.conversationId) {
@@ -129,7 +141,11 @@ export async function POST(request: Request) {
         .prepare(
           `SELECT request_hash AS requestHash, status,
                   provider_message_id AS providerMessageId,
-                  conversation_id AS conversationId
+                  conversation_id AS conversationId,
+                  EXISTS (
+                    SELECT 1 FROM messages message
+                    WHERE message.external_message_id = send_commands.provider_message_id
+                  ) AS crmRecorded
            FROM send_commands WHERE idempotency_key = ? LIMIT 1`,
         )
         .bind(idempotencyKey)
@@ -148,6 +164,7 @@ export async function POST(request: Request) {
           idempotent: true,
           providerMessageId: existing.providerMessageId,
           conversationId: existing.conversationId,
+          crmRecorded: Boolean(existing.crmRecorded),
         });
       }
       if (existing.status === "pending") {
@@ -183,6 +200,7 @@ export async function POST(request: Request) {
       return jsonError(409, "compliance_state_changed");
     }
 
+    const config = mailgunConfig();
     const result = await sendMailgunMessage(
       {
         fromAddress: command.mailbox.address,
@@ -195,20 +213,40 @@ export async function POST(request: Request) {
         references: conversation?.externalMessageId
           ? [conversation.externalMessageId]
           : undefined,
+        unsubscribeUrl: unsubscribeUrl.toString(),
       },
-      mailgunConfig(),
+      config,
+      {
+        onDispatchStart: () => {
+          providerDispatchStarted = true;
+        },
+      },
     );
 
-    const externalMessageId = normalizeMessageId(result.id);
+    providerMessageId = result.id;
+    providerAccepted = true;
+    const acceptanceRecorded = await db
+      .prepare(
+        `UPDATE send_commands
+         SET status = 'sent', provider_message_id = ?, response_status = 200,
+             failure_code = NULL, updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND status = 'dispatching'`,
+      )
+      .bind(providerMessageId, commandId)
+      .run();
+    if (changedRows(acceptanceRecorded) !== 1) {
+      throw new Error("provider_acceptance_persistence_failed");
+    }
+
     const occurredAt = new Date().toISOString();
-    const conversationId =
+    recordedConversationId =
       conversation?.id ??
       (await createOutboundConversation(
         db,
         command.mailbox,
         command.to[0],
         command.subject,
-        externalMessageId,
+        providerMessageId,
         occurredAt,
       ));
 
@@ -222,9 +260,9 @@ export async function POST(request: Request) {
         )
         .bind(
           crypto.randomUUID(),
-          conversationId,
+          recordedConversationId,
           command.mailbox.id,
-          externalMessageId,
+          providerMessageId,
           command.mailbox.address,
           JSON.stringify(command.to),
           command.subject,
@@ -238,15 +276,15 @@ export async function POST(request: Request) {
            SET is_unread = 0, last_message_at = ?, updated_at = CURRENT_TIMESTAMP
            WHERE id = ?`,
         )
-        .bind(occurredAt, conversationId),
+        .bind(occurredAt, recordedConversationId),
       db
         .prepare(
           `UPDATE send_commands
-           SET status = 'sent', provider_message_id = ?, response_status = 200,
-               conversation_id = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
+           SET conversation_id = ?, failure_code = NULL,
+               updated_at = CURRENT_TIMESTAMP
+           WHERE id = ? AND status = 'sent'`,
         )
-        .bind(externalMessageId, conversationId, commandId),
+        .bind(recordedConversationId, commandId),
       db
         .prepare(
           `INSERT INTO audit_entries
@@ -256,7 +294,7 @@ export async function POST(request: Request) {
         .bind(
           crypto.randomUUID(),
           auth.operator.email,
-          conversationId,
+          recordedConversationId,
           JSON.stringify({ mailboxId: command.mailbox.id }),
         ),
       db
@@ -265,7 +303,7 @@ export async function POST(request: Request) {
            SET last_contact_at = ?, updated_at = CURRENT_TIMESTAMP
            WHERE id = (SELECT contact_id FROM conversations WHERE id = ?)`,
         )
-        .bind(occurredAt, conversationId),
+        .bind(occurredAt, recordedConversationId),
       db
         .prepare(
           `UPDATE organizations
@@ -278,22 +316,71 @@ export async function POST(request: Request) {
              WHERE conversation.id = ? LIMIT 1
            )`,
         )
-        .bind(occurredAt, conversationId),
+        .bind(occurredAt, recordedConversationId),
     ]);
 
     // A provider callback can arrive before this outbound row is committed.
     // Link any such callback by Mailgun message ID and apply its latest state.
-    await reconcileMailgunEventsBestEffort(db, externalMessageId);
+    await reconcileMailgunEventsBestEffort(db, providerMessageId);
 
     return Response.json(
       {
         accepted: true,
-        providerMessageId: externalMessageId,
-        conversationId,
+        providerMessageId,
+        conversationId: recordedConversationId,
+        crmRecorded: true,
       },
       { status: 202 },
     );
-  } catch {
+  } catch (cause: unknown) {
+    if (providerAccepted) {
+      try {
+        await db
+          .prepare(
+            `UPDATE send_commands
+             SET status = 'sent', provider_message_id = COALESCE(?, provider_message_id),
+                 response_status = 200,
+                 failure_code = 'post_acceptance_persistence_failure',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND status IN ('dispatching','sent')`,
+          )
+          .bind(providerMessageId, commandId)
+          .run();
+      } catch {
+        // Mailgun accepted the message; never turn a D1 outage into a retry signal.
+      }
+      return Response.json(
+        {
+          accepted: true,
+          providerMessageId,
+          conversationId: recordedConversationId,
+          crmRecorded: false,
+        },
+        { status: 202 },
+      );
+    }
+
+    if (
+      classifyMailgunFailure(providerDispatchStarted, cause) ===
+      "outcome_unknown"
+    ) {
+      try {
+        await db
+          .prepare(
+            `UPDATE send_commands
+             SET response_status = 503,
+                 failure_code = 'transport_outcome_unknown',
+                 updated_at = CURRENT_TIMESTAMP
+             WHERE id = ? AND status = 'dispatching'`,
+          )
+          .bind(commandId)
+          .run();
+      } catch {
+        // Keep the durable dispatching state non-retryable when D1 is unavailable.
+      }
+      return jsonError(503, "mailgun_send_unconfirmed");
+    }
+
     try {
       await db
         .prepare(

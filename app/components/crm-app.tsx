@@ -25,6 +25,11 @@ import { ThreadView } from "./thread-view";
 import { TodayView } from "./today-view";
 import { outreachErrorMessage } from "../../lib/outreach-errors";
 import {
+  createSendAttemptRegistry,
+  shouldRetainSendAttempt,
+  type SendAttemptRegistry,
+} from "../../lib/send-attempt-registry";
+import {
   ProjectsView,
   SettingsView,
   TasksView,
@@ -68,6 +73,10 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   const [editingStrategy, setEditingStrategy] = useState<OutreachStrategy | null>(null);
   const [updatingStrategyStepIds, setUpdatingStrategyStepIds] = useState<Set<string>>(new Set());
   const updatingStrategyStepIdsRef = useRef<Set<string>>(new Set());
+  const sendAttemptRegistryRef = useRef<SendAttemptRegistry | null>(null);
+  if (!sendAttemptRegistryRef.current) {
+    sendAttemptRegistryRef.current = createSendAttemptRegistry();
+  }
   const [requestedAccountId, setRequestedAccountId] = useState<string | null>(null);
   const [requestedIntakeId, setRequestedIntakeId] = useState<string | null>(null);
   const [requestedStrategyAccountId, setRequestedStrategyAccountId] = useState<string | null>(null);
@@ -411,14 +420,48 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
 
   async function sendMessage(payload: Record<string, string | boolean>) {
     if (!sendEnabled) return false;
+    const attempts = sendAttemptRegistryRef.current;
+    if (!attempts) return false;
     try {
+      const idempotencyKey = await attempts.keyFor(payload);
       const response = await fetch("/api/messages/send", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...payload, idempotencyKey: crypto.randomUUID() }),
+        body: JSON.stringify({ ...payload, idempotencyKey }),
       });
-      if (response.ok) await refreshDashboard();
-      return response.ok;
+      const result = (await response.json().catch(() => ({}))) as {
+        crmRecorded?: boolean;
+        error?: string;
+      };
+      if (!response.ok) {
+        if (
+          !shouldRetainSendAttempt(
+            response.status,
+            typeof result.error === "string" ? result.error : null,
+          )
+        ) {
+          await attempts.confirm(payload, idempotencyKey);
+        }
+        return false;
+      }
+      await attempts.confirm(payload, idempotencyKey);
+      const crmRecordingFailed = result.crmRecorded === false;
+      let refreshFailed = false;
+      try {
+        await refreshDashboard();
+      } catch {
+        refreshFailed = true;
+      }
+      if (crmRecordingFailed) {
+        setSyncMessage(
+          "Courriel accepté par Mailgun; son enregistrement CRM doit être vérifié avant tout autre envoi.",
+        );
+      } else if (refreshFailed) {
+        setSyncMessage(
+          "Courriel accepté; actualisez la réception pour voir son état de livraison.",
+        );
+      }
+      return true;
     } catch {
       return false;
     }

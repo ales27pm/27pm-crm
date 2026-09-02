@@ -1,13 +1,16 @@
 import { crmDatabase } from "@/lib/d1";
-import { boundedRequest } from "@/lib/bounded-request";
 import { runtimeString } from "@/lib/runtime";
 import { applyEmailUnsubscribe, validUnsubscribeSecret, verifyUnsubscribeToken } from "@/lib/unsubscribe";
+import {
+  parseUnsubscribeRequest,
+  validUnsubscribeTokenShape,
+} from "@/lib/unsubscribe-request";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
   const token = new URL(request.url).searchParams.get("token") ?? "";
-  if (!validTokenShape(token)) return html(400, confirmationPage("Lien invalide", "Ce lien de désabonnement est invalide."));
+  if (!validUnsubscribeTokenShape(token)) return html(400, confirmationPage("Lien invalide", "Ce lien de désabonnement est invalide."));
   const secret = runtimeString("CRM_UNSUBSCRIBE_SIGNING_KEY");
   if (!validUnsubscribeSecret(secret)) return html(503, confirmationPage("Service indisponible", "Le mécanisme de désabonnement n’est pas configuré."));
   const verified = await verifyUnsubscribeToken(secret, token);
@@ -16,7 +19,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const payload = await unsubscribePayload(request);
+  const payload = await parseUnsubscribeRequest(request);
   if (!payload) return Response.json({ error: "unsubscribe_invalid" }, { status: 400 });
   const secret = runtimeString("CRM_UNSUBSCRIBE_SIGNING_KEY");
   if (!validUnsubscribeSecret(secret)) return Response.json({ error: "unsubscribe_not_configured" }, { status: 503 });
@@ -24,34 +27,10 @@ export async function POST(request: Request) {
   if (!verified) return Response.json({ error: "unsubscribe_token_invalid" }, { status: 400 });
   const evidenceRef = `unsubscribe-token-sha256:${await sha256(payload.token)}`;
   const result = await applyEmailUnsubscribe(crmDatabase(), { contactId: verified.contactId, email: verified.email, scope: payload.scope, category: payload.category, evidenceRef });
-  if (request.headers.get("content-type")?.includes("application/x-www-form-urlencoded")) {
+  if (!payload.oneClick && request.headers.get("content-type")?.includes("application/x-www-form-urlencoded")) {
     return html(200, confirmationPage("Désabonnement confirmé", "La demande a été appliquée immédiatement."));
   }
   return Response.json(result, { headers: { "cache-control": "no-store" } });
-}
-
-async function unsubscribePayload(request: Request): Promise<{ token: string; scope: "global" | "category"; category: "all" | "prospecting" } | null> {
-  const bounded = await boundedRequest(request, 8_192);
-  if (!bounded) return null;
-  const contentType = request.headers.get("content-type") ?? "";
-  let token: unknown; let scope: unknown; let category: unknown;
-  if (contentType.includes("application/json")) {
-    const json = await bounded.json().catch(() => null) as Record<string, unknown> | null;
-    if (!json || typeof json !== "object" || Array.isArray(json)) return null;
-    token = json.token; scope = json.scope; category = json.category;
-  } else if (contentType.includes("application/x-www-form-urlencoded")) {
-    const text = await bounded.text();
-    const form = new URLSearchParams(text);
-    token = form.get("token"); scope = form.get("scope"); category = form.get("category");
-  } else return null;
-  if (typeof token !== "string" || !validTokenShape(token)) return null;
-  if (scope !== "global" && scope !== "category") return null;
-  const normalizedCategory = scope === "global" ? "all" : category === "prospecting" ? "prospecting" : null;
-  return normalizedCategory ? { token, scope, category: normalizedCategory } : null;
-}
-
-function validTokenShape(token: string) {
-  return token.length >= 32 && token.length <= 2_048 && /^[A-Za-z0-9._-]+$/u.test(token);
 }
 
 async function sha256(value: string) {

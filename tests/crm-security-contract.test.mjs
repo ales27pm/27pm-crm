@@ -88,8 +88,11 @@ test("outbound email and contact tasks enforce qualification guards", async () =
 test("public unsubscribe is opaque, authenticated, bounded, idempotent and transport-free", async () => {
   const source = await readFile(new URL("../app/api/public/unsubscribe/route.ts", import.meta.url), "utf8");
   const implementation = await readFile(new URL("../lib/unsubscribe.ts", import.meta.url), "utf8");
+  const requestParser = await readFile(new URL("../lib/unsubscribe-request.ts", import.meta.url), "utf8");
   assert.match(source, /verifyUnsubscribeToken/u);
-  assert.match(source, /boundedRequest/u);
+  assert.match(requestParser, /boundedRequest/u);
+  assert.match(requestParser, /List-Unsubscribe/u);
+  assert.match(requestParser, /One-Click/u);
   assert.match(source, /applyEmailUnsubscribe/u);
   assert.match(implementation, /AES-GCM/u);
   assert.match(implementation, /validUnsubscribeSecret/u);
