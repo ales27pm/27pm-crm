@@ -2,6 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { Mailbox } from "../crm-types";
+import {
+  DELIVERABILITY_CANARY_RECIPIENT,
+  DELIVERABILITY_CANARY_SENDER,
+} from "../../lib/deliverability-canary";
 import { Icon } from "./icons";
 
 type ComposeDialogProps = {
@@ -23,6 +27,9 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
   const [complianceConfirmed, setComplianceConfirmed] = useState(false);
+  const isDeliverabilityCanary =
+    from === DELIVERABILITY_CANARY_SENDER &&
+    to.trim().toLowerCase() === DELIVERABILITY_CANARY_RECIPIENT;
 
   useEffect(() => {
     const dialog = dialogRef.current;
@@ -54,7 +61,11 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
           setSending(true);
           setStatus("Envoi en cours…");
           if (!complianceConfirmed) {
-            setStatus("Confirmez la qualification et la conformité avant l’envoi.");
+            setStatus(
+              isDeliverabilityCanary
+                ? "Confirmez l’envoi du test interne."
+                : "Confirmez la qualification et la conformité avant l’envoi.",
+            );
             sendingRef.current = false;
             setSending(false);
             return;
@@ -63,7 +74,11 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
             if (sent) {
               setTo(""); setSubject(""); setBody(""); setComplianceConfirmed(false); setStatus(""); onClose();
             } else {
-              setStatus("L’envoi n’a pas été confirmé.");
+              setStatus(
+                isDeliverabilityCanary
+                  ? "Le test n’a pas été confirmé."
+                  : "L’envoi n’a pas été confirmé.",
+              );
             }
           }).finally(() => {
             sendingRef.current = false;
@@ -71,16 +86,16 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
           });
         }}
       >
-        <header><h2>Nouveau courriel</h2><button type="button" onClick={onClose} aria-label="Fermer"><Icon name="close" /></button></header>
+        <header><h2>{isDeliverabilityCanary ? "Test de délivrabilité 27PM" : "Nouveau courriel"}</h2><button type="button" onClick={onClose} aria-label="Fermer"><Icon name="close" /></button></header>
         <label><span>De</span><select value={from} onChange={(event) => setFrom(event.target.value)}>{salesMailboxes.map((mailbox) => <option key={mailbox.address}>{mailbox.address}</option>)}</select></label>
         <label><span>À</span><input type="email" required value={to} onChange={(event) => setTo(event.target.value)} /></label>
         <label><span>Objet</span><input required value={subject} onChange={(event) => setSubject(event.target.value)} /></label>
         <textarea aria-label="Message" required rows={12} value={body} onChange={(event) => setBody(event.target.value)} placeholder="Écrivez votre message…" />
-        <label className="check-label"><input type="checkbox" checked={complianceConfirmed} onChange={(event) => setComplianceConfirmed(event.target.checked)} /> Je confirme qu’il s’agit d’un seul destinataire qualifié, que le fondement et les preuves sont à jour et que le message concerne précisément ses fonctions.</label>
+        <label className="check-label"><input type="checkbox" checked={complianceConfirmed} onChange={(event) => setComplianceConfirmed(event.target.checked)} /> {isDeliverabilityCanary ? "Je confirme qu’il s’agit d’un test interne envoyé uniquement à votre boîte Gmail 27PM." : "Je confirme qu’il s’agit d’un seul destinataire qualifié, que le fondement et les preuves sont à jour et que le message concerne précisément ses fonctions."}</label>
         <footer>
           <p role="status">{status}</p>
           <button className="send-button" type="submit" disabled={sending}>
-            <Icon name="send" /> {sending ? "Envoi…" : "Envoyer"}
+            <Icon name="send" /> {sending ? "Envoi…" : isDeliverabilityCanary ? "Envoyer le test" : "Envoyer"}
           </button>
         </footer>
       </form>

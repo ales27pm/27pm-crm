@@ -25,6 +25,10 @@ import { ThreadView } from "./thread-view";
 import { TodayView } from "./today-view";
 import { outreachErrorMessage } from "../../lib/outreach-errors";
 import {
+  DELIVERABILITY_CANARY_RECIPIENT,
+  DELIVERABILITY_CANARY_SENDER,
+} from "../../lib/deliverability-canary";
+import {
   createSendAttemptRegistry,
   shouldRetainSendAttempt,
   type SendAttemptRegistry,
@@ -420,6 +424,29 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
 
   async function sendMessage(payload: Record<string, string | boolean>) {
     if (!sendEnabled) return false;
+    const isDeliverabilityCanary =
+      payload.from === DELIVERABILITY_CANARY_SENDER &&
+      typeof payload.to === "string" &&
+      payload.to.trim().toLowerCase() === DELIVERABILITY_CANARY_RECIPIENT;
+    if (isDeliverabilityCanary) {
+      try {
+        const response = await fetch("/api/admin/mailgun-canary", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            confirmed: payload.complianceConfirmed,
+            subject: payload.subject,
+            text: payload.body,
+          }),
+        });
+        if (!response.ok) return false;
+        setSyncMessage("Test de délivrabilité accepté par Mailgun.");
+        return true;
+      } catch {
+        return false;
+      }
+    }
+
     const attempts = sendAttemptRegistryRef.current;
     if (!attempts) return false;
     try {

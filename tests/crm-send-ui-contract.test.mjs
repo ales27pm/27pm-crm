@@ -26,3 +26,28 @@ test("the CRM confirms provider acceptance without hiding a local recording fail
     /Courriel accepté par Mailgun; son enregistrement CRM doit être vérifié/u,
   );
 });
+
+test("the compose dialog routes the exact 27PM Gmail canary through its administrative endpoint", async () => {
+  const app = await readFile(
+    new URL("../app/components/crm-app.tsx", import.meta.url),
+    "utf8",
+  );
+  const dialog = await readFile(
+    new URL("../app/components/compose-dialog.tsx", import.meta.url),
+    "utf8",
+  );
+  const config = await readFile(
+    new URL("../lib/deliverability-canary.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(config, /DELIVERABILITY_CANARY_RECIPIENT = "27pmorg@gmail\.com"/u);
+  assert.match(app, /DELIVERABILITY_CANARY_RECIPIENT/u);
+  assert.match(app, /fetch\("\/api\/admin\/mailgun-canary"/u);
+  assert.match(app, /confirmed: payload\.complianceConfirmed/u);
+  assert.match(app, /subject: payload\.subject/u);
+  assert.match(app, /text: payload\.body/u);
+  assert.match(dialog, /Test de délivrabilité 27PM/u);
+  assert.match(dialog, /Envoyer le test/u);
+  assert.match(dialog, /test interne envoyé uniquement à votre boîte Gmail 27PM/u);
+});

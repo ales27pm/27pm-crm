@@ -4,11 +4,13 @@ import { mailgunConfig } from "@/lib/mailgun-runtime";
 import { classifyMailgunFailure } from "@/lib/mailgun-send-outcome";
 import { normalizeEmailAddress } from "@/lib/mailboxes";
 import { requireRuntimeString } from "@/lib/runtime";
+import {
+  DELIVERABILITY_CANARY_RECIPIENT,
+  DELIVERABILITY_CANARY_SENDER,
+  DELIVERABILITY_CANARY_SUBJECT,
+} from "@/lib/deliverability-canary";
 
 export const dynamic = "force-dynamic";
-
-const CANARY_FROM = "alexis@27pm.org";
-const CANARY_SUBJECT = "Test DKIM 2048 — 27PM";
 
 export async function POST(request: Request) {
   const auth = requireOperatorRequest(request);
@@ -23,13 +25,15 @@ export async function POST(request: Request) {
   } catch {
     return canaryError(400, "request_body_invalid");
   }
-  if (
-    !payload ||
-    typeof payload !== "object" ||
-    (payload as Record<string, unknown>).confirmed !== true
-  ) {
+  if (!payload || typeof payload !== "object") {
+    return canaryError(400, "request_body_invalid");
+  }
+  const record = payload as Record<string, unknown>;
+  if (record.confirmed !== true) {
     return canaryError(409, "operator_confirmation_required");
   }
+  const content = parseCanaryContent(record);
+  if (!content) return canaryError(400, "canary_content_invalid");
 
   const canaryId = crypto.randomUUID();
   const sentAt = new Date().toISOString();
@@ -38,25 +42,30 @@ export async function POST(request: Request) {
   try {
     const configuredRecipient = requireRuntimeString("CRM_CANARY_RECIPIENT");
     const recipient = normalizeEmailAddress(configuredRecipient);
-    if (!recipient || recipient !== configuredRecipient) {
+    if (
+      !recipient ||
+      recipient !== configuredRecipient ||
+      recipient !== DELIVERABILITY_CANARY_RECIPIENT
+    ) {
       return canaryError(503, "canary_recipient_invalid");
     }
 
     const result = await sendMailgunMessage(
       {
-        fromAddress: CANARY_FROM,
+        fromAddress: DELIVERABILITY_CANARY_SENDER,
         fromName: "Alexis Boulet — 27PM",
         to: [recipient],
-        subject: CANARY_SUBJECT,
+        subject: content.subject,
         text: [
-          "Test administratif de délivrabilité 27PM.",
+          content.text,
           "",
+          "— Test administratif de délivrabilité 27PM —",
           `Identifiant : ${canaryId}`,
           `Envoyé à : ${sentAt}`,
           "",
           "Aucune action n’est requise.",
         ].join("\n"),
-        replyTo: CANARY_FROM,
+        replyTo: DELIVERABILITY_CANARY_SENDER,
       },
       mailgunConfig(),
       { onDispatchStart: () => { dispatchStarted = true; } },
@@ -72,7 +81,7 @@ export async function POST(request: Request) {
         accepted: true,
         canaryId,
         providerMessageId: result.id,
-        subject: CANARY_SUBJECT,
+        subject: content.subject,
       },
       { status: 202, headers: noStoreHeaders() },
     );
@@ -82,6 +91,21 @@ export async function POST(request: Request) {
     }
     return canaryError(502, "canary_send_failed");
   }
+}
+
+function parseCanaryContent(payload: Record<string, unknown>) {
+  const subject =
+    typeof payload.subject === "string"
+      ? payload.subject.replace(/[\r\n]+/gu, " ").trim()
+      : DELIVERABILITY_CANARY_SUBJECT;
+  const text =
+    typeof payload.text === "string"
+      ? payload.text.trim()
+      : "Test administratif de délivrabilité 27PM.";
+  if (!subject || subject.length > 500 || !text || text.length > 20_000) {
+    return null;
+  }
+  return { subject, text };
 }
 
 function isSameOriginBrowserRequest(request: Request): boolean {

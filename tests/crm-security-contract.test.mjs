@@ -32,7 +32,7 @@ test("the Mailgun canary is operator-only and pinned to one configured recipient
   assert.match(source, /recipient !== configuredRecipient/u);
   assert.match(source, /confirmed !== true/u);
   assert.match(source, /cross_origin_request_forbidden/u);
-  assert.match(source, /const CANARY_FROM = "alexis@27pm\.org"/u);
+  assert.match(source, /DELIVERABILITY_CANARY_SENDER/u);
   assert.doesNotMatch(source, /loadContactCompliance|canEmail|appendComplianceFooter/u);
 });
 
