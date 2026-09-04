@@ -3,7 +3,7 @@ import { sendMailgunMessage } from "@/lib/mailgun-client";
 import { mailgunConfig } from "@/lib/mailgun-runtime";
 import { classifyMailgunFailure } from "@/lib/mailgun-send-outcome";
 import { normalizeEmailAddress } from "@/lib/mailboxes";
-import { requireRuntimeString } from "@/lib/runtime";
+import { requireRuntimeString, runtimeString } from "@/lib/runtime";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +12,11 @@ const CANARY_SUBJECT = "Test DKIM 2048 — 27PM";
 
 export async function POST(request: Request) {
   const auth = requireOperatorRequest(request);
-  if (auth.response) return auth.response;
+  const technicalTriggerAuthorized = auth.response
+    ? await hasValidTechnicalTrigger(request)
+    : false;
+  if (auth.response && !technicalTriggerAuthorized) return auth.response;
+  const actor = auth.response ? "technical-canary" : auth.operator.email;
   if (!isSameOriginBrowserRequest(request)) {
     return canaryError(403, "cross_origin_request_forbidden");
   }
@@ -65,7 +69,7 @@ export async function POST(request: Request) {
     console.info("mailgun_canary_accepted", {
       canaryId,
       providerMessageId: result.id,
-      operator: auth.operator.email,
+      operator: actor,
     });
     return Response.json(
       {
@@ -82,6 +86,27 @@ export async function POST(request: Request) {
     }
     return canaryError(502, "canary_send_failed");
   }
+}
+
+async function hasValidTechnicalTrigger(request: Request): Promise<boolean> {
+  const configuredToken = runtimeString("CRM_CANARY_TRIGGER_TOKEN");
+  const authorization = request.headers.get("authorization");
+  if (!configuredToken || !authorization?.startsWith("Bearer ")) return false;
+
+  const suppliedToken = authorization.slice("Bearer ".length);
+  if (!suppliedToken || suppliedToken.length !== configuredToken.length) return false;
+
+  const [suppliedDigest, configuredDigest] = await Promise.all([
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(suppliedToken)),
+    crypto.subtle.digest("SHA-256", new TextEncoder().encode(configuredToken)),
+  ]);
+  const supplied = new Uint8Array(suppliedDigest);
+  const configured = new Uint8Array(configuredDigest);
+  let difference = 0;
+  for (let index = 0; index < supplied.length; index += 1) {
+    difference |= supplied[index] ^ configured[index];
+  }
+  return difference === 0;
 }
 
 function isSameOriginBrowserRequest(request: Request): boolean {
