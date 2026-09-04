@@ -14,6 +14,7 @@ const privateRoutes = [
   "../app/api/prospects/route.ts",
   "../app/api/privacy-requests/route.ts",
   "../app/api/privacy-requests/[id]/route.ts",
+  "../app/api/admin/mailgun-canary/route.ts",
 ];
 
 test("every new administrative CRM route fails closed through operator auth", async () => {
@@ -27,14 +28,11 @@ test("every new administrative CRM route fails closed through operator auth", as
 test("the Mailgun canary is operator-only and pinned to one configured recipient", async () => {
   const source = await readFile(new URL("../app/api/admin/mailgun-canary/route.ts", import.meta.url), "utf8");
   assert.match(source, /requireOperatorRequest\(request\)/u);
-  assert.match(source, /if \(auth\.response && !technicalTriggerAuthorized\) return auth\.response/u);
   assert.match(source, /CRM_CANARY_RECIPIENT/u);
   assert.match(source, /recipient !== configuredRecipient/u);
   assert.match(source, /confirmed !== true/u);
   assert.match(source, /cross_origin_request_forbidden/u);
   assert.match(source, /const CANARY_FROM = "alexis@27pm\.org"/u);
-  assert.match(source, /CRM_CANARY_TRIGGER_TOKEN/u);
-  assert.match(source, /crypto\.subtle\.digest\("SHA-256"/u);
   assert.doesNotMatch(source, /loadContactCompliance|canEmail|appendComplianceFooter/u);
 });
 
