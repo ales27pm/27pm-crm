@@ -222,6 +222,21 @@ The receipt is not considered processed until all durable writes finish. A
 retry of a reserved callback resumes idempotently; a processed signature is a
 replay and a new signature for an already processed callback is a duplicate.
 
+### Outbound prospecting contract
+
+Every CRM prospecting send must force Mailgun DKIM, disable open/click
+tracking, use an exact `Reply-To` matching the selected mailbox, and include
+the signed HTTPS CRM URL in both the visible footer and the RFC 8058
+`List-Unsubscribe` headers. The one-click endpoint accepts both standard form
+encodings and applies a global suppression immediately.
+
+For DKIM rotation, publish the two exact 2048-bit rotating CNAME records that
+Mailgun generates, wait for Mailgun verification, and only then remove legacy
+DKIM TXT records. Do not move sending to a subdomain while DMARC uses strict
+alignment unless that subdomain is explicitly aligned first. After any DNS
+change, send a canary and verify `spf=pass`, `dkim=pass`, `dmarc=pass`, and that
+the DKIM signature covers both unsubscribe headers before resuming the cadence.
+
 Mailgun uses Python-style regular expressions for `match_recipient`; the
 anchors above exclude aliases, plus-addresses, other local parts, and other
 domains. See [Route filters](https://documentation.mailgun.com/docs/mailgun/user-manual/receive-forward-store/route-filters).

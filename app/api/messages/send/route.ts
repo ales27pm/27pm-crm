@@ -213,6 +213,7 @@ export async function POST(request: Request) {
         references: conversation?.externalMessageId
           ? [conversation.externalMessageId]
           : undefined,
+        replyTo: command.mailbox.address,
         unsubscribeUrl: unsubscribeUrl.toString(),
       },
       config,

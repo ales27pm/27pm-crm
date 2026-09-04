@@ -17,27 +17,20 @@ export async function parseUnsubscribeRequest(
   if (contentType.includes("application/x-www-form-urlencoded")) {
     const form = new URLSearchParams(await bounded.text());
     const entries = [...form.entries()];
-    if (
-      entries.length === 1 &&
-      entries[0]?.[0] === "List-Unsubscribe" &&
-      entries[0]?.[1] === "One-Click"
-    ) {
-      const token = new URL(request.url).searchParams.get("token") ?? "";
-      return validUnsubscribeTokenShape(token)
-        ? {
-            token,
-            scope: "global",
-            category: "all",
-            oneClick: true,
-          }
-        : null;
-    }
+    const oneClick = oneClickPayload(request, entries);
+    if (oneClick) return oneClick;
 
     return normalizeConfirmationPayload(
       form.get("token"),
       form.get("scope"),
       form.get("category"),
     );
+  }
+
+  if (contentType.includes("multipart/form-data")) {
+    const form = await bounded.formData().catch(() => null);
+    if (!form) return null;
+    return oneClickPayload(request, [...form.entries()]);
   }
 
   if (contentType.includes("application/json")) {
@@ -50,6 +43,23 @@ export async function parseUnsubscribeRequest(
   }
 
   return null;
+}
+
+function oneClickPayload(
+  request: Request,
+  entries: Array<[string, unknown]>,
+): UnsubscribeRequestPayload | null {
+  if (
+    entries.length !== 1 ||
+    entries[0]?.[0] !== "List-Unsubscribe" ||
+    entries[0]?.[1] !== "One-Click"
+  ) {
+    return null;
+  }
+  const token = new URL(request.url).searchParams.get("token") ?? "";
+  return validUnsubscribeTokenShape(token)
+    ? { token, scope: "global", category: "all", oneClick: true }
+    : null;
 }
 
 export function validUnsubscribeTokenShape(token: string): boolean {

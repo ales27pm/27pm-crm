@@ -9,6 +9,7 @@ const message = {
   to: ["client@example.com"],
   subject: "Bonjour",
   text: "Une observation.",
+  replyTo: "alexis@27pm.org",
   unsubscribeUrl:
     "https://crm.27pm.org/api/public/unsubscribe?token=abcdefghijklmnopqrstuvwxyz012345",
 };

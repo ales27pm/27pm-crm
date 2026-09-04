@@ -1,3 +1,5 @@
+import { normalizeEmailAddress } from "./mailboxes";
+
 export type OutboundMailgunMessage = {
   fromAddress: string;
   fromName: string;
@@ -7,11 +9,23 @@ export type OutboundMailgunMessage = {
   html?: string | null;
   inReplyTo?: string | null;
   references?: string[];
+  replyTo: string;
   unsubscribeUrl: string;
 };
 
 export function buildMailgunForm(message: OutboundMailgunMessage): FormData {
   const unsubscribeUrl = validatedUnsubscribeUrl(message.unsubscribeUrl);
+  const fromAddress = normalizeEmailAddress(message.fromAddress);
+  const replyTo = normalizeEmailAddress(message.replyTo);
+  if (
+    !fromAddress ||
+    fromAddress !== message.fromAddress ||
+    !replyTo ||
+    replyTo !== message.replyTo ||
+    replyTo !== fromAddress
+  ) {
+    throw new Error("Mailgun Reply-To address is invalid.");
+  }
   const form = new FormData();
   form.set("from", `${message.fromName} <${message.fromAddress}>`);
   for (const recipient of message.to) form.append("to", recipient);
@@ -32,6 +46,7 @@ export function buildMailgunForm(message: OutboundMailgunMessage): FormData {
   form.set("o:tracking", "no");
   form.set("o:tracking-clicks", "no");
   form.set("o:tracking-opens", "no");
+  form.set("h:Reply-To", replyTo);
   form.set("h:List-Unsubscribe", `<${unsubscribeUrl}>`);
   form.set("h:List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
   return form;

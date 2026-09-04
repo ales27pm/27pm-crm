@@ -23,6 +23,22 @@ test("accepts only the exact RFC 8058 one-click POST and uses the URL token", as
   });
 });
 
+test("accepts the RFC 8058 multipart one-click encoding", async () => {
+  const body = new FormData();
+  body.set("List-Unsubscribe", "One-Click");
+  const request = new Request(
+    `https://crm.27pm.org/api/public/unsubscribe?token=${token}`,
+    { method: "POST", body },
+  );
+
+  assert.deepEqual(await parseUnsubscribeRequest(request), {
+    token,
+    scope: "global",
+    category: "all",
+    oneClick: true,
+  });
+});
+
 test("rejects malformed one-click requests instead of guessing intent", async () => {
   const cases = [
     new Request("https://crm.27pm.org/api/public/unsubscribe", {

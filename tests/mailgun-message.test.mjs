@@ -13,6 +13,7 @@ test("builds a deterministic low-tracking message with a standard unsubscribe he
     html: "<p>Bonjour</p>",
     inReplyTo: "reply@example.com",
     references: ["first@example.com", "reply@example.com"],
+    replyTo: "alexis@27pm.org",
     unsubscribeUrl:
       "https://crm.27pm.org/api/public/unsubscribe?token=opaque-token",
   });
@@ -31,6 +32,7 @@ test("builds a deterministic low-tracking message with a standard unsubscribe he
   assert.equal(form.get("o:tracking"), "no");
   assert.equal(form.get("o:tracking-clicks"), "no");
   assert.equal(form.get("o:tracking-opens"), "no");
+  assert.equal(form.get("h:Reply-To"), "alexis@27pm.org");
   assert.equal(
     form.get("h:List-Unsubscribe"),
     "<https://crm.27pm.org/api/public/unsubscribe?token=opaque-token>",
@@ -48,6 +50,7 @@ test("refuses an unsubscribe URL that is not an opaque HTTPS endpoint", () => {
     to: ["client@example.com"],
     subject: "Bonjour",
     text: "Bonjour",
+    replyTo: "alexis@27pm.org",
   };
 
   for (const unsubscribeUrl of [
@@ -58,6 +61,28 @@ test("refuses an unsubscribe URL that is not an opaque HTTPS endpoint", () => {
     assert.throws(
       () => buildMailgunForm({ ...baseMessage, unsubscribeUrl }),
       /unsubscribe URL is invalid/u,
+    );
+  }
+});
+
+test("requires Reply-To to match the normalized sender mailbox", () => {
+  const baseMessage = {
+    fromAddress: "alexis@27pm.org",
+    fromName: "Alexis Boulet",
+    to: ["client@example.com"],
+    subject: "Bonjour",
+    text: "Bonjour",
+    unsubscribeUrl:
+      "https://crm.27pm.org/api/public/unsubscribe?token=opaque-token",
+  };
+
+  for (const replyTo of [
+    "admin@27pm.org",
+    "alexis@27pm.org\r\nBcc: attacker@example.com",
+  ]) {
+    assert.throws(
+      () => buildMailgunForm({ ...baseMessage, replyTo }),
+      /Reply-To address is invalid/u,
     );
   }
 });
