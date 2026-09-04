@@ -86,3 +86,20 @@ test("requires Reply-To to match the normalized sender mailbox", () => {
     );
   }
 });
+
+test("allows an administrative canary without marketing unsubscribe headers", () => {
+  const form = buildMailgunForm({
+    fromAddress: "alexis@27pm.org",
+    fromName: "Alexis Boulet — 27PM",
+    to: ["27pmorg@gmail.com"],
+    subject: "Test DKIM 2048 — 27PM",
+    text: "Test administratif",
+    replyTo: "alexis@27pm.org",
+  });
+
+  assert.equal(form.get("o:dkim"), "yes");
+  assert.equal(form.get("o:tracking"), "no");
+  assert.equal(form.get("h:Reply-To"), "alexis@27pm.org");
+  assert.equal(form.has("h:List-Unsubscribe"), false);
+  assert.equal(form.has("h:List-Unsubscribe-Post"), false);
+});

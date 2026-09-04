@@ -11,6 +11,7 @@ import {
 } from "@/lib/compliance";
 import { jsonError, readJsonObject } from "@/lib/http";
 import { sendMailgunMessage } from "@/lib/mailgun-client";
+import { mailgunConfig } from "@/lib/mailgun-runtime";
 import { reconcileMailgunEventsBestEffort } from "@/lib/mailgun-event-reconciliation";
 import { classifyMailgunFailure } from "@/lib/mailgun-send-outcome";
 import {
@@ -456,24 +457,6 @@ function parseSendCommand(payload: Record<string, unknown>) {
   }
 
   return { mailbox, to, subject, text, html, conversationId };
-}
-
-function mailgunConfig() {
-  const apiBase = runtimeString("MAILGUN_API_BASE") ?? "https://api.mailgun.net";
-  const url = new URL(apiBase);
-  if (
-    url.protocol !== "https:" ||
-    !["api.mailgun.net", "api.eu.mailgun.net"].includes(url.hostname)
-  ) {
-    throw new Error("MAILGUN_API_BASE is invalid.");
-  }
-  const domain = requireRuntimeString("MAILGUN_DOMAIN").toLowerCase();
-  if (domain !== "27pm.org") throw new Error("MAILGUN_DOMAIN is invalid.");
-  return {
-    apiBase: url.origin,
-    domain,
-    sendingKey: requireRuntimeString("MAILGUN_SENDING_KEY"),
-  };
 }
 
 async function createOutboundConversation(

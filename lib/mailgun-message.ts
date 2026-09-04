@@ -10,11 +10,13 @@ export type OutboundMailgunMessage = {
   inReplyTo?: string | null;
   references?: string[];
   replyTo: string;
-  unsubscribeUrl: string;
+  unsubscribeUrl?: string;
 };
 
 export function buildMailgunForm(message: OutboundMailgunMessage): FormData {
-  const unsubscribeUrl = validatedUnsubscribeUrl(message.unsubscribeUrl);
+  const unsubscribeUrl = message.unsubscribeUrl
+    ? validatedUnsubscribeUrl(message.unsubscribeUrl)
+    : null;
   const fromAddress = normalizeEmailAddress(message.fromAddress);
   const replyTo = normalizeEmailAddress(message.replyTo);
   if (
@@ -47,8 +49,10 @@ export function buildMailgunForm(message: OutboundMailgunMessage): FormData {
   form.set("o:tracking-clicks", "no");
   form.set("o:tracking-opens", "no");
   form.set("h:Reply-To", replyTo);
-  form.set("h:List-Unsubscribe", `<${unsubscribeUrl}>`);
-  form.set("h:List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
+  if (unsubscribeUrl) {
+    form.set("h:List-Unsubscribe", `<${unsubscribeUrl}>`);
+    form.set("h:List-Unsubscribe-Post", "List-Unsubscribe=One-Click");
+  }
   return form;
 }
 
