@@ -64,7 +64,7 @@ test("publication and B2B bases fail closed without their specific proof", () =>
   assert.ok(canEmail(b2b, configuration(), NOW).reasons.includes("b2b_message_relevance_missing"));
 });
 
-test("sender identity, exclusion mechanism and cross-border controls default to blocked", () => {
+test("sender identity and exclusion mechanism default to blocked without imposing privacy-transfer attestations on work contacts", () => {
   const invalid = configuration({
     senderName: "",
     unsubscribeMechanismValidUntil: null,
@@ -76,10 +76,17 @@ test("sender identity, exclusion mechanism and cross-border controls default to 
   const reasons = canEmail(emailContact(), invalid, NOW).reasons;
   assert.ok(reasons.includes("sender_identity_incomplete"));
   assert.ok(reasons.includes("unsubscribe_mechanism_incomplete"));
-  assert.ok(reasons.includes("cross_border_efvp_unconfirmed"));
-  assert.ok(reasons.includes("cross_border_contract_unconfirmed"));
-  assert.ok(reasons.includes("cross_border_legal_validation_unconfirmed"));
-  assert.ok(reasons.includes("cross_border_evidence_missing"));
+  assert.equal(reasons.includes("cross_border_efvp_unconfirmed"), false);
+  assert.equal(reasons.includes("cross_border_contract_unconfirmed"), false);
+  assert.equal(reasons.includes("cross_border_legal_validation_unconfirmed"), false);
+  assert.equal(reasons.includes("cross_border_evidence_missing"), false);
+
+  const personalDataReasons = canEmail(emailContact({ personalDataCategory: "other_personal" }), invalid, NOW).reasons;
+  assert.ok(personalDataReasons.includes("non_work_personal_data_blocked"));
+  assert.ok(personalDataReasons.includes("cross_border_efvp_unconfirmed"));
+  assert.ok(personalDataReasons.includes("cross_border_contract_unconfirmed"));
+  assert.ok(personalDataReasons.includes("cross_border_legal_validation_unconfirmed"));
+  assert.ok(personalDataReasons.includes("cross_border_evidence_missing"));
 });
 
 test("call policy enforces internal/DNCL evidence, registration, caller identity and local hours", () => {

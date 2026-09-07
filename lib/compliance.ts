@@ -147,10 +147,16 @@ export function canEmail(
   if (!configuration.senderName || !configuration.organizationName || !configuration.postalAddress || !configuration.contactMethod) reasons.push("sender_identity_incomplete");
   if (!validDate(configuration.identityValidUntil) || new Date(configuration.identityValidUntil!).valueOf() < requiredPostSendValidity) reasons.push("sender_identity_validity_insufficient");
   if (!validPastOrPresent(configuration.unsubscribeMechanismValidatedAt, now) || !validDate(configuration.unsubscribeMechanismValidUntil) || new Date(configuration.unsubscribeMechanismValidUntil!).valueOf() < requiredPostSendValidity || !configuration.unsubscribeSigningKeyConfigured) reasons.push("unsubscribe_mechanism_incomplete");
-  if (!Boolean(configuration.crossBorderEfvpConfirmed)) reasons.push("cross_border_efvp_unconfirmed");
-  if (!Boolean(configuration.crossBorderContractConfirmed)) reasons.push("cross_border_contract_unconfirmed");
-  if (!Boolean(configuration.crossBorderLegalValidationConfirmed)) reasons.push("cross_border_legal_validation_unconfirmed");
-  if (!configuration.crossBorderEvidenceRef.trim()) reasons.push("cross_border_evidence_missing");
+  // Quebec's private-sector privacy statute excludes information tied to a
+  // person's business function, including their work email address, from the
+  // personal-information rules at issue here. Keep the transfer controls for
+  // any other personal-data category, which is already blocked by default.
+  if (contact.personalDataCategory !== "work_contact") {
+    if (!Boolean(configuration.crossBorderEfvpConfirmed)) reasons.push("cross_border_efvp_unconfirmed");
+    if (!Boolean(configuration.crossBorderContractConfirmed)) reasons.push("cross_border_contract_unconfirmed");
+    if (!Boolean(configuration.crossBorderLegalValidationConfirmed)) reasons.push("cross_border_legal_validation_unconfirmed");
+    if (!configuration.crossBorderEvidenceRef.trim()) reasons.push("cross_border_evidence_missing");
+  }
   return decision(reasons, contact, configuration, now);
 }
 
