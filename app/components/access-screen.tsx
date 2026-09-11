@@ -33,6 +33,7 @@ export function AccessScreen({ state, email }: AccessScreenProps) {
         </p>
         <a
           className="primary-action"
+          target="_top"
           href={
             signedOut
               ? chatGPTSignInPath("/")

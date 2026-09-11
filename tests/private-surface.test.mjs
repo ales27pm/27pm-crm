@@ -22,3 +22,11 @@ test("declares a private, non-indexable operator surface", async () => {
   assert.match(worker, /x-frame-options["'],\s*["']DENY/u);
   assert.match(worker, /x-robots-tag["'],\s*["']noindex, nofollow, noarchive/u);
 });
+
+test("starts dispatch-owned ChatGPT sign-in in the top-level context", async () => {
+  const accessScreen = await projectFile("app/components/access-screen.tsx");
+  const authAnchor = accessScreen.match(/<a[\s\S]*?<\/a>/u)?.[0] ?? "";
+
+  assert.match(authAnchor, /chatGPTSignInPath\("\/"\)/u);
+  assert.match(authAnchor, /target=["']_top["']/u);
+});
