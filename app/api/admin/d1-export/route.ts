@@ -36,9 +36,15 @@ export async function POST(request: Request) {
         "x-27pm-backup-format": snapshot.format,
       },
     });
-  } catch {
+  } catch (error) {
+    console.error("D1 backup export failed", safeErrorMessage(error));
     return jsonError(500, "backup_export_failed");
   }
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown_error";
+  return error.message.slice(0, 500);
 }
 
 async function constantTimeEqual(left: string, right: string): Promise<boolean> {
