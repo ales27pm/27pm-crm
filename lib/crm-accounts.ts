@@ -3,13 +3,19 @@ import { LAWFUL_BASES, PROVENANCE_TYPES, type LawfulBasis, type ProvenanceType }
 import { optionalTrimmedString, validIsoTimestamp } from "./http";
 import { normalizeEmailAddress } from "./mailboxes";
 
-export const ACCOUNT_PRIORITIES = ["very_high", "high", "normal", "low"] as const;
-export const CONTACT_BASES = ["inbound_request", "explicit_consent", "legitimate_interest", "existing_client"] as const;
-export const ROLE_RELEVANCE = ["relevant", "not_relevant"] as const;
-export const DNCL_STATUSES = ["not_checked", "not_listed", "listed", "not_applicable"] as const;
-export const EMAIL_STATUSES = ["unknown", "valid", "bounced", "invalid", "unsubscribed"] as const;
-export const PERSONAL_DATA_CATEGORIES = ["work_contact", "other_personal"] as const;
-export const QUALIFICATION_MODES = ["manual", "assisted", "fully_automated"] as const;
+const ACCOUNT_PRIORITIES = ["very_high", "high", "normal", "low"] as const;
+const ROLE_RELEVANCE = ["relevant", "not_relevant"] as const;
+const DNCL_STATUSES = ["not_checked", "not_listed", "listed", "not_applicable"] as const;
+const EMAIL_STATUSES = ["unknown", "valid", "bounced", "invalid", "unsubscribed"] as const;
+const PERSONAL_DATA_CATEGORIES = ["work_contact", "other_personal"] as const;
+const QUALIFICATION_MODES = ["manual", "assisted", "fully_automated"] as const;
+
+type LegacyContactBasis =
+  | "inbound_request"
+  | "explicit_consent"
+  | "legitimate_interest"
+  | "existing_client"
+  | "unknown";
 
 type ParseResult<T> = { ok: true; value: T } | { ok: false; code: string };
 
@@ -308,7 +314,7 @@ export function normalizePhone(value: string): string | null {
   return null;
 }
 
-function legacyContactBasis(basis: LawfulBasis): (typeof CONTACT_BASES)[number] | "unknown" {
+function legacyContactBasis(basis: LawfulBasis): LegacyContactBasis {
   if (basis === "explicit_consent") return "explicit_consent";
   if (basis === "existing_business_relationship") return "existing_client";
   if (basis === "requested_response") return "inbound_request";

@@ -1,6 +1,6 @@
 import { normalizeEmailAddress } from "./mailboxes";
 
-export const AUTHENTICATED_EMAIL_HEADER = "oai-authenticated-user-email";
+const AUTHENTICATED_EMAIL_HEADER = "oai-authenticated-user-email";
 
 export type Operator = {
   email: string;

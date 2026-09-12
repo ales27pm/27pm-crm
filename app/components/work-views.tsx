@@ -5,6 +5,7 @@ import type { ActivityEntry, Contact, CrmTask, Deal, Mailbox, OutreachStrategy, 
 import { outreachStepTiming } from "../../lib/outreach-strategy";
 import { Icon } from "./icons";
 import { ComplianceSettings } from "./compliance-settings";
+import { DeliverabilityPanel } from "./deliverability-panel";
 import { PrivacyRequestsPanel } from "./privacy-requests-panel";
 
 export function ProjectsView({ deals }: { deals: Deal[] }) {
@@ -129,6 +130,7 @@ export function SettingsView({
         {activities.length === 0 ? <p className="empty-state">Aucune activité enregistrée.</p> : <ol className="interaction-history">{activities.map((activity) => <li key={activity.id}><strong>{activity.action}</strong><time dateTime={activity.createdAt}>{activity.createdLabel}</time><p>{activity.actorEmail} · {activity.entityType} · {activity.entityId}</p></li>)}</ol>}
       </div>
       <ComplianceSettings />
+      <DeliverabilityPanel />
       <PrivacyRequestsPanel contacts={contacts} />
       <div className="settings-section">
         <h2>Connexion</h2>

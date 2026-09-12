@@ -26,8 +26,9 @@ test("webhook storage strictly resolves the newest provider timestamp", async ()
 
   assert.match(
     store,
-    /reconcile\(db, event\.messageId\)/u,
+    /reconcileRecordedEvent\(db, event\.messageId, reconcile\)/u,
   );
+  assert.match(store, /await reconcile\(db, externalMessageId\)/u);
 
   const reconciliation = await readFile(
     new URL("../lib/mailgun-event-reconciliation.ts", import.meta.url),

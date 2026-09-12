@@ -58,19 +58,25 @@ export function appendComplianceFooter(
   html: string | null,
   configuration: ComplianceConfiguration,
   unsubscribeUrl: string,
-): { text: string; html: string | null } {
-  const footer = [
+): { text: string; html: string } {
+  const safeUnsubscribeUrl = validatedUnsubscribeUrl(unsubscribeUrl);
+  const footerLines = [
     configuration.senderName,
     configuration.organizationName,
     configuration.postalAddress,
     configuration.contactMethod,
-    `Se désabonner : ${unsubscribeUrl}`,
-  ].join("\n");
-  const finalText = `${text ?? stripHtml(html ?? "")}\n\n—\n${footer}`.trim();
-  const finalHtml = html
-    ? `${html}<hr><p>${escapeHtml(configuration.senderName)}<br>${escapeHtml(configuration.organizationName)}<br>${escapeHtml(configuration.postalAddress)}<br>${escapeHtml(configuration.contactMethod)}<br><a href="${escapeHtml(unsubscribeUrl)}">Se désabonner</a></p>`
-    : null;
-  return { text: finalText, html: finalHtml };
+    `Se désabonner : ${safeUnsubscribeUrl}`,
+  ];
+  const operatorText = canonicalOperatorText(text, html);
+  const footerText = footerLines.join("\n");
+  const footerHtml = `<hr><p>${footerLines
+    .slice(0, -1)
+    .map(escapeHtml)
+    .join("<br>")}<br><a href="${escapeHtml(safeUnsubscribeUrl)}">Se désabonner</a></p>`;
+  return {
+    text: appendPlainTextFooter(operatorText, footerText),
+    html: appendHtmlFooter(html, operatorText, footerHtml),
+  };
 }
 
 export async function applyEmailUnsubscribe(
@@ -145,9 +151,68 @@ function base64UrlDecodeBytes(value: string): Uint8Array<ArrayBuffer> {
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;").replace(/"/gu, "&quot;");
+  return value
+    .replace(/&/gu, "&amp;")
+    .replace(/</gu, "&lt;")
+    .replace(/>/gu, "&gt;")
+    .replace(/"/gu, "&quot;")
+    .replace(/'/gu, "&#39;");
 }
 
 function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/gu, " ").replace(/\s+/gu, " ").trim();
+}
+
+function normalizePlainText(value: string): string {
+  return value.replace(/\r\n?/gu, "\n").trim();
+}
+
+function canonicalOperatorText(text: string | null, html: string | null): string {
+  const source = text?.trim() || stripHtml(html ?? "");
+  return normalizePlainText(source);
+}
+
+function appendPlainTextFooter(operatorText: string, footerText: string): string {
+  return operatorText
+    ? `${operatorText}\n\n—\n${footerText}`
+    : `—\n${footerText}`;
+}
+
+function appendHtmlFooter(
+  html: string | null,
+  operatorText: string,
+  footerHtml: string,
+): string {
+  const bodyHtml = html || plainTextToMinimalHtml(operatorText);
+  return `${bodyHtml}${footerHtml}`;
+}
+
+function plainTextToMinimalHtml(value: string): string {
+  if (!value) return "";
+  return value
+    .split(/\n{2,}/gu)
+    .map(
+      (paragraph) =>
+        `<p>${escapeHtml(paragraph).replace(/\n/gu, "<br>")}</p>`,
+    )
+    .join("");
+}
+
+function validatedUnsubscribeUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error("unsubscribe_url_invalid");
+  }
+  const safeComponents = [
+    url.protocol === "https:",
+    !url.username,
+    !url.password,
+    !url.hash,
+  ];
+  if (!safeComponents.every(Boolean)) {
+    throw new Error("unsubscribe_url_invalid");
+  }
+  return url.toString();
 }
