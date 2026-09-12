@@ -3,6 +3,20 @@ import { readdir, readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
+import { parseDeliverabilityWindow } from "../lib/deliverability-window.ts";
+
+test("deliverability window parser accepts only the explicit public vocabulary", () => {
+  assert.equal(parseDeliverabilityWindow(null), "30d");
+  for (const windowName of ["24h", "7d", "30d"]) {
+    assert.equal(parseDeliverabilityWindow(windowName), windowName);
+  }
+  for (const inheritedKey of ["toString", "constructor", "__proto__"]) {
+    assert.equal(parseDeliverabilityWindow(inheritedKey), null);
+  }
+  assert.equal(parseDeliverabilityWindow(""), null);
+  assert.equal(parseDeliverabilityWindow("24H"), null);
+});
+
 test("deliverability endpoint is operator-only, no-store, bounded, and never selects raw payloads", async () => {
   const source = await readFile(
     new URL("../app/api/admin/deliverability/route.ts", import.meta.url),

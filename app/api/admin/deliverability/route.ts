@@ -13,7 +13,10 @@ import {
   type DeliverabilityTelemetryEvent,
   type DeliverabilityTelemetryMessage,
 } from "@/lib/deliverability-metrics";
-import { jsonError } from "@/lib/http";
+import {
+  parseDeliverabilityWindow,
+  type DeliverabilityWindow,
+} from "@/lib/deliverability-window";
 import { runtimeString } from "@/lib/runtime";
 
 export const dynamic = "force-dynamic";
@@ -26,8 +29,7 @@ const CAVEATS = [
   "Le taux de spam Gmail et le placement Inbox/Junk proviennent de sources externes et ne sont pas déduits des événements Mailgun.",
 ];
 
-type WindowName = "24h" | "7d" | "30d";
-const WINDOW_DURATIONS: Record<WindowName, number> = {
+const WINDOW_DURATIONS: Record<DeliverabilityWindow, number> = {
   "24h": 24 * 60 * 60 * 1_000,
   "7d": 7 * 86_400_000,
   "30d": 30 * 86_400_000,
@@ -62,8 +64,10 @@ export async function GET(request: Request) {
   const auth = requireOperatorRequest(request);
   if (auth.response) return auth.response;
 
-  const windowName = parseWindow(new URL(request.url).searchParams.get("window"));
-  if (!windowName) return jsonError(400, "deliverability_window_invalid");
+  const windowName = parseDeliverabilityWindow(
+    new URL(request.url).searchParams.get("window"),
+  );
+  if (!windowName) return deliverabilityError(400, "deliverability_window_invalid");
   const generatedAt = new Date();
   const windowStart = new Date(
     generatedAt.valueOf() - windowDurationMs(windowName),
@@ -72,12 +76,12 @@ export async function GET(request: Request) {
   try {
     return await buildDeliverabilityResponse(windowName, generatedAt, windowStart);
   } catch {
-    return jsonError(500, "deliverability_unavailable");
+    return deliverabilityError(500, "deliverability_unavailable");
   }
 }
 
 async function buildDeliverabilityResponse(
-  windowName: WindowName,
+  windowName: DeliverabilityWindow,
   generatedAt: Date,
   windowStart: Date,
 ): Promise<Response> {
@@ -203,12 +207,7 @@ function eventObservation(row: EventRow): DeliverabilityTelemetryEvent {
   };
 }
 
-function parseWindow(value: string | null): WindowName | null {
-  const candidate = value || "30d";
-  return candidate in WINDOW_DURATIONS ? (candidate as WindowName) : null;
-}
-
-function windowDurationMs(value: WindowName): number {
+function windowDurationMs(value: DeliverabilityWindow): number {
   return WINDOW_DURATIONS[value];
 }
 
@@ -334,4 +333,8 @@ function noStoreHeaders(): HeadersInit {
     "cache-control": "private, no-store",
     "referrer-policy": "no-referrer",
   };
+}
+
+function deliverabilityError(status: number, error: string): Response {
+  return Response.json({ error }, { status, headers: noStoreHeaders() });
 }
