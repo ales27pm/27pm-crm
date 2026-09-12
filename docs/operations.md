@@ -37,6 +37,9 @@ them. Never commit a production value to `.env.example`.
 | `CRM_PUBLIC_ORIGIN` | No | Stable production HTTPS origin, normally `https://crm.27pm.org`. |
 | `CRM_UNSUBSCRIBE_SIGNING_KEY` | Yes | Dedicated secret (at least 32 random bytes) for opaque AES-GCM authenticated unsubscribe tokens. No production fallback exists. |
 | `CRM_WEBHOOK_MAX_AGE_SECONDS` | No | Maximum accepted webhook age; the current operational default is 900 seconds. |
+| `CRM_REPUTATION_MODE` | No | Operator-selected posture: `normal`, `domain_ramp`, `recovery`, or `dedicated_ip_warmup`. It never advances automatically. |
+| `CRM_REPUTATION_RAMP_DAY` | No | Optional positive day number used only to display a dedicated-IP warm-up ceiling. |
+| `CRM_REPUTATION_DAILY_CAP` | No | Optional non-negative manual daily cap; it overrides the displayed dedicated-IP formula. |
 | `PUBLIC_SITE_ORIGIN` | No | Exact public site origin allowed to submit an intake. |
 | `TURNSTILE_SECRET_KEY` | Yes | Server-side Cloudflare Turnstile verification secret. |
 | `PUBLIC_INTAKE_HASH_SALT` | Yes | Random secret used only to hash requester IPs for rate limiting. |
@@ -88,6 +91,10 @@ message, send command or automatic transport action.
 Migration 0011 adds the active `alexis@27pm.org` sales identity with the
 display name `Alexis Boulet — 27PM`. It does not create a Mailgun route, a
 message, a send command, a DNS record, or a separate IMAP/POP mailbox.
+Migrations 0012 and 0013 add non-PII traffic tags plus normalized delivery
+dimensions (provider, sending domain/IP, failure class and redacted SMTP
+diagnostics). Raw signed webhook payloads remain restricted to the event audit
+store and are never returned by the deliverability API.
 A code rollback without a data rollback has not been claimed compatible.
 
 Before applying 0006, validate the full export by restoring it to a disposable
@@ -123,6 +130,26 @@ a Sites runtime secret. It is a short-lived operator input for the local
 provisioning process and has broader account privileges than the CRM needs.
 Load it from the approved password manager into the current process
 environment, run the provisioner, then remove it from the environment.
+
+## Read-only Mailgun deliverability audit
+
+The local audit command performs bounded `GET` requests only against the exact
+`27pm.org` Events and suppression endpoints. It prints aggregate, redacted
+counts and refuses unofficial origins, redirects, unexpected pagination paths,
+windows longer than 31 days, or unbounded pages. It does not send mail or
+change Mailgun configuration.
+
+Load the broader read-only account key into the current process without
+putting it in shell history, confirm the region, and run:
+
+```sh
+MAILGUN_DOMAIN=27pm.org npm run mailgun:audit -- \
+  --begin=2026-09-01T00:00:00Z --end=2026-09-11T00:00:00Z
+```
+
+Do not commit `MAILGUN_API_KEY`, expose the JSON report publicly, or confuse an
+aggregate `delivered` count with inbox placement. The complete interpretation
+and provider-side gates are in [deliverability.md](deliverability.md).
 
 ## Production order of operations
 

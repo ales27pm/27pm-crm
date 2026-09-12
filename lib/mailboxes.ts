@@ -58,7 +58,7 @@ export function extractDisplayName(value: string): string | null {
   return displayName || null;
 }
 
-export function splitAddressList(value: string): string[] {
+function splitAddressList(value: string): string[] {
   const parts: string[] = [];
   let current = "";
   let quoted = false;

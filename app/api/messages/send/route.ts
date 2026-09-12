@@ -21,13 +21,18 @@ import {
 import {
   CRM_MAILBOXES,
   extractEmailAddress,
-  mailboxForAddress,
   parseAddressList,
 } from "@/lib/mailboxes";
+import {
+  sendContentFromPayload,
+  sendMailboxFromPayload,
+} from "@/lib/send-payload";
 import { requireRuntimeString, runtimeString } from "@/lib/runtime";
 import { appendComplianceFooter, createUnsubscribeToken, validUnsubscribeSecret } from "@/lib/unsubscribe";
 
 export const dynamic = "force-dynamic";
+
+const CRM_PROSPECTING_TAGS = ["source-crm", "traffic-prospecting"] as const;
 
 type SendCommandRow = {
   requestHash: string;
@@ -216,6 +221,7 @@ export async function POST(request: Request) {
           : undefined,
         replyTo: command.mailbox.address,
         unsubscribeUrl: unsubscribeUrl.toString(),
+        tags: CRM_PROSPECTING_TAGS,
       },
       config,
       {
@@ -257,8 +263,10 @@ export async function POST(request: Request) {
         .prepare(
           `INSERT OR IGNORE INTO messages
             (id, conversation_id, mailbox_id, direction, external_message_id,
-             sender, recipients_json, subject, text_body, html_body, status, occurred_at)
-           VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, 'accepted', ?)`,
+             sender, recipients_json, subject, text_body, html_body,
+             traffic_type, tags_json, status, occurred_at)
+           VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, 'prospecting', ?,
+                   'accepted', ?)`,
         )
         .bind(
           crypto.randomUUID(),
@@ -270,6 +278,7 @@ export async function POST(request: Request) {
           command.subject,
           compliantContent.text,
           compliantContent.html,
+          JSON.stringify(CRM_PROSPECTING_TAGS),
           occurredAt,
         ),
       db
@@ -297,7 +306,11 @@ export async function POST(request: Request) {
           crypto.randomUUID(),
           auth.operator.email,
           recordedConversationId,
-          JSON.stringify({ mailboxId: command.mailbox.id }),
+          JSON.stringify({
+            mailboxId: command.mailbox.id,
+            trafficType: "prospecting",
+            tags: CRM_PROSPECTING_TAGS,
+          }),
         ),
       db
         .prepare(
@@ -406,57 +419,71 @@ async function cancelSendCommand(db: ReturnType<typeof crmDatabase>, commandId: 
 }
 
 function parseSendCommand(payload: Record<string, unknown>) {
-  const mailboxValue =
-    typeof payload.mailbox === "string"
-      ? payload.mailbox.trim()
-      : typeof payload.from === "string"
-        ? payload.from.trim()
-        : "";
-  const mailbox =
-    CRM_MAILBOXES.find((candidate) => candidate.id === mailboxValue) ??
-    mailboxForAddress(mailboxValue);
+  const mailbox = salesMailbox(payload);
+  if (!mailbox) return null;
+  const recipient = singleSendRecipient(payload.to);
+  if (!recipient) return null;
+
+  const content = sendContentFromPayload(payload);
+  const conversationId = validConversationId(content.conversationId);
+  if (!validSendContent(payload, content, conversationId)) return null;
+
+  return { mailbox, to: [recipient], ...content, conversationId };
+}
+
+function salesMailbox(payload: Record<string, unknown>) {
+  const { mailbox } = sendMailboxFromPayload(payload);
   if (!mailbox || mailbox.purpose !== "sales") return null;
+  return mailbox;
+}
 
-  const recipientValues = Array.isArray(payload.to)
-    ? payload.to
-    : typeof payload.to === "string"
-      ? parseAddressList(payload.to)
-      : [];
-  const to = recipientValues
-    .map((value) =>
-      typeof value === "string" ? extractEmailAddress(value) : null,
-    )
-    .filter((value): value is string => Boolean(value));
-  if (to.length !== 1) return null;
+function singleSendRecipient(value: unknown): string | null {
+  const recipients = recipientCandidates(value)
+    .map(normalizedRecipient)
+    .filter((recipient): recipient is string => recipient !== null);
+  return recipients.length === 1 ? recipients[0] : null;
+}
 
-  const subject =
-    typeof payload.subject === "string"
-      ? payload.subject.replace(/[\r\n]+/gu, " ").trim()
-      : "";
-  const text =
-    typeof payload.text === "string"
-      ? payload.text.trim()
-      : typeof payload.body === "string"
-        ? payload.body.trim()
-        : null;
-  const html = typeof payload.html === "string" ? payload.html.trim() : null;
-  const conversationId =
-    typeof payload.conversationId === "string" &&
-    /^[a-zA-Z0-9_-]{1,128}$/u.test(payload.conversationId)
-      ? payload.conversationId
-      : null;
-  if (
-    !subject ||
-    subject.length > 500 ||
-    (!text && !html) ||
-    (text?.length ?? 0) > 2_000_000 ||
-    (html?.length ?? 0) > 2_000_000 ||
-    (payload.conversationId !== undefined && !conversationId)
-  ) {
-    return null;
-  }
+function recipientCandidates(value: unknown): unknown[] {
+  if (Array.isArray(value)) return value;
+  if (typeof value === "string") return parseAddressList(value);
+  return [];
+}
 
-  return { mailbox, to, subject, text, html, conversationId };
+function normalizedRecipient(value: unknown): string | null {
+  return typeof value === "string" ? extractEmailAddress(value) : null;
+}
+
+function validConversationId(value: string | null): string | null {
+  return value !== null && /^[a-zA-Z0-9_-]{1,128}$/u.test(value) ? value : null;
+}
+
+function validSendContent(
+  payload: Record<string, unknown>,
+  content: ReturnType<typeof sendContentFromPayload>,
+  conversationId: string | null,
+): boolean {
+  if (!validSubject(content.subject)) return false;
+  if (!validBody(content.text, content.html)) return false;
+  return payload.conversationId === undefined || conversationId !== null;
+}
+
+function validSubject(subject: string): boolean {
+  return subject.length > 0 && subject.length <= 500;
+}
+
+function validBody(text: string | null, html: string | null): boolean {
+  if (!hasBodyContent(text, html)) return false;
+  if (!bodyWithinLimit(text)) return false;
+  return bodyWithinLimit(html);
+}
+
+function hasBodyContent(text: string | null, html: string | null): boolean {
+  return Boolean(text) || Boolean(html);
+}
+
+function bodyWithinLimit(value: string | null): boolean {
+  return value === null || value.length <= 2_000_000;
 }
 
 async function createOutboundConversation(

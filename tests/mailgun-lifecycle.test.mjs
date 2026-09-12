@@ -5,6 +5,7 @@ import {
   buildDeliveryTimeline,
   DELIVERY_PRESENTATION,
   mailgunDeliveryState,
+  mailgunRecipientSuppression,
   mailgunReasonFromPayloadJson,
   OUTBOUND_DELIVERY_STATES,
   storedMessageDeliveryState,
@@ -59,6 +60,84 @@ test("distinguishes bounce failures from other permanent failures", () => {
     null,
   );
   assert.equal(mailgunDeliveryState({ eventType: "opened" }), null);
+});
+
+test("derives recipient suppression only from explicit Mailgun signals", () => {
+  assert.equal(
+    mailgunRecipientSuppression({
+      eventType: "failed",
+      severity: "permanent",
+      reason: "bounce",
+    }),
+    "bounce",
+  );
+  assert.equal(
+    mailgunRecipientSuppression({
+      eventType: "failed",
+      severity: "permanent",
+      reason: "suppress_bounce",
+    }),
+    "bounce",
+  );
+  assert.equal(
+    mailgunRecipientSuppression({
+      eventType: "failed",
+      severity: "permanent",
+      reason: "suppress-complaint",
+    }),
+    "complaint",
+  );
+  assert.equal(
+    mailgunRecipientSuppression({
+      eventType: "failed",
+      severity: "permanent",
+      reason: "suppress_unsubscribe",
+    }),
+    "unsubscribe",
+  );
+  assert.equal(
+    mailgunRecipientSuppression({ eventType: "complained" }),
+    "complaint",
+  );
+  assert.equal(
+    mailgunRecipientSuppression({ eventType: "unsubscribed" }),
+    "unsubscribe",
+  );
+  assert.equal(
+    mailgunRecipientSuppression({
+      eventType: "failed",
+      severity: "permanent",
+      reason: "espblock",
+    }),
+    null,
+  );
+  assert.equal(
+    mailgunRecipientSuppression({
+      eventType: "failed",
+      severity: "temporary",
+      reason: "bounce",
+    }),
+    null,
+  );
+});
+
+test("maps suppression-list complaints without mislabeling unsubscribes", () => {
+  assert.equal(
+    mailgunDeliveryState({
+      eventType: "failed",
+      severity: "permanent",
+      reason: "suppress-complaint",
+    }),
+    "complained",
+  );
+  assert.equal(
+    mailgunDeliveryState({
+      eventType: "failed",
+      severity: "permanent",
+      reason: "suppress-unsubscribe",
+    }),
+    "permanent-failure",
+  );
 });
 
 test("reads the Mailgun reason without exposing malformed payloads", () => {
@@ -160,4 +239,12 @@ test("provides operator guidance for every outbound state", () => {
     assert.ok(DELIVERY_PRESENTATION[state].label.length > 0);
     assert.ok(DELIVERY_PRESENTATION[state].guidance.length > 20);
   }
+  assert.match(
+    DELIVERY_PRESENTATION.delivered.guidance,
+    /serveur du destinataire.*accepté/u,
+  );
+  assert.match(
+    DELIVERY_PRESENTATION.delivered.guidance,
+    /ne (?:confirme|garantit) pas.*boîte de réception/u,
+  );
 });

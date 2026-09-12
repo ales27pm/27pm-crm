@@ -407,6 +407,8 @@ export const messages = sqliteTable(
     textBody: text("text_body"),
     htmlBody: text("html_body"),
     headersJson: text("headers_json").notNull().default("{}"),
+    trafficType: text("traffic_type").notNull().default("unclassified"),
+    tagsJson: text("tags_json").notNull().default("[]"),
     status: text("status").notNull().default("received"),
     occurredAt: text("occurred_at").notNull(),
     createdAt: timestamp("created_at"),
@@ -426,6 +428,10 @@ export const messages = sqliteTable(
     check(
       "messages_status_check",
       sql`${table.status} in ('received', 'queued', 'accepted', 'delivered', 'temporary-failure', 'permanent-failure', 'bounced', 'complained')`,
+    ),
+    check(
+      "messages_traffic_type_check",
+      sql`${table.trafficType} in ('unclassified', 'administrative', 'transactional', 'prospecting', 'marketing')`,
     ),
   ],
 );
@@ -767,7 +773,19 @@ export const messageEvents = sqliteTable(
     callbackKey: text("callback_key").notNull(),
     eventType: text("event_type").notNull(),
     severity: text("severity"),
+    reason: text("reason"),
     recipient: text("recipient"),
+    sendingDomain: text("sending_domain"),
+    recipientDomain: text("recipient_domain"),
+    mailboxProvider: text("mailbox_provider"),
+    sendingIp: text("sending_ip"),
+    failureClass: text("failure_class"),
+    smtpCode: integer("smtp_code"),
+    enhancedStatusCode: text("enhanced_status_code"),
+    smtpDescription: text("smtp_description"),
+    attemptNo: integer("attempt_no"),
+    tagsJson: text("tags_json").notNull().default("[]"),
+    campaignsJson: text("campaigns_json").notNull().default("[]"),
     eventTimestamp: text("event_timestamp").notNull(),
     payloadJson: text("payload_json").notNull(),
     createdAt: timestamp("created_at"),
@@ -779,6 +797,18 @@ export const messageEvents = sqliteTable(
     uniqueIndex("message_events_callback_key_unique").on(table.callbackKey),
     index("message_events_message_timestamp_idx").on(
       table.messageId,
+      table.eventTimestamp,
+    ),
+    index("message_events_provider_timestamp_idx").on(
+      table.mailboxProvider,
+      table.eventTimestamp,
+    ),
+    index("message_events_ip_timestamp_idx").on(
+      table.sendingIp,
+      table.eventTimestamp,
+    ),
+    index("message_events_failure_timestamp_idx").on(
+      table.failureClass,
       table.eventTimestamp,
     ),
   ],

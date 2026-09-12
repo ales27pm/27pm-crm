@@ -1,9 +1,3 @@
-export type AttachmentScanStatus =
-  | "unscanned"
-  | "clean"
-  | "infected"
-  | "rejected";
-
 export type AttachmentDownloadDecision =
   | { allowed: true }
   | {

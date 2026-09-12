@@ -12,6 +12,11 @@ export type OutboundDeliveryState =
 
 export type MessageDeliveryState = "received" | OutboundDeliveryState;
 
+export type MailgunRecipientSuppression =
+  | "bounce"
+  | "complaint"
+  | "unsubscribe";
+
 export type DeliveryTimelineEvent = {
   state: OutboundDeliveryState;
   occurredAt: string;
@@ -36,7 +41,7 @@ export const DELIVERY_PRESENTATION: Record<
   delivered: {
     label: "Livré",
     guidance:
-      "Le serveur du destinataire a accepté le message. Aucune action n’est requise.",
+      "Le serveur du destinataire a accepté la remise SMTP. Cela confirme uniquement le transfert au serveur et ne confirme pas le placement dans la boîte de réception.",
     tone: "success",
   },
   bounced: {
@@ -65,6 +70,68 @@ export const DELIVERY_PRESENTATION: Record<
   },
 };
 
+const DIRECT_DELIVERY_STATES = new Map<string, OutboundDeliveryState>([
+  ["accepted", "accepted"],
+  ["delivered", "delivered"],
+  ["bounce", "bounced"],
+  ["bounced", "bounced"],
+  ["complaint", "complained"],
+  ["complained", "complained"],
+  ["temporary-fail", "temporary-failure"],
+  ["temporary-failure", "temporary-failure"],
+]);
+
+const DIRECT_RECIPIENT_SUPPRESSIONS = new Map<
+  string,
+  MailgunRecipientSuppression
+>([
+  ["bounce", "bounce"],
+  ["bounced", "bounce"],
+  ["complaint", "complaint"],
+  ["complained", "complaint"],
+  ["unsubscribe", "unsubscribe"],
+  ["unsubscribed", "unsubscribe"],
+]);
+
+const PERMANENT_FAILURE_EVENT_TYPES = new Set([
+  "permanent-fail",
+  "permanent-failure",
+  "rejected",
+]);
+
+const PERMANENT_REASON_SUPPRESSIONS = new Map<
+  string,
+  MailgunRecipientSuppression
+>([
+  ["bounce", "bounce"],
+  ["suppress-bounce", "bounce"],
+  ["suppress-complaint", "complaint"],
+  ["suppress-unsubscribe", "unsubscribe"],
+]);
+
+const PERMANENT_DELIVERY_STATES: Record<
+  MailgunRecipientSuppression,
+  OutboundDeliveryState
+> = {
+  bounce: "bounced",
+  complaint: "complained",
+  unsubscribe: "permanent-failure",
+};
+
+const DELIVERY_STATE_TIE_BREAK_RANK: Record<OutboundDeliveryState, number> = {
+  accepted: 0,
+  "temporary-failure": 1,
+  delivered: 2,
+  bounced: 3,
+  "permanent-failure": 4,
+  complained: 5,
+};
+
+const STORED_STATE_ALIASES = new Map<string, OutboundDeliveryState>([
+  ["queued", "accepted"],
+  ["failed", "permanent-failure"],
+]);
+
 export function mailgunDeliveryState(input: {
   eventType: string;
   severity?: string | null;
@@ -72,35 +139,58 @@ export function mailgunDeliveryState(input: {
 }): OutboundDeliveryState | null {
   const eventType = normalizeToken(input.eventType);
   const severity = normalizeToken(input.severity);
-  const reason = normalizeToken(input.reason);
-
-  switch (eventType) {
-    case "accepted":
-      return "accepted";
-    case "delivered":
-      return "delivered";
-    case "bounce":
-    case "bounced":
-      return "bounced";
-    case "complaint":
-    case "complained":
-      return "complained";
-    case "temporary-fail":
-    case "temporary-failure":
-      return "temporary-failure";
-    case "permanent-fail":
-    case "permanent-failure":
-    case "rejected":
-      return isBounceReason(reason) ? "bounced" : "permanent-failure";
-    case "failed":
-      if (severity === "temporary") return "temporary-failure";
-      if (severity === "permanent") {
-        return isBounceReason(reason) ? "bounced" : "permanent-failure";
-      }
-      return null;
-    default:
-      return null;
+  const recipientSuppression = mailgunRecipientSuppression(input);
+  const directState = DIRECT_DELIVERY_STATES.get(eventType);
+  if (directState) return directState;
+  if (PERMANENT_FAILURE_EVENT_TYPES.has(eventType)) {
+    return permanentDeliveryState(recipientSuppression);
   }
+  return failedDeliveryState(eventType, severity, recipientSuppression);
+}
+
+function failedDeliveryState(
+  eventType: string,
+  severity: string,
+  recipientSuppression: MailgunRecipientSuppression | null,
+): OutboundDeliveryState | null {
+  if (eventType !== "failed") return null;
+  if (severity === "temporary") return "temporary-failure";
+  if (severity !== "permanent") return null;
+  return permanentDeliveryState(recipientSuppression);
+}
+
+/**
+ * Returns only Mailgun signals that prove a recipient-level suppression.
+ * Provider policy, reputation, and generic permanent failures deliberately do
+ * not qualify: those require operational investigation, not identity blocking.
+ */
+export function mailgunRecipientSuppression(input: {
+  eventType: string;
+  severity?: string | null;
+  reason?: string | null;
+}): MailgunRecipientSuppression | null {
+  const eventType = normalizeToken(input.eventType);
+  const severity = normalizeToken(input.severity);
+  const reason = normalizeToken(input.reason);
+  const directSuppression = DIRECT_RECIPIENT_SUPPRESSIONS.get(eventType);
+  if (directSuppression) return directSuppression;
+  if (!isPermanentFailure(eventType, severity)) return null;
+  return PERMANENT_REASON_SUPPRESSIONS.get(reason) ?? null;
+}
+
+function isPermanentFailure(eventType: string, severity: string): boolean {
+  return (
+    PERMANENT_FAILURE_EVENT_TYPES.has(eventType) ||
+    (eventType === "failed" && severity === "permanent")
+  );
+}
+
+function permanentDeliveryState(
+  suppression: MailgunRecipientSuppression | null,
+): OutboundDeliveryState {
+  return suppression
+    ? PERMANENT_DELIVERY_STATES[suppression]
+    : "permanent-failure";
 }
 
 export function storedMessageDeliveryState(
@@ -108,26 +198,40 @@ export function storedMessageDeliveryState(
   direction: "inbound" | "outbound",
 ): MessageDeliveryState {
   if (direction === "inbound") return "received";
+  return outboundStoredState(status);
+}
 
+function outboundStoredState(status: string): OutboundDeliveryState {
   const normalized = normalizeToken(status);
   if (isOutboundDeliveryState(normalized)) return normalized;
-  if (normalized === "queued") return "accepted";
-  if (normalized === "failed") return "permanent-failure";
-  return "accepted";
+  return STORED_STATE_ALIASES.get(normalized) ?? "accepted";
 }
 
 export function mailgunReasonFromPayloadJson(
   payloadJson: string | null | undefined,
 ): string | null {
+  return stringProperty(parsedJsonRecord(payloadJson), "reason");
+}
+
+function parsedJsonRecord(
+  payloadJson: string | null | undefined,
+): Record<string, unknown> | null {
   if (!payloadJson) return null;
   try {
     const payload: unknown = JSON.parse(payloadJson);
-    if (!payload || typeof payload !== "object") return null;
-    const reason = (payload as Record<string, unknown>).reason;
-    return typeof reason === "string" ? reason : null;
+    return isRecord(payload) ? payload : null;
   } catch {
     return null;
   }
+}
+
+function stringProperty(
+  record: Record<string, unknown> | null,
+  property: string,
+): string | null {
+  if (!record) return null;
+  const value = record[property];
+  return typeof value === "string" ? value : null;
 }
 
 export function buildDeliveryTimeline(input: {
@@ -135,11 +239,7 @@ export function buildDeliveryTimeline(input: {
   storedState: OutboundDeliveryState;
   providerEvents: readonly DeliveryTimelineEvent[];
 }): DeliveryTimelineEvent[] {
-  const timeline: Array<{
-    event: DeliveryTimelineEvent;
-    inputIndex: number;
-    synthetic: boolean;
-  }> = [];
+  const timeline: TimelineEntry[] = [];
   if (input.providerEvents.length > 0) {
     if (!input.providerEvents.some((event) => event.state === "accepted")) {
       timeline.push({
@@ -179,56 +279,72 @@ export function buildDeliveryTimeline(input: {
     }
   }
 
-  timeline.sort((left, right) => {
-    const timestampOrder =
-      timestampValue(left.event.occurredAt) -
-      timestampValue(right.event.occurredAt);
-    if (timestampOrder !== 0) return timestampOrder;
-    if (left.synthetic !== right.synthetic) return left.synthetic ? -1 : 1;
-
-    const leftSequence = left.event.sequence;
-    const rightSequence = right.event.sequence;
-    if (
-      Number.isFinite(leftSequence) &&
-      Number.isFinite(rightSequence) &&
-      leftSequence !== rightSequence
-    ) {
-      return leftSequence! - rightSequence!;
-    }
-
-    const stateOrder =
-      deliveryStateTieBreakRank(left.event.state) -
-      deliveryStateTieBreakRank(right.event.state);
-    return stateOrder || left.inputIndex - right.inputIndex;
-  });
-
-  return timeline.map(({ event }) => event).filter(
-    (event, index, events) =>
-      !events
-        .slice(0, index)
-        .some(
-          (candidate) =>
-            candidate.state === event.state &&
-            candidate.occurredAt === event.occurredAt,
-        ),
-  );
+  timeline.sort(compareTimelineEntries);
+  return uniqueTimelineEvents(timeline.map(({ event }) => event));
 }
 
-function deliveryStateTieBreakRank(state: OutboundDeliveryState): number {
-  switch (state) {
-    case "accepted":
-      return 0;
-    case "temporary-failure":
-      return 1;
-    case "delivered":
-      return 2;
-    case "bounced":
-      return 3;
-    case "permanent-failure":
-      return 4;
-    case "complained":
-      return 5;
+type TimelineEntry = {
+  event: DeliveryTimelineEvent;
+  inputIndex: number;
+  synthetic: boolean;
+};
+
+function compareTimelineEntries(
+  left: TimelineEntry,
+  right: TimelineEntry,
+): number {
+  const structuralOrder = firstComparison([
+    compareTimestamps(left.event.occurredAt, right.event.occurredAt),
+    compareSyntheticState(left.synthetic, right.synthetic),
+    compareSequences(left.event.sequence, right.event.sequence),
+  ]);
+  if (structuralOrder !== null) return structuralOrder;
+
+  const stateOrder =
+    DELIVERY_STATE_TIE_BREAK_RANK[left.event.state] -
+    DELIVERY_STATE_TIE_BREAK_RANK[right.event.state];
+  return stateOrder || left.inputIndex - right.inputIndex;
+}
+
+function compareTimestamps(left: string, right: string): number | null {
+  const order = timestampValue(left) - timestampValue(right);
+  return order !== 0 ? order : null;
+}
+
+function compareSyntheticState(left: boolean, right: boolean): number | null {
+  if (left === right) return null;
+  return left ? -1 : 1;
+}
+
+function firstComparison(comparisons: readonly (number | null)[]): number | null {
+  for (const comparison of comparisons) {
+    if (comparison !== null) return comparison;
   }
+  return null;
+}
+
+function compareSequences(
+  left: number | undefined,
+  right: number | undefined,
+): number | null {
+  if (!Number.isFinite(left) || !Number.isFinite(right) || left === right) {
+    return null;
+  }
+  return left! - right!;
+}
+
+function uniqueTimelineEvents(
+  events: readonly DeliveryTimelineEvent[],
+): DeliveryTimelineEvent[] {
+  const seen = new Set<string>();
+  const unique: DeliveryTimelineEvent[] = [];
+  for (const event of events) {
+    const key = JSON.stringify([event.state, event.occurredAt]);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(event);
+  }
+  return unique;
 }
 
 function isOutboundDeliveryState(
@@ -237,15 +353,15 @@ function isOutboundDeliveryState(
   return (OUTBOUND_DELIVERY_STATES as readonly string[]).includes(value);
 }
 
-function isBounceReason(reason: string): boolean {
-  return reason === "bounce" || reason === "suppress-bounce";
-}
-
 function normalizeToken(value: string | null | undefined): string {
   return (value ?? "")
     .trim()
     .toLowerCase()
     .replace(/[_\s]+/gu, "-");
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function timestampValue(value: string): number {
