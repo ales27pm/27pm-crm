@@ -9,7 +9,8 @@ n'autorise à lui seul aucun envoi, changement DNS, changement Mailgun,
 inscription auprès d'un fournisseur, achat d'option, migration de domaine ou
 déploiement.
 
-L'état DNS ci-dessous correspond à l'audit effectué le **11 septembre 2026**.
+L'état DNS ci-dessous correspond à l'audit public rafraîchi le
+**12 septembre 2026**.
 Le DNS, le compte Mailgun, les pools partagés et les politiques des fournisseurs
 peuvent changer. Toute exécution doit donc refaire les contrôles en direct et
 conserver l'heure UTC, la source observée et le résultat. Une ancienne capture
@@ -30,20 +31,29 @@ Les termes ont ici un sens strict :
 
 ### DNS et domaine d'envoi
 
-L'audit du 11 septembre 2026 a établi les faits suivants :
+L'audit public du 12 septembre 2026 a établi les faits suivants à partir du
+dépôt, des résolveurs Cloudflare et Google et d'une validation TLS directe :
 
 | Surface | État observé | Décision opérationnelle |
 | --- | --- | --- |
 | Domaine Mailgun | `27pm.org` est le domaine actuellement utilisé par le CRM | Ne pas changer le domaine de transport sans migration approuvée et testée |
 | MX à l'apex | L'apex publie les deux MX Mailgun attendus, `mxa.mailgun.org` et `mxb.mailgun.org` | Ne jamais les remplacer ou les fusionner à l'aveugle; vérifier d'abord tous les usages de réception |
 | SPF à l'apex | Un seul enregistrement SPF logique est publié et il contient `include:mailgun.org` | Préserver l'unicité; intégrer toute future source dans le même SPF après analyse de la limite de recherches DNS |
-| Domaine de suivi | `email.27pm.org` est un CNAME vers `mailgun.org` | Le conserver tant que ses dépendances n'ont pas été auditées; sa présence n'autorise pas le suivi |
+| DKIM public | `pdk1` et `pdk2` sont deux CNAME Mailgun dont les cibles publient actuellement des clés RSA de 2048 bits | Préserver les deux alias; vérifier dans le compte l'état ASS/rotation et sur un message reçu le sélecteur réellement utilisé |
+| Domaine de suivi | `email.27pm.org` est un CNAME vers `mailgun.org`, mais son endpoint HTTPS présente un certificat valable seulement pour `mailgun.org`; la validation du hostname `email.27pm.org` échoue | Le CRM désactive le tracking, donc ce défaut n'est pas sur son chemin actuel; corriger/provisionner le certificat avant toute activation et auditer les autres émetteurs ou anciens liens |
 | DMARC | `_dmarc.27pm.org` applique `p=reject` avec `adkim=s` et `aspf=s` | Ne pas régresser vers `p=none` ou un alignement relâché pour simplifier une migration |
 
-Cette photographie ne prétend pas que **Automatic Sender Security** est actif,
-que les sélecteurs DKIM tournent automatiquement ou qu'une boîte donnée sera
-placée en Inbox. Ces trois points doivent être vérifiés séparément dans le
-compte Mailgun et sur un message réellement reçu.
+Les deux clés publiques de 2048 bits et la topologie à deux CNAME sont
+compatibles avec **Automatic Sender Security**, mais le DNS public ne prouve ni
+que l'option est active dans le compte, ni sa cadence de rotation, ni le
+sélecteur appliqué au message. Ces points et le placement en Inbox doivent être
+vérifiés séparément dans le compte Mailgun et sur un message réellement reçu.
+
+Le DMARC actuel demande des rapports agrégés et forensiques à Mailgun et
+OnDMARC. Leur publication ne prouve pas que les fournisseurs les transmettent;
+elle crée néanmoins une dépendance de traitement, d'accès, de conservation et
+de confidentialité à inventorier avant de modifier les destinataires `rua` ou
+`ruf`.
 
 ### Contrôles déjà présents dans le CRM
 
@@ -193,6 +203,13 @@ les portes suivantes.
 Le CNAME `email.27pm.org` existe, mais le CRM désactive aujourd'hui le tracking
 d'ouvertures et de clics. Le DNS seul ne prouve pas qu'un pixel est injecté et
 ne constitue pas une autorisation pour en activer un.
+
+Au 12 septembre 2026, HTTPS sur ce hostname échoue la validation stricte du
+certificat : le certificat présenté couvre `mailgun.org`, pas
+`email.27pm.org`. Le défaut est dormant pour le flux CRM actuel, mais il peut
+affecter un autre émetteur, un ancien message ou une future réécriture de lien.
+Une activation du tracking est interdite tant que Mailgun n'a pas confirmé le
+`web_scheme`, le certificat personnalisé et un canari HTTPS valide.
 
 La politique actuelle est donc :
 
@@ -397,7 +414,7 @@ universelles.
 | Métrique | Cible | Avertissement | Critique / action | Nature |
 | --- | ---: | ---: | ---: | --- |
 | Plaintes visibles dans Mailgun | `< 0,05 %` | `>= 0,05 %` | `>= 0,10 %`: pause et enquête | Interne; Mailgun recommande de rester sous `0,10 %` |
-| Spam rate Gmail | `< 0,10 %` | `>= 0,10 %` | `0,30 %`: niveau à ne jamais atteindre | Fournisseur Google |
+| Spam rate Gmail | `< 0,10 %` | `>= 0,10 %` | `>= 0,30 %`: niveau à ne jamais atteindre | Fournisseur Google |
 | Plaintes Yahoo bulk | idéalement `< 0,10 %` | `>= 0,10 %` | `>= 0,30 %`: hors exigence bulk | Fournisseur Yahoo |
 | Hard bounce | `< 1 %` | `>= 1 %` | `>= 2 %`: pause et nettoyage | Interne |
 | Delivery SMTP | `>= 98 %` | `< 98 %` | `< 95 %`: enquête immédiate | Interne; ne mesure pas l'Inbox |
@@ -587,27 +604,29 @@ Pendant toute remédiation :
 
 ## Matrice exhaustive des actions P0 / P1 / P2
 
-Légende : **observé** = vérifié à la frontière indiquée le 11 septembre 2026;
-**implémenté dans le dépôt** = code, migration ou UI présent dans ce worktree,
-sans présumer son déploiement; **partiel** = composant local présent mais preuve
-externe ou couverture encore manquante; **différé** = non justifié dans la
-portée actuelle; **porte externe** = exige accès, propriété et approbation hors
-dépôt. Aucune migration D1, configuration Mailgun, requête fournisseur, requête
-DNS ou émission de graine n'est réputée exécutée par cette matrice.
+Légende : **observé** = vérifié à la frontière indiquée le 12 septembre 2026;
+**déployé** = code présent dans l'artefact de production Sites version 23 issu
+du commit `54c4413`, sans présumer que chaque branche a été exercée;
+**vérifié en production** = comportement directement sondé sur cette version;
+**partiel** = preuve locale ou publique présente mais frontière externe encore
+manquante; **différé** = non justifié dans la portée actuelle; **porte externe**
+= exige accès, propriété et approbation hors dépôt. Cette matrice n'attribue
+aucune configuration interne Mailgun, inscription fournisseur ou émission de
+graine qui n'a pas été directement observée.
 
-| Priorité | Recommandation | Statut 27PM au 2026-09-11 | Action / critère de sortie |
+| Priorité | Recommandation | Statut 27PM au 2026-09-12 | Action / critère de sortie |
 | --- | --- | --- | --- |
 | P0 | Identifier domaine Mailgun et `From:` visible | **Observé + implémenté dans le dépôt** | `27pm.org` est audité; `app/api/messages/send/route.ts` et `lib/mailgun-message.ts` bornent l'identité. Revalider le message reçu avant tout changement |
 | P0 | Éviter deux SPF au même hostname | **Observé** | Un SPF logique avec `include:mailgun.org`; aucun changement DNS exécuté. Recontrôler après toute source ajoutée |
-| P0 | SPF sur messages réels | **Porte externe, non exécutée** | Recevoir la matrice de graines et obtenir `spf=pass` par fournisseur; le dépôt ne peut pas déduire ce résultat |
-| P0 | DKIM 2048 et Automatic Sender Security | **Partiel + porte externe** | `lib/mailgun-message.ts` impose `o:dkim=yes`; l'état ASS, la taille, les sélecteurs, la rotation et `dkim=pass` exigent le compte et les valeurs générées en direct |
+| P0 | SPF sur messages réels | **Historique Microsoft seulement** | Le spécimen Outlook/Hotmail du 2 septembre 2026 rapporte `spf=pass`; refaire un canari actuel et compléter Gmail/Yahoo avant toute conclusion multi-fournisseur |
+| P0 | DKIM 2048 et Automatic Sender Security | **DKIM public observé + porte compte/message** | `pdk1` et `pdk2` délèguent à deux clés RSA de 2048 bits et `lib/mailgun-message.ts` impose `o:dkim=yes`; l'état ASS, la rotation, le sélecteur actif et `dkim=pass` exigent encore le compte et un message reçu |
 | P0 | DMARC d'observation initial | **Observé au niveau final** | `_dmarc.27pm.org` applique déjà `p=reject; adkim=s; aspf=s`; ne pas régresser et ne modifier aucun DNS sans porte de changement |
-| P0 | Alignement SPF/DKIM/DMARC | **Porte externe, non exécutée** | Obtenir les trois résultats et domaines exacts sur Gmail, Microsoft et Yahoo avec la politique actuelle |
+| P0 | Alignement SPF/DKIM/DMARC | **Historique Microsoft seulement** | Le spécimen Outlook/Hotmail du 2 septembre 2026 rapporte SPF, DKIM, DMARC et `compauth` en réussite, mais un placement Junk avec `SCL: 6`; obtenir les domaines exacts et un résultat actuel sur Gmail, Microsoft et Yahoo |
 | P0 | Exporter Events, bounces, plaintes et désabonnements | **CLI implémenté; lecture réelle non exécutée** | `scripts/audit-mailgun-deliverability.mjs` effectue des GET bornés, paginés et agrégés; `tests/mailgun-audit-script.test.mjs` couvre origine, bornes, pagination et schémas. L'accès compte reste externe |
-| P0 | Respecter les suppressions partout | **Implémenté dans le dépôt; réconciliation réelle non exécutée** | Le pré-transport de `app/api/messages/send/route.ts` bloque les tombstones; `lib/mailgun-event-reconciliation.ts` les crée idempotemment à partir des trois signaux explicites. Appliquer les migrations et rapprocher Mailgun séparément |
+| P0 | Respecter les suppressions partout | **Code déployé; blocage production non exercé; réconciliation fournisseur non exécutée** | Le pré-transport de `app/api/messages/send/route.ts` bloque les tombstones; `lib/mailgun-event-reconciliation.ts` les crée idempotemment à partir des trois signaux explicites. Les migrations D1 sont appliquées; la production comptait 19 Events et aucun lien Event-vers-message cassé lors du contrôle. Rapprocher un export Mailgun séparément, puis vérifier le blocage sans émettre de message |
 | P0 | Distinguer hard bounce et rejet de politique | **Implémenté et testé dans le dépôt** | `lib/deliverability-policy.ts`, `lib/mailgun-event-metadata.ts` et `lib/mailgun-lifecycle.ts` séparent bounce, politique, authentification et autres permanents; `tests/mailgun-event-reconciliation.test.mjs` prouve qu'un rejet de politique ne supprime pas l'adresse |
 | P0 | Zéro liste achetée/louée | **Politique actuelle** | Le flux reste individuel et soumis aux preuves de provenance/conformité; aucun import de liste n'est autorisé par ce runbook |
-| P0 | Stopper dormants massifs et pics | **Implémenté par portée + contrôle opérateur** | `app/api/messages/send/route.ts` accepte un destinataire et réévalue l'autorisation; les Tiers et la cadence restent une décision humaine |
+| P0 | Stopper dormants massifs et pics | **Contrôle opérateur; pas de quota automatique** | `app/api/messages/send/route.ts` accepte un destinataire et réévalue l'autorisation. Aucun plafond quotidien, détecteur de pic ou filtre d'inactivité serveur n'est inventé sans volume et baseline approuvés; les Tiers et la cadence restent une décision humaine explicite |
 | P0 | Multipart texte + HTML | **Implémenté et testé dans le dépôt** | Le flux UI texte passe par `lib/unsubscribe.ts`, qui retourne toujours texte et HTML et génère le HTML minimal avec échappement; `lib/mailgun-message.ts` transmet les deux. Un HTML API fourni reste à la charge d'un producteur approuvé. Couverture dans `tests/compliance-policy.test.mjs` et `tests/mailgun-message.test.mjs` |
 | P0 | One-click et lien visible | **Implémenté dans le dépôt; réception à vérifier** | `lib/unsubscribe.ts`, `lib/mailgun-message.ts` et `app/api/public/unsubscribe/route.ts` fournissent lien, headers et effet idempotent. Vérifier le MIME reçu et la couverture DKIM `h=` |
 | P0 | Message-ID valide | **Comportement fournisseur à vérifier** | Le CRM laisse Mailgun le générer; conserver l'identifiant réellement reçu dans la preuve privée |
@@ -615,22 +634,22 @@ DNS ou émission de graine n'est réputée exécutée par cette matrice.
 | P1 | Google Postmaster Tools | **Porte externe** | Domaine vérifié par le propriétaire; accès minimal; indiquer volume insuffisant si aucune donnée |
 | P1 | Yahoo Sender Hub / CFL | **Porte externe** | Inscription et signaux vérifiés avant trafic bulk Yahoo |
 | P1 | Signaux Microsoft du pool partagé | **Porte Mailgun** | Demande privée et conclusion Mailgun fondée sur sa télémétrie; aucune causalité présumée |
-| P1 | Segmentation Gmail/Microsoft/Yahoo | **Implémentée dans le dépôt; migration/déploiement non exécutés** | `lib/mailgun-event-metadata.ts` normalise prudemment fournisseur, domaine, IP et SMTP; `lib/mailgun-event-store.ts` les stocke. `drizzle/0012_clean_lilandra.sql`, `drizzle/0013_lively_anthem.sql` et `db/schema.ts` ajoutent colonnes/index; `lib/deliverability-metrics.ts` agrège par fournisseur |
+| P1 | Segmentation Gmail/Microsoft/Yahoo | **Déployée et vérifiée en production** | `lib/mailgun-event-metadata.ts` normalise prudemment fournisseur, domaine, IP et SMTP; `lib/mailgun-event-store.ts` les stocke. Les migrations `0012`/`0013` sont appliquées; les fenêtres privées 24 h, 7 j et 30 j répondent et `lib/deliverability-metrics.ts` agrège par fournisseur |
 | P1 | Segmentation transactionnel/marketing | **Partiellement implémentée; nouvelles branches différées** | `traffic_type` accepte plusieurs classes, l'API les agrège, et le flux actuel écrit `prospecting`. Aucun domaine `tx`/`news` ni flux transactionnel/marketing n'a été créé |
 | P1 | Tags/campagnes non personnels | **Implémenté pour la prospection CRM** | `app/api/messages/send/route.ts` émet `source-crm` et `traffic-prospecting`; `lib/mailgun-message.ts` valide au plus trois tags kebab non personnels; messages, Events et métriques les conservent. Aucun `template-v1` n'est émis tant qu'il n'existe pas |
 | P1 | Baseline Inbox placement avant/après | **Porte externe, non exécutée** | L'endpoint canari existe dans `app/api/admin/mailgun-canary/route.ts`, mais chaque graine et chaque lecture d'en-têtes/placement exigent une approbation et une boîte contrôlée |
 | P1 | Envoyer d'abord au Tier A | **Contrôle opérationnel** | Utiliser réponses, demandes, achats et activité réelle; ne pas utiliser d'ouverture inventée |
-| P1 | Cadence prévisible / warm-up domaine | **Politique locale implémentée; progression manuelle** | `lib/deliverability-policy.ts` expose `domain_ramp` et `recovery` sans formule automatique; l'API/UI affichent le mode, un plafond manuel éventuel et `automaticAdvancement=false`. Les paliers réels restent fondés sur les preuves |
+| P1 | Cadence prévisible / warm-up domaine | **Mode et télémétrie déployés; application manuelle** | `lib/deliverability-policy.ts` expose `domain_ramp` et `recovery` sans formule automatique; l'API/UI affichent le mode, un plafond manuel éventuel et `automaticAdvancement=false`. Aucun quota serveur n'est déduit d'un volume inconnu; chaque palier réel exige une limite approuvée et des preuves propres |
 | P1 | Alertes Mailgun par fournisseur | **Porte externe** | Configurer si le forfait/volume le permet; tester la destination et la procédure de réponse |
-| P1 | Dashboard de métriques et seuils | **Implémenté dans le dépôt; migration/déploiement non exécutés** | `lib/deliverability-policy.ts` calcule les seuils et dénominateurs; `lib/deliverability-metrics.ts` agrège messages uniques; `GET /api/admin/deliverability?window=24h|7d|30d` est borné/no-store; `app/components/deliverability-panel.tsx` est intégré par `app/components/work-views.tsx`, avec styles dans `app/globals.css`. Tests dans `tests/deliverability-policy.test.mjs`, `tests/deliverability-metrics.test.mjs` et `tests/deliverability-route.test.mjs` |
-| P1 | Audit Spamhaus | **À la demande** | Utiliser après lecture du SMTP; traiter la cause avant delisting |
+| P1 | Dashboard de métriques et seuils | **Code/UI déployés; API vérifiée en production** | `lib/deliverability-policy.ts` calcule les seuils et dénominateurs; `lib/deliverability-metrics.ts` agrège les messages uniques; `GET /api/admin/deliverability?window=24h|7d|30d` est borné, privé et `no-store`; `app/components/deliverability-panel.tsx` expose la vue opérateur. Les trois fenêtres et les rejets 400/401 ont été contrôlés sur Sites version 23; cette preuve API ne remplace pas un nouveau parcours visuel du panneau |
+| P1 | Audit Spamhaus | **Contrôle DNS indicatif exécuté; outil officiel restant** | Le 12 septembre 2026, le résolveur système a retourné `NXDOMAIN` pour l'IP partagée `159.135.228.14` dans Spamhaus ZEN, SpamCop et Barracuda, ainsi que pour `27pm.org` dans Spamhaus DBL. Ce signal n'établit ni la réputation Microsoft ni l'absence dans tous les outils; utiliser le checker officiel après lecture du SMTP et traiter la cause avant delisting |
 | P1 | Audit MXToolbox | **À la demande** | Détection large seulement; ne pas confondre présence et utilisation par le fournisseur |
 | P1 | Analyse DMARC | **Porte externe** | Propriétaire, contrat, rétention et accès approuvés; inventaire complet des sources |
 | P1 | Test de rendu Email on Acid | **Optionnel et gated** | Données synthétiques seulement; aucun message client réel sans autorisation |
 | P2 | Séparer `tx.27pm.org` / `news.27pm.org` | **Taxonomie locale prête; DNS/Mailgun différés** | Le modèle `traffic_type` permet l'analyse future, mais aucun sous-domaine, DNS, domaine Mailgun ou flux n'a été créé; franchir les six portes en préservant `p=reject` et l'alignement strict |
 | P2 | Passer DMARC à `quarantine`, puis `reject` | **Déjà au niveau final** | Ne pas régresser; vérifier chaque nouvelle source avant activation |
 | P2 | BIMI | **Différé et optionnel** | Seulement après stabilité durable de DMARC, réputation, logo conforme et décision de certificat |
-| P2 | Activer le tracking | **Désactivé explicitement dans le dépôt; activation future gated** | `lib/mailgun-message.ts` fixe tracking, clics et ouvertures à `no`; l'API/UI l'affichent désactivé. Toute activation requiert analyse de confidentialité, consentement, rétention et test reçu |
+| P2 | Activer le tracking | **Désactivé; TLS du hostname invalide** | `lib/mailgun-message.ts` fixe tracking, clics et ouvertures à `no`; l'API/UI l'affichent désactivé. Avant toute activation : analyse de confidentialité, certificat valide pour `email.27pm.org`, contrôle du `web_scheme`, absence de réécriture inattendue et test reçu |
 | P2 | IP dédiée | **Différé** | Volume régulier, télémétrie et capacité d'exploitation démontrés; décision séparée |
 | P2 | Warm-up d'une IP dédiée | **Formule locale implémentée; non applicable et non exécutée** | `lib/deliverability-policy.ts` réserve `plancher(100 × 1,2^(jour−1))` au seul mode `dedicated_ip_warmup`; `tests/deliverability-policy.test.mjs` protège cette séparation. Aucun warm-up sans IP dédiée approuvée |
 
@@ -652,7 +671,8 @@ d'exécution distincte :
 - utiliser un service tiers de blocklist, DMARC ou rendu avec des données 27PM;
 - acheter, attacher ou chauffer une IP dédiée;
 - modifier DMARC, SPF, MX, DKIM, CNAME, TLS ou BIMI;
-- déployer une modification du CRM ou appliquer une migration D1.
+- déployer toute nouvelle modification du CRM ou appliquer toute nouvelle
+  migration D1.
 
 À l'exécution, ne jamais placer un secret dans la ligne de commande, le dépôt,
 un ticket, une capture, un fichier d'export non protégé ou un log. Charger
