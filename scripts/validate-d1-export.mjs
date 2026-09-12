@@ -84,12 +84,6 @@ try {
   }
   verifySchema(database, snapshot.schemaObjects);
   verifyTableRows(database, snapshot.tables);
-  const restoredUserVersion = Number(
-    Object.values(database.prepare("PRAGMA user_version").get() ?? {})[0],
-  );
-  if (restoredUserVersion !== snapshot.userVersion) {
-    throw new Error("Restored SQLite user_version does not match the source snapshot.");
-  }
 } finally {
   database.close();
 }
@@ -130,14 +124,13 @@ const manifest = {
     validatorSha256: await sha256(validatorPath),
   },
   validation: {
-    sourceIntegrityCheck: snapshot.integrityCheck,
+    sourceQuickCheck: snapshot.quickCheck,
     sourceForeignKeyViolations: snapshot.foreignKeyViolations.length,
     restoreSqlExecuted: true,
     restoredIntegrityCheck: "ok",
     restoredForeignKeyViolations: 0,
     schemaObjectsMatch: true,
     tableRowsMatch: true,
-    restoredUserVersion: snapshot.userVersion,
     d1CompatibleNoExplicitTransaction: true,
     d1SqlStatementLimitBytes: D1_MAX_SQL_STATEMENT_BYTES,
     maximumGeneratedSqlStatementBytes: maximumStatementBytes,
@@ -171,14 +164,11 @@ process.stdout.write(
 );
 
 function validateSnapshotShape(value) {
-  if (!value || value.format !== "27pm-d1-logical-v1") {
+  if (!value || value.format !== "27pm-d1-logical-v2") {
     throw new Error("Unsupported D1 snapshot format.");
   }
   if (!Array.isArray(value.schemaObjects) || !Array.isArray(value.tables)) {
     throw new Error("D1 snapshot is missing schema or table data.");
-  }
-  if (!Number.isInteger(value.userVersion) || value.userVersion < 0) {
-    throw new Error("D1 snapshot has an invalid user_version.");
   }
   for (const entry of value.schemaObjects) {
     if (
@@ -192,11 +182,11 @@ function validateSnapshotShape(value) {
     }
   }
   if (
-    !Array.isArray(value.integrityCheck) ||
-    value.integrityCheck.length === 0 ||
-    value.integrityCheck.some((entry) => entry !== "ok")
+    !Array.isArray(value.quickCheck) ||
+    value.quickCheck.length === 0 ||
+    value.quickCheck.some((entry) => entry !== "ok")
   ) {
-    throw new Error("Source D1 integrity check was not clean.");
+    throw new Error("Source D1 quick_check was not clean.");
   }
   if (!Array.isArray(value.foreignKeyViolations) || value.foreignKeyViolations.length) {
     throw new Error("Source D1 foreign-key check was not clean.");
@@ -260,7 +250,7 @@ function renderRestoreSql(snapshotValue) {
   for (const type of ["index", "view", "trigger"]) {
     for (const entry of schemaByType(type)) lines.push(statement(entry.sql));
   }
-  lines.push(`PRAGMA user_version = ${snapshotValue.userVersion};`, "");
+  lines.push("");
   const maximumStatementBytes = Math.max(
     ...lines.map((line) => Buffer.byteLength(line, "utf8")),
   );

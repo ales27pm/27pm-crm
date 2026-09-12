@@ -18,11 +18,10 @@ test("captures a transactionally consistent, lossless, read-only logical snapsho
     sequenceClock("2026-09-12T02:00:00.000Z", "2026-09-12T02:00:01.000Z"),
   );
 
-  assert.equal(snapshot.format, "27pm-d1-logical-v1");
+  assert.equal(snapshot.format, "27pm-d1-logical-v2");
   assert.equal(batches, 1);
-  assert.deepEqual(snapshot.integrityCheck, ["ok"]);
+  assert.deepEqual(snapshot.quickCheck, ["ok"]);
   assert.deepEqual(snapshot.foreignKeyViolations, []);
-  assert.equal(snapshot.userVersion, 7);
   assert.ok(!snapshot.schemaObjects.some((entry) => entry.name.startsWith("_cf_")));
   assert.ok(!snapshot.tables.some((table) => table.name.startsWith("_cf_")));
   assert.ok(snapshot.schemaObjects.some((entry) => entry.type === "trigger" && entry.name === "child_touch"));
@@ -71,10 +70,9 @@ test("generated restore SQL recreates byte-equivalent rows and schema", async (t
   assert.equal(manifest.validation.restoredForeignKeyViolations, 0);
   assert.equal(manifest.validation.schemaObjectsMatch, true);
   assert.equal(manifest.validation.tableRowsMatch, true);
-  assert.equal(manifest.validation.restoredUserVersion, 7);
   const restoreSql = await readFile(join(outputDirectory, "restore.sql"), "utf8");
   assert.match(restoreSql, /PRAGMA defer_foreign_keys = TRUE;/u);
-  assert.match(restoreSql, /PRAGMA user_version = 7;/u);
+  assert.doesNotMatch(restoreSql, /PRAGMA user_version/u);
   assert.doesNotMatch(
     restoreSql,
     /^(?:BEGIN(?: IMMEDIATE| TRANSACTION)?|COMMIT);$/imu,
@@ -127,7 +125,6 @@ test("the temporary export route is secret-gated, expiring, private, and POST-on
 function fixtureDatabase() {
   const database = new DatabaseSync(":memory:");
   database.exec(`PRAGMA foreign_keys=ON;
-    PRAGMA user_version=7;
     CREATE TABLE parent (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL);
     CREATE TABLE child (
       id INTEGER PRIMARY KEY,

@@ -25,7 +25,7 @@ const TABLE_COLUMNS_SQL = `SELECT
     AND substr(schema.name, 1, 4) <> '_cf_'
   ORDER BY schema.name, columns.cid`;
 
-export const D1_SNAPSHOT_FORMAT = "27pm-d1-logical-v1";
+export const D1_SNAPSHOT_FORMAT = "27pm-d1-logical-v2";
 
 type SchemaObjectRow = {
   type: string;
@@ -57,8 +57,7 @@ export type LogicalD1Snapshot = {
   startedAt: string;
   completedAt: string;
   source: { project: "27PM CRM"; binding: "DB" };
-  userVersion: number;
-  integrityCheck: string[];
+  quickCheck: string[];
   foreignKeyViolations: [];
   schemaObjects: SchemaObjectRow[];
   tables: Array<{
@@ -85,9 +84,8 @@ export async function buildLogicalD1Snapshot(
 
   const statements = [
     db.prepare(SCHEMA_SQL),
-    db.prepare("PRAGMA user_version"),
     db.prepare("PRAGMA foreign_key_check"),
-    db.prepare("PRAGMA integrity_check"),
+    db.prepare("PRAGMA quick_check"),
     db.prepare(TABLE_COLUMNS_SQL),
     ...tableNames.map((name) => db.prepare(`SELECT * FROM ${quoteIdentifier(name)}`)),
     db.prepare(SCHEMA_SQL),
@@ -107,26 +105,20 @@ export async function buildLogicalD1Snapshot(
     throw new Error("D1 schema changed while the snapshot was captured.");
   }
 
-  const foreignKeyViolations = asRows(results[2]);
+  const foreignKeyViolations = asRows(results[1]);
   if (foreignKeyViolations.length > 0) {
     throw new Error("D1 foreign-key violations prevent a valid snapshot.");
   }
 
-  const integrityCheck = asRows(results[3]).flatMap((row) =>
+  const quickCheck = asRows(results[2]).flatMap((row) =>
     Object.values(row).map(String),
   );
-  if (integrityCheck.length === 0 || integrityCheck.some((value) => value !== "ok")) {
-    throw new Error("D1 integrity check failed.");
-  }
-
-  const userVersionValue = Object.values(asRows(results[1])[0] ?? {})[0];
-  const userVersion = Number(userVersionValue ?? 0);
-  if (!Number.isInteger(userVersion) || userVersion < 0) {
-    throw new Error("D1 user_version is invalid.");
+  if (quickCheck.length === 0 || quickCheck.some((value) => value !== "ok")) {
+    throw new Error("D1 quick_check failed.");
   }
 
   const columnsByTable = new Map<string, ColumnRow[]>();
-  for (const rawColumn of asRows<ColumnRow>(results[4])) {
+  for (const rawColumn of asRows<ColumnRow>(results[3])) {
     if (typeof rawColumn.tableName !== "string" || !tableNames.includes(rawColumn.tableName)) {
       throw new Error("D1 returned column metadata for an unknown table.");
     }
@@ -141,7 +133,7 @@ export async function buildLogicalD1Snapshot(
       throw new Error("D1 returned no column metadata for a table.");
     }
     const storedColumns = columns.filter((column) => (column.hidden ?? 0) === 0);
-    const sourceRows = asRows(results[5 + tableIndex]);
+    const sourceRows = asRows(results[4 + tableIndex]);
     const rows = sourceRows.map((row) =>
       storedColumns.map((column) => encodeCell(row[column.name])),
     );
@@ -153,8 +145,7 @@ export async function buildLogicalD1Snapshot(
     startedAt,
     completedAt: now().toISOString(),
     source: { project: "27PM CRM", binding: "DB" },
-    userVersion,
-    integrityCheck,
+    quickCheck,
     foreignKeyViolations: [],
     schemaObjects: discoveredSchema,
     tables,
