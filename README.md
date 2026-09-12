@@ -48,7 +48,6 @@ npm run dev
 npm run lint
 npm run test:unit
 npm run db:generate
-npm run mailgun:audit -- --help
 ```
 
 `npm test` produit l’artefact déployable puis exécute tous les tests Node. Le
@@ -64,12 +63,6 @@ La procédure complète, le test de santé et la création idempotente de la rou
 Mailgun sont décrits dans [docs/operations.md](docs/operations.md). La création
 du compte Google avec l’adresse existante `admin@27pm.org` est décrite dans
 [docs/google-accounts.md](docs/google-accounts.md).
-
-Le plan complet de délivrabilité, ses seuils, les limites des signaux SMTP et
-les actions externes qui exigent une validation opérateur sont documentés dans
-[docs/deliverability.md](docs/deliverability.md). L’écran **Réglages →
-Délivrabilité** agrège uniquement des messages uniques et n’assimile jamais une
-remise serveur à un placement en boîte de réception.
 
 Le provisionneur Mailgun est en lecture seule par défaut :
 

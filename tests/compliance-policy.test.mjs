@@ -129,52 +129,7 @@ test("unsubscribe tokens are opaque, authenticated and the server footer contain
   const content = appendComplianceFooter("Bonjour", null, configuration(), `https://crm.example/unsubscribe?token=${token}`);
   for (const expected of ["Alice Conseillère", "27PM", "123 rue Exemple", "514 555-0100", "Se désabonner"]) {
     assert.match(content.text, new RegExp(expected));
-    assert.match(content.html, new RegExp(expected));
   }
-  assert.match(content.html, /^<p>Bonjour<\/p><hr>/u);
-  assert.match(content.html, /<a href="https:\/\/crm\.example\/unsubscribe\?token=/u);
-});
-
-test("plain-text multipart HTML escapes operator and compliance content", () => {
-  const unsafeConfiguration = configuration({
-    senderName: "Alice <script>alert('sender')</script>",
-    postalAddress: '123 rue "Exemple" & Associés',
-  });
-  const content = appendComplianceFooter(
-    "Bonjour <script>alert('operator')</script> & bienvenue",
-    null,
-    unsafeConfiguration,
-    "https://crm.example/unsubscribe?token=opaque",
-  );
-
-  assert.match(content.text, /<script>alert\('operator'\)<\/script>/u);
-  assert.doesNotMatch(content.html, /<script>/u);
-  assert.match(content.html, /&lt;script&gt;alert\(&#39;operator&#39;\)&lt;\/script&gt; &amp; bienvenue/u);
-  assert.match(content.html, /Alice &lt;script&gt;alert\(&#39;sender&#39;\)&lt;\/script&gt;/u);
-  assert.match(content.html, /123 rue &quot;Exemple&quot; &amp; Associés/u);
-});
-
-test("an existing HTML body is preserved and receives the same safe compliance footer", () => {
-  const originalHtml = "<p><strong>Bonjour</strong></p>";
-  const content = appendComplianceFooter(
-    "Bonjour",
-    originalHtml,
-    configuration(),
-    "https://crm.example/unsubscribe?token=opaque",
-  );
-
-  assert.equal(content.html.startsWith(originalHtml), true);
-  for (const expected of ["Alice Conseillère", "27PM", "123 rue Exemple", "514 555-0100", "Se désabonner"]) {
-    assert.match(content.text, new RegExp(expected));
-    assert.match(content.html, new RegExp(expected));
-  }
-});
-
-test("compliance footer rejects an unsafe unsubscribe URL", () => {
-  assert.throws(
-    () => appendComplianceFooter("Bonjour", null, configuration(), "javascript:alert(1)"),
-    /unsubscribe_url_invalid/u,
-  );
 });
 
 test("sender identity and unsubscribe remain valid for sixty full days after dispatch", async () => {

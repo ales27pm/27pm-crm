@@ -14,7 +14,6 @@ test("builds a deterministic low-tracking message with a standard unsubscribe he
     inReplyTo: "reply@example.com",
     references: ["first@example.com", "reply@example.com"],
     replyTo: "alexis@27pm.org",
-    tags: ["traffic-prospecting", "crm-manual"],
     unsubscribeUrl:
       "https://crm.27pm.org/api/public/unsubscribe?token=opaque-token",
   });
@@ -33,10 +32,6 @@ test("builds a deterministic low-tracking message with a standard unsubscribe he
   assert.equal(form.get("o:tracking"), "no");
   assert.equal(form.get("o:tracking-clicks"), "no");
   assert.equal(form.get("o:tracking-opens"), "no");
-  assert.deepEqual(form.getAll("o:tag"), [
-    "crm-manual",
-    "traffic-prospecting",
-  ]);
   assert.equal(form.get("h:Reply-To"), "alexis@27pm.org");
   assert.equal(
     form.get("h:List-Unsubscribe"),
@@ -46,38 +41,6 @@ test("builds a deterministic low-tracking message with a standard unsubscribe he
     form.get("h:List-Unsubscribe-Post"),
     "List-Unsubscribe=One-Click",
   );
-});
-
-test("rejects tags that are non-canonical, duplicate, oversized, or shaped like PII", () => {
-  const baseMessage = {
-    fromAddress: "alexis@27pm.org",
-    fromName: "Alexis Boulet",
-    to: ["client@example.com"],
-    subject: "Bonjour",
-    text: "Bonjour",
-    replyTo: "alexis@27pm.org",
-  };
-
-  for (const tags of [
-    "crm-manual",
-    [42],
-    ["customer@example.com"],
-    ["contact-5145550100"],
-    ["contact-514-555-0100"],
-    ["recipient-550e8400-e29b-41d4-a716-446655440000"],
-    ["postal-h2x1y4"],
-    ["has space"],
-    ["Uppercase"],
-    [`a${"b".repeat(64)}`],
-    ["crm--prospecting"],
-    ["crm-manual", "crm-manual"],
-    Array.from({ length: 4 }, (_, index) => `category-${index}`),
-  ]) {
-    assert.throws(
-      () => buildMailgunForm({ ...baseMessage, tags }),
-      /Mailgun tags are invalid/u,
-    );
-  }
 });
 
 test("refuses an unsubscribe URL that is not an opaque HTTPS endpoint", () => {
@@ -137,7 +100,6 @@ test("allows an administrative canary without marketing unsubscribe headers", ()
   assert.equal(form.get("o:dkim"), "yes");
   assert.equal(form.get("o:tracking"), "no");
   assert.equal(form.get("h:Reply-To"), "alexis@27pm.org");
-  assert.equal(form.has("o:tag"), false);
   assert.equal(form.has("h:List-Unsubscribe"), false);
   assert.equal(form.has("h:List-Unsubscribe-Post"), false);
 });

@@ -12,6 +12,8 @@ import {
 } from "./mailgun-request";
 
 export type { OutboundMailgunMessage } from "./mailgun-message";
+export { MailgunSendError } from "./mailgun-send-outcome";
+
 export type MailgunClientConfig = {
   apiBase: string;
   domain: string;

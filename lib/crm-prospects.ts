@@ -1,7 +1,7 @@
 import type { CrmDatabase } from "./d1";
 import { optionalTrimmedString, validIsoTimestamp } from "./http";
 
-const INTERACTION_KINDS = [
+export const INTERACTION_KINDS = [
   "call",
   "email",
   "meeting",

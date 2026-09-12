@@ -14,7 +14,6 @@
     "test:unit": "node --import tsx --test tests/*.test.mjs",
     "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
-    "mailgun:audit": "node scripts/audit-mailgun-deliverability.mjs",
     "mailgun:route": "node scripts/provision-mailgun-route.mjs",
     "mailgun:route:alexis": "node scripts/provision-mailgun-route.mjs --mailbox=alexis"
   },

@@ -181,31 +181,10 @@ test("fallback thread and callback identities are deterministic", async () => {
       event: "delivered",
       timestamp: nowSeconds,
       recipient: "client@example.com",
-      domain: { name: "27pm.org" },
-      envelope: { "sending-ip": "159.135.228.14" },
-      "recipient-domain": "outlook.com",
-      "recipient-provider": "Microsoft Outlook",
-      tags: ["source-crm", "traffic-prospecting"],
-      campaigns: [{ id: "campaign-safe" }],
-      "delivery-status": {
-        code: 250,
-        "enhanced-code": "2.1.5",
-        "attempt-no": 1,
-        message: "Queued mail for delivery",
-      },
       message: { headers: { "message-id": "<mailgun-message@example.com>" } },
     },
   });
   assert.equal(event.reason, null);
-  assert.equal(event.sendingDomain, "27pm.org");
-  assert.equal(event.recipientDomain, "outlook.com");
-  assert.equal(event.mailboxProvider, "microsoft");
-  assert.equal(event.sendingIp, "159.135.228.14");
-  assert.equal(event.smtpCode, 250);
-  assert.equal(event.enhancedStatusCode, "2.1.5");
-  assert.equal(event.attemptNo, 1);
-  assert.deepEqual(event.tags, ["source-crm", "traffic-prospecting"]);
-  assert.deepEqual(event.campaigns, ["campaign-safe"]);
   assert.equal(await eventCallbackKey(event), "event:event-123");
 
   const bounceEvent = parseMailgunEventJson({

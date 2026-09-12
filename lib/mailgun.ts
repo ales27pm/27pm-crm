@@ -5,10 +5,6 @@ import {
   parseAddressList,
   type CrmMailbox,
 } from "./mailboxes";
-import {
-  extractMailgunEventMetadata,
-  type MailgunEventMetadata,
-} from "./mailgun-event-metadata";
 
 export type MailgunSignature = {
   timestamp: string;
@@ -54,7 +50,7 @@ export type ParsedInboundMessage = {
   attachments: InboundAttachment[];
 };
 
-export type ParsedMailgunEvent = MailgunEventMetadata & {
+export type ParsedMailgunEvent = {
   signature: MailgunSignature;
   eventId: string | null;
   eventType: string;
@@ -225,19 +221,13 @@ function parsedEvent(
       ? rawTimestamp
       : Number(typeof rawTimestamp === "string" ? rawTimestamp : NaN);
 
-  const recipient = extractEmailAddress(
-    optionalString(eventData.recipient) ?? "",
-  );
-  const severity = optionalString(eventData.severity);
-  const reason = optionalString(eventData.reason);
-
   return {
     signature,
     eventId: optionalString(eventData.id),
     eventType,
-    severity,
-    reason,
-    recipient,
+    severity: optionalString(eventData.severity),
+    reason: optionalString(eventData.reason),
+    recipient: extractEmailAddress(optionalString(eventData.recipient) ?? ""),
     messageId: normalizeMessageId(
       optionalString(headers["message-id"] ?? headers.messageId),
     ),
@@ -245,13 +235,6 @@ function parsedEvent(
       ? new Date(timestamp * 1000).toISOString()
       : new Date().toISOString(),
     raw: eventData,
-    ...extractMailgunEventMetadata({
-      raw: eventData,
-      eventType,
-      severity,
-      reason,
-      recipient,
-    }),
   };
 }
 
@@ -356,7 +339,7 @@ export async function requestFingerprint(value: unknown): Promise<string> {
   return sha256Hex(stableStringify(value));
 }
 
-function stableStringify(value: unknown): string {
+export function stableStringify(value: unknown): string {
   if (value === null || typeof value !== "object") return JSON.stringify(value);
   if (Array.isArray(value)) return `[${value.map(stableStringify).join(",")}]`;
   const record = value as Record<string, unknown>;

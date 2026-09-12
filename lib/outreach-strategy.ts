@@ -97,7 +97,7 @@ export function buildOutreachSteps({
   }));
 }
 
-function addBusinessDays(source: Date, offset: number, timeZone = "UTC"): Date {
+export function addBusinessDays(source: Date, offset: number, timeZone = "UTC"): Date {
   if (!Number.isInteger(offset)) throw new TypeError("business_day_offset_invalid");
   const local = zonedDateTimeValue(source.toISOString(), timeZone);
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/u.exec(local);

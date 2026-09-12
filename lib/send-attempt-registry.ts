@@ -1,10 +1,8 @@
 import {
+  CRM_MAILBOXES,
   extractEmailAddress,
+  mailboxForAddress,
 } from "./mailboxes";
-import {
-  sendContentFromPayload,
-  sendMailboxFromPayload,
-} from "./send-payload";
 
 export type SendAttemptPayload = Record<string, string | boolean>;
 
@@ -105,11 +103,34 @@ export function createSendAttemptRegistry(
 export function canonicalSendAttemptFingerprint(
   payload: SendAttemptPayload,
 ): string {
-  const { mailbox, mailboxValue } = sendMailboxFromPayload(payload);
+  const mailboxValue =
+    typeof payload.mailbox === "string"
+      ? payload.mailbox.trim()
+      : typeof payload.from === "string"
+        ? payload.from.trim()
+        : "";
+  const mailbox =
+    CRM_MAILBOXES.find((candidate) => candidate.id === mailboxValue) ??
+    mailboxForAddress(mailboxValue);
   const recipientValue =
     typeof payload.to === "string" ? payload.to.trim() : "";
   const recipient = extractEmailAddress(recipientValue);
-  const { conversationId, html, subject, text } = sendContentFromPayload(payload);
+  const subject =
+    typeof payload.subject === "string"
+      ? payload.subject.replace(/[\r\n]+/gu, " ").trim()
+      : "";
+  const text =
+    typeof payload.text === "string"
+      ? payload.text.trim()
+      : typeof payload.body === "string"
+        ? payload.body.trim()
+        : null;
+  const html =
+    typeof payload.html === "string" ? payload.html.trim() : null;
+  const conversationId =
+    typeof payload.conversationId === "string"
+      ? payload.conversationId
+      : null;
 
   return JSON.stringify({
     mailboxId: mailbox?.id ?? mailboxValue.toLowerCase(),
