@@ -22,9 +22,12 @@
   ne passe aucun appel et n’exécute automatiquement aucune séquence.
 
 Les interactions de type « courriel » sont des notes historiques : elles
-n’envoient rien. L’envoi manuel Mailgun exige un destinataire, une confirmation
-opérateur, une décision conforme et un pied de page construit par le serveur.
-Il n’a pas été utilisé pendant cette mise à niveau.
+n’envoient rien. L’envoi manuel par le transport sortant sélectionné exige un
+destinataire, une confirmation opérateur, une décision conforme et un pied de
+page construit par le serveur. Mailgun demeure le défaut. Cakemail est limité à
+l’envoi sortant et reste bloqué tant que les preuves décrites dans
+`docs/cakemail.md` ne sont pas confirmées. Aucun des deux transports n’a été
+utilisé pendant cette mise à niveau.
 
 Les demandes de droits (accès, rectification, retrait, destruction et export
 structuré) disposent d’un flux opérateur et d’un audit, mais la vérification
@@ -63,12 +66,12 @@ aux données CRM.
 
 ## Déploiement et données
 
-Les migrations `0004_flawless_orphan.sql` à `0010_outreach_planning.sql` sont
+Les migrations `0004_flawless_orphan.sql` à `0014_demonic_namorita.sql` sont
 validées ensemble sur une base SQLite jetable avec contrôle des clés
-étrangères. La migration `0010` et l’interface de stratégie de ce worktree ne
-sont pas publiées par la préparation locale de cette tranche. Le binding D1
-réel appartient au projet Sites; le `database_id` du mode local est
-volontairement un placeholder.
+étrangères. Le binding D1 réel appartient au projet Sites; le `database_id` du
+mode local est volontairement un placeholder. La preuve de publication et les
+contrôles D1 de production doivent être consignés séparément après chaque
+déploiement; une réussite locale ne les remplace pas.
 
 Les contacts historiques sont intentionnellement bloqués après `0006` jusqu’à
 une nouvelle vérification et une preuve par canal. Il n’existe pas de migration destructive de retour arrière automatique. Le

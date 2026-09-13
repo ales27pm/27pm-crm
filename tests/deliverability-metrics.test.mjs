@@ -54,17 +54,27 @@ test("aggregates unique messages by provider without counting retries as sends",
 });
 
 test("separates provider suppressions from new complaint and hard-bounce rates", () => {
+  const suppressedBounce = message("suppressed-bounce", "old@example.com", "bounced", [
+    event("failed", "suppress-bounce", "hard_bounce", "other"),
+  ]);
+  const suppressedComplaint = message("suppressed-complaint", "old@example.com", "complained", [
+    event("failed", "suppress-complaint", "complaint", "other"),
+  ]);
+  const suppressedUnsubscribe = message("suppressed-unsubscribe", "old@example.com", "permanent-failure", [
+    event("failed", "suppress-unsubscribe", "unsubscribe", "other"),
+  ]);
+  for (const source of [
+    suppressedBounce,
+    suppressedComplaint,
+    suppressedUnsubscribe,
+  ]) {
+    source.transportProvider = "mailgun";
+  }
   const summary = summarizeDeliverability(
     [
-      message("suppressed-bounce", "old@example.com", "bounced", [
-        event("failed", "suppress-bounce", "hard_bounce", "other"),
-      ]),
-      message("suppressed-complaint", "old@example.com", "complained", [
-        event("failed", "suppress-complaint", "complaint", "other"),
-      ]),
-      message("suppressed-unsubscribe", "old@example.com", "permanent-failure", [
-        event("failed", "suppress-unsubscribe", "unsubscribe", "other"),
-      ]),
+      suppressedBounce,
+      suppressedComplaint,
+      suppressedUnsubscribe,
     ],
     { minimumSampleSize: 1 },
   );
@@ -74,6 +84,44 @@ test("separates provider suppressions from new complaint and hard-bounce rates",
   assert.equal(summary.overall.counts.complained, 0);
   assert.equal(summary.overall.counts.unsubscribed, 0);
   assert.deepEqual(summary.overall.signals, ["provider_suppression"]);
+});
+
+test("does not interpret Mailgun suppression reasons on Cakemail events", () => {
+  const source = message("cakemail-bounce", "old@example.com", "bounced", [
+    event("failed", "suppress-bounce", "hard_bounce", "other"),
+  ]);
+  source.transportProvider = "cakemail";
+
+  const summary = summarizeDeliverability([source], { minimumSampleSize: 1 });
+
+  assert.equal(summary.overall.counts.providerSuppressed, 0);
+  assert.equal(summary.overall.counts.hardBounced, 1);
+  assert.deepEqual(summary.overall.signals, ["hard_bounce"]);
+});
+
+test("keeps outbound transport reputation separate during migration", () => {
+  const mailgun = message("mailgun-message", "one@example.com", "delivered", [
+    event("delivered", null, "delivered_transport", "other"),
+  ]);
+  mailgun.transportProvider = "mailgun";
+  const cakemail = message("cakemail-message", "two@example.com", "accepted", []);
+  cakemail.transportProvider = "cakemail";
+
+  const summary = summarizeDeliverability([mailgun, cakemail], {
+    minimumSampleSize: 1,
+  });
+  assert.deepEqual(
+    summary.transports.map(({ key, counts }) => ({
+      key,
+      attempted: counts.attempted,
+      delivered: counts.delivered,
+      pending: counts.pending,
+    })),
+    [
+      { key: "cakemail", attempted: 1, delivered: 0, pending: 1 },
+      { key: "mailgun", attempted: 1, delivered: 1, pending: 0 },
+    ],
+  );
 });
 
 test("uses strong explicit provider metadata and retains safe operational dimensions", () => {

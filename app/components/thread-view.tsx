@@ -1,11 +1,23 @@
 "use client";
 
-import { useRef, useState, type Ref } from "react";
+import { useEffect, useRef, useState, type Ref, type RefObject } from "react";
 import {
   DELIVERY_PRESENTATION,
   type OutboundDeliveryState,
 } from "@/lib/mailgun-lifecycle";
+import {
+  replyFrozenDraftSlot,
+  type FrozenSendDraft,
+} from "@/lib/frozen-send-draft";
+import type { SendAttemptPayload } from "@/lib/send-attempt-registry";
+import type { SendUiResult } from "@/lib/send-ui-result";
 import type { Conversation, CrmMessage } from "../crm-types";
+import {
+  executeFrozenSend,
+  FROZEN_DRAFT_UNAVAILABLE_MESSAGE,
+  frozenDraftMessage,
+  restoreFrozenDraft,
+} from "./frozen-send-ui";
 import { Icon } from "./icons";
 
 type ThreadViewProps = {
@@ -15,7 +27,51 @@ type ThreadViewProps = {
   contextTriggerRef: Ref<HTMLButtonElement>;
   onBack: () => void;
   onOpenContext: () => void;
-  onSend: (body: string) => Promise<boolean>;
+  onSend: (payload: SendAttemptPayload) => Promise<SendUiResult>;
+};
+
+type ReplyPayload = {
+  conversationId: string;
+  from: string;
+  to: string;
+  subject: string;
+  body: string;
+  complianceConfirmed: true;
+};
+
+type ThreadConversationProps = {
+  view: {
+    body: string;
+    contextOpen: boolean;
+    conversation: Conversation;
+    draftReady: boolean;
+    frozenDraft: FrozenSendDraft | null;
+    sendEnabled: boolean;
+    sending: boolean;
+    status: string;
+  };
+  actions: {
+    back: () => void;
+    openContext: () => void;
+    setBody: (body: string) => void;
+    submit: () => void;
+  };
+  contextTriggerRef: Ref<HTMLButtonElement>;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
+};
+
+type ReplyComposerProps = Pick<ThreadConversationProps, "actions"> & {
+  view: Pick<
+    ThreadConversationProps["view"],
+    | "body"
+    | "conversation"
+    | "draftReady"
+    | "frozenDraft"
+    | "sendEnabled"
+    | "sending"
+    | "status"
+  >;
+  textareaRef: RefObject<HTMLTextAreaElement | null>;
 };
 
 export function ThreadView({
@@ -30,7 +86,48 @@ export function ThreadView({
   const [body, setBody] = useState("");
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
+  const [readyDraftSlot, setReadyDraftSlot] = useState<string | null>(null);
+  const [frozenDraft, setFrozenDraft] = useState<FrozenSendDraft | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const draftSlot = conversation
+    ? replyFrozenDraftSlot(conversation.id)
+    : null;
+  const draftReady = !draftSlot || readyDraftSlot === draftSlot;
+
+  useEffect(() => {
+    let active = true;
+    if (!draftSlot) {
+      return () => {
+        active = false;
+      };
+    }
+    void restoreFrozenDraft(draftSlot)
+      .then((restored) => {
+        if (!active) return;
+        if (restored) {
+          const payload = replyPayload(restored.payload);
+          if (!payload || payload.conversationId !== conversation?.id) {
+            throw new Error("reply_frozen_draft_invalid");
+          }
+          setBody(payload.body);
+          setFrozenDraft(restored);
+          setStatus(frozenDraftMessage(restored));
+        } else {
+          setBody("");
+          setFrozenDraft(null);
+          setStatus("");
+        }
+        setReadyDraftSlot(draftSlot);
+      })
+      .catch(() => {
+        if (!active) return;
+        setStatus(FROZEN_DRAFT_UNAVAILABLE_MESSAGE);
+        setReadyDraftSlot(null);
+      });
+    return () => {
+      active = false;
+    };
+  }, [conversation?.id, draftSlot]);
 
   if (!conversation) {
     return (
@@ -42,45 +139,95 @@ export function ThreadView({
     );
   }
 
-  const initials = conversation.contactName
-    .split(/\s+/)
-    .map((part) => part[0])
-    .join("")
-    .slice(0, 2)
-    .toUpperCase();
-
   async function submit() {
+    if (!conversation || !draftSlot || !draftReady || sending) return;
+    if (frozenDraft?.outcome === "outcome_unknown") return;
     const value = body.trim();
-    if (!value || sending) return;
+    if (!value) return;
     if (!sendEnabled) {
-      setStatus("Le transport Mailgun doit être connecté avant l’envoi.");
+      setStatus("Le transport de courriel doit être configuré avant l’envoi.");
+      return;
+    }
+
+    const payload = frozenDraft
+      ? replyPayload(frozenDraft.payload)
+      : replyPayload({
+          conversationId: conversation.id,
+          from: conversation.mailboxAddress,
+          to: conversation.contactEmail,
+          subject: conversation.subject,
+          body: value,
+          complianceConfirmed: true,
+        });
+    if (!payload) {
+      setStatus(FROZEN_DRAFT_UNAVAILABLE_MESSAGE);
+      return;
+    }
+    if (
+      !window.confirm(
+        "Confirmer la qualification, le fondement LCAP et les preuves à jour pour ce destinataire unique?",
+      )
+    ) {
+      setStatus("Envoi annulé.");
       return;
     }
 
     setSending(true);
     setStatus("Envoi en cours…");
     try {
-      const sent = await onSend(value);
-      if (sent) {
+      const execution = await executeFrozenSend({
+        slot: draftSlot,
+        payload,
+        send: onSend,
+        onReserved: setFrozenDraft,
+      });
+      setFrozenDraft(execution.draft);
+      setStatus(execution.message);
+      if (execution.acceptedAndSettled) {
         setBody("");
-        setStatus("Courriel envoyé.");
-      } else {
-        setStatus("L’envoi n’a pas été confirmé. Le brouillon est conservé.");
       }
     } finally {
       setSending(false);
     }
   }
 
+  return <ThreadConversation
+    view={{
+      body,
+      contextOpen,
+      conversation,
+      draftReady,
+      frozenDraft,
+      sendEnabled,
+      sending,
+      status,
+    }}
+    actions={{
+      back: onBack,
+      openContext: onOpenContext,
+      setBody,
+      submit: () => void submit(),
+    }}
+    contextTriggerRef={contextTriggerRef}
+    textareaRef={textareaRef}
+  />;
+}
+
+function ThreadConversation({
+  view,
+  actions,
+  contextTriggerRef,
+  textareaRef,
+}: ThreadConversationProps) {
   return (
     <section className="thread-view" aria-labelledby="thread-title">
       <header className="thread-header">
-        <button className="mobile-back" type="button" onClick={onBack}>
+        <button className="mobile-back" type="button" onClick={actions.back}>
           <Icon name="back" />
           <span>Réception</span>
         </button>
         <div className="thread-title-line">
-          <h2 id="thread-title">{conversation.subject}</h2>
+          <h2 id="thread-title">{view.conversation.subject}</h2>
           <div className="thread-actions">
             <button
               className="thread-reply-action"
@@ -96,8 +243,8 @@ export function ThreadView({
               type="button"
               aria-label="Ouvrir le contexte"
               aria-controls="conversation-context"
-              aria-expanded={contextOpen}
-              onClick={onOpenContext}
+              aria-expanded={view.contextOpen}
+              onClick={actions.openContext}
             >
               <Icon name="more" />
             </button>
@@ -105,52 +252,64 @@ export function ThreadView({
         </div>
       </header>
 
-      <div className="message-stream">
-        {conversation.messages.map((message) => {
-          const outbound = message.direction === "outbound";
-          return (
-            <article className="message" key={message.id} data-direction={message.direction}>
-              <header>
-                <span className="avatar" data-studio={outbound || undefined}>
-                  {outbound ? "27" : initials}
-                </span>
-                <span className="message-identity">
-                  <strong>{message.senderName}</strong>
-                  <span>À : {message.recipientLabel}</span>
-                </span>
-                <time dateTime={message.sentAtIso}>{message.sentAt}</time>
-                {message.direction === "inbound" ? (
-                  <span className="unread-dot" aria-label="Message reçu" />
-                ) : null}
-              </header>
-              <DeliveryStatus message={message} />
-              <p>{message.body}</p>
-            </article>
-          );
-        })}
-      </div>
+      <MessageStream conversation={view.conversation} />
+      <ReplyComposer view={view} actions={actions} textareaRef={textareaRef} />
+    </section>
+  );
+}
 
-      <form
+function MessageStream({ conversation }: { conversation: Conversation }) {
+  const initials = contactInitials(conversation.contactName);
+  return <div className="message-stream">
+    {conversation.messages.map((message) => {
+      const outbound = message.direction === "outbound";
+      return (
+        <article className="message" key={message.id} data-direction={message.direction}>
+          <header>
+            <span className="avatar" data-studio={outbound || undefined}>
+              {outbound ? "27" : initials}
+            </span>
+            <span className="message-identity">
+              <strong>{message.senderName}</strong>
+              <span>À : {message.recipientLabel}</span>
+            </span>
+            <time dateTime={message.sentAtIso}>{message.sentAt}</time>
+            {message.direction === "inbound" ? (
+              <span className="unread-dot" aria-label="Message reçu" />
+            ) : null}
+          </header>
+          <DeliveryStatus message={message} />
+          <p>{message.body}</p>
+        </article>
+      );
+    })}
+  </div>;
+}
+
+function ReplyComposer({ view, actions, textareaRef }: ReplyComposerProps) {
+  return (
+    <form
         className="reply-composer"
         onSubmit={(event) => {
           event.preventDefault();
-          void submit();
+          actions.submit();
         }}
       >
         <div className="composer-heading">
           <Icon name="reply" />
-          <label htmlFor="reply-body">Répondre à {conversation.contactName.split(" ")[0]}</label>
-          <span>{sendEnabled ? "Prêt à envoyer" : "Connexion Mailgun requise"}</span>
+          <label htmlFor="reply-body">Répondre à {view.conversation.contactName.split(" ")[0]}</label>
+          <span>{view.sendEnabled ? "Prêt à envoyer" : "Transport à configurer"}</span>
         </div>
         <textarea
           id="reply-body"
           ref={textareaRef}
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
+          disabled={!view.draftReady || view.frozenDraft !== null || view.sending}
+          value={view.body}
+          onChange={(event) => actions.setBody(event.target.value)}
           onKeyDown={(event) => {
             if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
               event.preventDefault();
-              void submit();
+              actions.submit();
             }
           }}
           placeholder="Écrivez votre réponse…"
@@ -161,17 +320,53 @@ export function ThreadView({
           <button
             className="send-button"
             type="submit"
-            disabled={!sendEnabled || !body.trim() || sending}
+            disabled={
+              !view.sendEnabled ||
+              !view.draftReady ||
+              !view.body.trim() ||
+              view.sending ||
+              view.frozenDraft?.outcome === "outcome_unknown"
+            }
           >
-            {sending ? "Envoi…" : "Envoyer"}
+            {view.sending
+              ? "Envoi…"
+              : view.frozenDraft?.outcome === "local_repair"
+                ? "Réparer le CRM"
+                : "Envoyer"}
           </button>
         </div>
         <p className="composer-status" role="status" aria-live="polite">
-          {status}
+          {view.status}
         </p>
       </form>
-    </section>
   );
+}
+
+function contactInitials(contactName: string): string {
+  return contactName
+    .split(/\s+/)
+    .map((part) => part[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+}
+
+function replyPayload(payload: SendAttemptPayload): ReplyPayload | null {
+  return typeof payload.conversationId === "string" &&
+    typeof payload.from === "string" &&
+    typeof payload.to === "string" &&
+    typeof payload.subject === "string" &&
+    typeof payload.body === "string" &&
+    payload.complianceConfirmed === true
+    ? {
+        conversationId: payload.conversationId,
+        from: payload.from,
+        to: payload.to,
+        subject: payload.subject,
+        body: payload.body,
+        complianceConfirmed: true,
+      }
+    : null;
 }
 
 function DeliveryStatus({ message }: { message: CrmMessage }) {

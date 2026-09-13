@@ -21,7 +21,12 @@ async function linkedMessageId(
 ): Promise<string | null> {
   if (!externalMessageId) return null;
   const message = await db
-    .prepare("SELECT id FROM messages WHERE external_message_id=? LIMIT 1")
+    .prepare(
+      `SELECT id FROM messages
+       WHERE transport_provider='mailgun' AND direction='outbound'
+         AND external_message_id=?
+       LIMIT 1`,
+    )
     .bind(externalMessageId)
     .first<{ id: string }>();
   return nullableValue(message?.id);
@@ -34,11 +39,11 @@ async function insertMailgunEvent(
   messageId: string | null,
 ): Promise<void> {
   await db.prepare(`INSERT OR IGNORE INTO message_events
-    (id, message_id, provider_event_id, callback_key, event_type, severity,
+    (id, transport_provider, message_id, provider_event_id, callback_key, event_type, severity,
      reason, recipient, sending_domain, recipient_domain, mailbox_provider, sending_ip,
      failure_class, smtp_code, enhanced_status_code, smtp_description,
      attempt_no, tags_json, campaigns_json, event_timestamp, payload_json)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
+    VALUES (?, 'mailgun', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(
     crypto.randomUUID(), messageId, event.eventId, callbackKey,
     event.eventType, nullableValue(event.severity), nullableValue(event.reason),
     nullableValue(event.recipient), nullableValue(event.sendingDomain),

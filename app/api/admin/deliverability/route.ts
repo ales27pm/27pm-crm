@@ -26,7 +26,7 @@ const EVENT_LIMIT = 50_000;
 const CAVEATS = [
   "Un événement delivered confirme la remise au serveur destinataire, pas le placement en boîte de réception.",
   "Les pourcentages locaux utilisent des messages uniques; les faibles volumes restent des données insuffisantes et exigent une revue humaine.",
-  "Le taux de spam Gmail et le placement Inbox/Junk proviennent de sources externes et ne sont pas déduits des événements Mailgun.",
+  "Le taux de spam Gmail et le placement Inbox/Junk proviennent de sources externes et ne sont pas déduits des événements de transport.",
 ];
 
 const WINDOW_DURATIONS: Record<DeliverabilityWindow, number> = {
@@ -37,6 +37,7 @@ const WINDOW_DURATIONS: Record<DeliverabilityWindow, number> = {
 
 type MessageRow = {
   id: string;
+  transportProvider: string;
   recipientsJson: string;
   status: string;
   trafficType: string;
@@ -46,6 +47,7 @@ type MessageRow = {
 
 type EventRow = {
   messageId: string;
+  transportProvider: string;
   eventType: string;
   severity: string | null;
   reason: string | null;
@@ -122,7 +124,8 @@ async function loadTelemetryRows(windowStart: Date) {
   const [messages, events] = await Promise.all([
     db
       .prepare(
-        `SELECT id, recipients_json AS recipientsJson, status,
+        `SELECT id, transport_provider AS transportProvider,
+                recipients_json AS recipientsJson, status,
                 traffic_type AS trafficType, tags_json AS tagsJson,
                 occurred_at AS occurredAt
          FROM messages
@@ -135,6 +138,7 @@ async function loadTelemetryRows(windowStart: Date) {
     db
       .prepare(
         `SELECT event.message_id AS messageId,
+                event.transport_provider AS transportProvider,
                 event.event_type AS eventType, event.severity, event.reason,
                 event.failure_class AS failureClass,
                 event.mailbox_provider AS mailboxProvider,
@@ -147,7 +151,9 @@ async function loadTelemetryRows(windowStart: Date) {
                 event.event_timestamp AS eventTimestamp
          FROM message_events event
          JOIN messages message ON message.id=event.message_id
-         WHERE message.direction='outbound' AND message.occurred_at >= ?
+         WHERE message.direction='outbound'
+           AND event.transport_provider=message.transport_provider
+           AND message.occurred_at >= ?
          ORDER BY event.event_timestamp, event.rowid
          LIMIT ?`,
       )
@@ -173,6 +179,9 @@ function telemetryMessages(
 ): DeliverabilityTelemetryMessage[] {
   return rows.map((row) => ({
     id: row.id,
+    transportProvider: validTransportProvider(row.transportProvider)
+      ? row.transportProvider
+      : "unknown",
     recipient: singleRecipient(row.recipientsJson),
     trafficType: safeTrafficType(row.trafficType),
     tags: safeTags(row.tagsJson),
@@ -183,16 +192,7 @@ function telemetryMessages(
 }
 
 function eventObservation(row: EventRow): DeliverabilityTelemetryEvent {
-  const eventClass = validEventClass(row.failureClass)
-    ? row.failureClass
-    : classifyDeliverabilityEvent({
-        event: row.eventType,
-        severity: row.severity,
-        reason: row.reason,
-        smtpCode: row.smtpCode,
-        enhancedStatusCode: row.enhancedStatusCode,
-        description: row.smtpDescription,
-      });
+  const eventClass = storedEventClass(row);
   return {
     eventType: row.eventType,
     reason: row.reason,
@@ -205,6 +205,23 @@ function eventObservation(row: EventRow): DeliverabilityTelemetryEvent {
     tags: safeTags(row.tagsJson),
     occurredAt: row.eventTimestamp,
   };
+}
+
+function storedEventClass(row: EventRow): DeliverabilityEventClass {
+  if (validEventClass(row.failureClass)) return row.failureClass;
+  if (row.transportProvider === "cakemail") {
+    if (row.eventType === "accepted") return "accepted_transport";
+    if (row.eventType === "delivered") return "delivered_transport";
+    return "unknown";
+  }
+  return classifyDeliverabilityEvent({
+    event: row.eventType,
+    severity: row.severity,
+    reason: row.reason,
+    smtpCode: row.smtpCode,
+    enhancedStatusCode: row.enhancedStatusCode,
+    description: row.smtpDescription,
+  });
 }
 
 function windowDurationMs(value: DeliverabilityWindow): number {
@@ -256,6 +273,12 @@ function safeTrafficType(value: string): string {
 
 function validMailboxProvider(value: string | null): value is MailboxProvider {
   return value === "google" || value === "microsoft" || value === "yahoo" || value === "other";
+}
+
+function validTransportProvider(
+  value: string,
+): value is "mailgun" | "cakemail" {
+  return value === "mailgun" || value === "cakemail";
 }
 
 function validEventClass(value: string | null): value is DeliverabilityEventClass {

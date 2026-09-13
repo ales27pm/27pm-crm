@@ -1,4 +1,8 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorJsonRequest } from "@/lib/api-auth";
+import {
+  privateJsonError,
+  privateNoStoreHeaders,
+} from "@/lib/http";
 import { sendMailgunMessage } from "@/lib/mailgun-client";
 import { mailgunConfig } from "@/lib/mailgun-runtime";
 import { classifyMailgunFailure } from "@/lib/mailgun-send-outcome";
@@ -13,27 +17,17 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = await requireSameOriginOperatorJsonRequest(
+    request,
+    "request_body_invalid",
+  );
   if (auth.response) return auth.response;
-  if (!isSameOriginBrowserRequest(request)) {
-    return canaryError(403, "cross_origin_request_forbidden");
+  const { payload } = auth;
+  if (payload.confirmed !== true) {
+    return privateJsonError(409, "operator_confirmation_required");
   }
-
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return canaryError(400, "request_body_invalid");
-  }
-  if (!payload || typeof payload !== "object") {
-    return canaryError(400, "request_body_invalid");
-  }
-  const record = payload as Record<string, unknown>;
-  if (record.confirmed !== true) {
-    return canaryError(409, "operator_confirmation_required");
-  }
-  const content = parseCanaryContent(record);
-  if (!content) return canaryError(400, "canary_content_invalid");
+  const content = parseCanaryContent(payload);
+  if (!content) return privateJsonError(400, "canary_content_invalid");
 
   const canaryId = crypto.randomUUID();
   const sentAt = new Date().toISOString();
@@ -47,7 +41,7 @@ export async function POST(request: Request) {
       recipient !== configuredRecipient ||
       recipient !== DELIVERABILITY_CANARY_RECIPIENT
     ) {
-      return canaryError(503, "canary_recipient_invalid");
+      return privateJsonError(503, "canary_recipient_invalid");
     }
 
     const result = await sendMailgunMessage(
@@ -83,13 +77,13 @@ export async function POST(request: Request) {
         providerMessageId: result.id,
         subject: content.subject,
       },
-      { status: 202, headers: noStoreHeaders() },
+      { status: 202, headers: privateNoStoreHeaders() },
     );
   } catch (cause: unknown) {
     if (classifyMailgunFailure(dispatchStarted, cause) === "outcome_unknown") {
-      return canaryError(503, "canary_send_unconfirmed");
+      return privateJsonError(503, "canary_send_unconfirmed");
     }
-    return canaryError(502, "canary_send_failed");
+    return privateJsonError(502, "canary_send_failed");
   }
 }
 
@@ -106,28 +100,4 @@ function parseCanaryContent(payload: Record<string, unknown>) {
     return null;
   }
   return { subject, text };
-}
-
-function isSameOriginBrowserRequest(request: Request): boolean {
-  const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite && fetchSite !== "same-origin") return false;
-
-  const origin = request.headers.get("origin");
-  if (!origin) return true;
-  try {
-    return new URL(origin).origin === new URL(request.url).origin;
-  } catch {
-    return false;
-  }
-}
-
-function canaryError(status: number, error: string): Response {
-  return Response.json({ error }, { status, headers: noStoreHeaders() });
-}
-
-function noStoreHeaders(): HeadersInit {
-  return {
-    "cache-control": "private, no-store",
-    "referrer-policy": "no-referrer",
-  };
 }

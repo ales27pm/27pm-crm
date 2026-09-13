@@ -34,8 +34,9 @@ export const DELIVERY_PRESENTATION: Record<
   DeliveryPresentation
 > = {
   accepted: {
-    label: "Accepté par Mailgun",
-    guidance: "Mailgun a accepté le message et l’a placé en file d’attente.",
+    label: "Accepté par le transport",
+    guidance:
+      "Le fournisseur d’envoi a accepté le message et l’a placé en file d’attente.",
     tone: "pending",
   },
   delivered: {
@@ -53,19 +54,19 @@ export const DELIVERY_PRESENTATION: Record<
   complained: {
     label: "Plainte pour indésirable",
     guidance:
-      "Suspendez tout nouvel envoi à cette adresse et vérifiez le consentement dans Mailgun.",
+      "Suspendez tout nouvel envoi à cette adresse et vérifiez le consentement dans le journal fournisseur.",
     tone: "danger",
   },
   "temporary-failure": {
     label: "Échec temporaire",
     guidance:
-      "Mailgun réessaiera automatiquement. Surveillez le prochain événement avant de renvoyer.",
+      "Le fournisseur peut réessayer automatiquement. Surveillez le prochain événement avant de renvoyer.",
     tone: "warning",
   },
   "permanent-failure": {
     label: "Échec permanent",
     guidance:
-      "Mailgun ne réessaiera pas. Vérifiez l’adresse, le domaine et le journal Mailgun avant un nouvel envoi.",
+      "Le fournisseur ne réessaiera pas. Vérifiez l’adresse, le domaine et son journal avant un nouvel envoi.",
     tone: "danger",
   },
 };

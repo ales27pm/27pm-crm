@@ -84,8 +84,7 @@ test("handoff submission is operator-gated, encrypted, and purgeable", async () 
     ),
   ]);
 
-  assert.match(route, /requireOperatorRequest\(request\)/u);
-  assert.match(route, /isSameOriginBrowserRequest\(request\)/u);
+  assert.match(route, /requireSameOriginOperatorJsonRequest\(/u);
   assert.match(consumeRoute, /verifyMailgunHandoffConsumerToken\(token\)/u);
   assert.match(
     consumeRoute,

@@ -160,9 +160,9 @@ function stageLabel(stage: Deal["stage"]) {
 
 function transportStateLabel(state: TransportState) {
   return {
-    operational: "Mailgun opérationnel",
-    configuration: "Mailgun à connecter",
-    degraded: "Mailgun à vérifier",
+    operational: "Transport courriel opérationnel",
+    configuration: "Transport courriel à configurer",
+    degraded: "Transport courriel à vérifier",
   }[state];
 }
 

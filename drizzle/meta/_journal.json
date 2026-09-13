@@ -99,6 +99,13 @@
       "when": 1789171640611,
       "tag": "0013_lively_anthem",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1789248385756,
+      "tag": "0014_demonic_namorita",
+      "breakpoints": true
     }
   ]
 }

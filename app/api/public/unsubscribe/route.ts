@@ -1,4 +1,5 @@
 import { crmDatabase } from "@/lib/d1";
+import { bytesToHex } from "@/lib/byte-utils";
 import { runtimeString } from "@/lib/runtime";
 import { applyEmailUnsubscribe, validUnsubscribeSecret, verifyUnsubscribeToken } from "@/lib/unsubscribe";
 import {
@@ -35,7 +36,7 @@ export async function POST(request: Request) {
 
 async function sha256(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
-  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  return bytesToHex(new Uint8Array(digest));
 }
 
 function html(status: number, body: string) {

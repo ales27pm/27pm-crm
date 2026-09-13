@@ -1,12 +1,16 @@
 import type { CrmDatabase, PreparedQuery } from "./d1";
 import { normalizeMessageId } from "./mailgun";
 import {
-  mailgunDeliveryState,
   mailgunRecipientSuppression,
   mailgunReasonFromPayloadJson,
   type MailgunRecipientSuppression,
   type OutboundDeliveryState,
 } from "./mailgun-lifecycle";
+import {
+  providerDeliveryState,
+  type EventTransportProvider,
+  type StoredProviderDeliveryEvent,
+} from "./outbound-delivery-state";
 
 export type MailgunEventReconciliation = {
   messageId: string | null;
@@ -14,13 +18,19 @@ export type MailgunEventReconciliation = {
   status: OutboundDeliveryState | null;
 };
 
+type StoredProviderEvent = Required<StoredProviderDeliveryEvent>;
+
 export async function reconcileMailgunEventsBestEffort(
   db: CrmDatabase,
   externalMessageId: string | null | undefined,
 ): Promise<MailgunEventReconciliation | null> {
   if (!externalMessageId) return null;
   try {
-    return await reconcileMailgunEventsForMessage(db, externalMessageId);
+    return await reconcileMailgunEventsForMessage(
+      db,
+      externalMessageId,
+      "mailgun",
+    );
   } catch {
     // Delivery tracking must never turn an already accepted provider send into
     // a client-visible failure that could prompt a duplicate retry.
@@ -35,22 +45,26 @@ export async function reconcileMailgunEventsBestEffort(
 export async function reconcileMailgunEventsForMessage(
   db: CrmDatabase,
   externalMessageId: string,
+  expectedProvider: EventTransportProvider = "mailgun",
 ): Promise<MailgunEventReconciliation> {
   const normalizedMessageId = normalizeMessageId(externalMessageId);
   if (!normalizedMessageId) {
     return emptyReconciliation();
   }
 
-  const messageId = await outboundMessageId(db, normalizedMessageId);
+  const messageId = await outboundMessageId(
+    db,
+    normalizedMessageId,
+    expectedProvider,
+  );
   if (!messageId) return emptyReconciliation();
 
-  const linkedEvents = await linkUnmatchedEvents(
-    db,
-    messageId,
-    normalizedMessageId,
-  );
-  const status = await refreshDeliveryStatus(db, messageId);
-  await applyLatestRecipientSuppression(db, messageId);
+  const linkedEvents =
+    expectedProvider === "mailgun"
+      ? await linkUnmatchedEvents(db, messageId, normalizedMessageId)
+      : 0;
+  const status = await refreshDeliveryStatus(db, messageId, expectedProvider);
+  await applyLatestRecipientSuppression(db, messageId, expectedProvider);
 
   return { messageId, linkedEvents, status };
 }
@@ -62,15 +76,17 @@ function emptyReconciliation(): MailgunEventReconciliation {
 async function outboundMessageId(
   db: CrmDatabase,
   normalizedMessageId: string,
+  expectedProvider: EventTransportProvider,
 ): Promise<string | null> {
   const message = await db
     .prepare(
       `SELECT id
        FROM messages
        WHERE external_message_id = ? AND direction = 'outbound'
+         AND transport_provider = ?
        LIMIT 1`,
     )
-    .bind(normalizedMessageId)
+    .bind(normalizedMessageId, expectedProvider)
     .first<{ id: string }>();
   return message?.id ?? null;
 }
@@ -84,7 +100,7 @@ async function linkUnmatchedEvents(
     .prepare(
       `SELECT id, payload_json AS payloadJson
        FROM message_events
-       WHERE message_id IS NULL
+       WHERE transport_provider = 'mailgun' AND message_id IS NULL
        ORDER BY rowid`,
     )
     .all<{ id: string; payloadJson: string }>();
@@ -100,7 +116,8 @@ async function linkUnmatchedEvents(
       .prepare(
         `UPDATE message_events
          SET message_id = ?
-         WHERE id = ? AND message_id IS NULL`,
+         WHERE id = ? AND transport_provider = 'mailgun'
+           AND message_id IS NULL`,
       )
       .bind(messageId, event.id)
       .run();
@@ -112,13 +129,24 @@ async function linkUnmatchedEvents(
 async function applyLatestRecipientSuppression(
   db: CrmDatabase,
   messageId: string,
+  expectedProvider: EventTransportProvider,
 ): Promise<void> {
-  const recipientSuppression = await latestRecipientSuppression(db, messageId);
+  const recipientSuppression = await latestRecipientSuppression(
+    db,
+    messageId,
+    expectedProvider,
+  );
   if (!recipientSuppression) return;
-  await suppressRecipient(db, messageId, recipientSuppression);
+  await suppressRecipient(
+    db,
+    messageId,
+    expectedProvider,
+    recipientSuppression,
+  );
 }
 
 type RecipientSuppressionSignal = {
+  provider: "mailgun" | "cakemail";
   kind: MailgunRecipientSuppression;
   occurredAt: string;
 };
@@ -172,9 +200,14 @@ const SUPPRESSION_PRIORITY: Record<MailgunRecipientSuppression, number> = {
 async function suppressRecipient(
   db: CrmDatabase,
   messageId: string,
+  expectedProvider: EventTransportProvider,
   suppression: RecipientSuppressionSignal,
 ) {
-  const recipient = await suppressionRecipient(db, messageId);
+  const recipient = await suppressionRecipient(
+    db,
+    messageId,
+    expectedProvider,
+  );
   const context = suppressionContext(recipient, suppression);
   if (!context) return;
   await db.batch(suppressionStatements(db, messageId, suppression, context));
@@ -183,16 +216,21 @@ async function suppressRecipient(
 async function suppressionRecipient(
   db: CrmDatabase,
   messageId: string,
+  expectedProvider: EventTransportProvider,
 ): Promise<SuppressionRecipient | null> {
   return db
     .prepare(`SELECT contact.id AS contactId, contact.email AS contactEmail,
       message.recipients_json AS recipientsJson,
-      (SELECT event.recipient FROM message_events event WHERE event.message_id=message.id AND event.recipient IS NOT NULL ORDER BY event.rowid DESC LIMIT 1) AS eventRecipient
+      (SELECT event.recipient FROM message_events event
+        WHERE event.message_id=message.id
+          AND event.transport_provider=?
+          AND event.recipient IS NOT NULL
+        ORDER BY event.rowid DESC LIMIT 1) AS eventRecipient
     FROM messages message
     JOIN conversations conversation ON conversation.id=message.conversation_id
     LEFT JOIN contacts contact ON contact.id=conversation.contact_id
-    WHERE message.id=? LIMIT 1`)
-    .bind(messageId)
+    WHERE message.id=? AND message.transport_provider=? LIMIT 1`)
+    .bind(expectedProvider, messageId, expectedProvider)
     .first<SuppressionRecipient>();
 }
 
@@ -236,7 +274,7 @@ function suppressionStatements(
   context: SuppressionContext,
 ): PreparedQuery[] {
   return [
-    suppressionInsert(db, messageId, context),
+    suppressionInsert(db, messageId, suppression, context),
     ...contactSuppressionUpdates(db, context),
     suppressionAuditInsert(db, messageId, suppression, context),
   ];
@@ -245,12 +283,13 @@ function suppressionStatements(
 function suppressionInsert(
   db: CrmDatabase,
   messageId: string,
+  suppression: RecipientSuppressionSignal,
   context: SuppressionContext,
 ): PreparedQuery {
   return db.prepare(`INSERT OR IGNORE INTO contact_suppressions
     (id, channel, address_normalized, scope, category, reason, evidence_ref,
      requested_at, effective_at, created_by)
-    VALUES (?, 'email', ?, 'global', 'all', ?, ?, ?, ?, 'mailgun:webhook')`)
+    VALUES (?, 'email', ?, 'global', 'all', ?, ?, ?, ?, ?)`)
     .bind(
       `provider-suppression:${messageId}`,
       context.address,
@@ -258,6 +297,7 @@ function suppressionInsert(
       `message:${messageId}`,
       context.effectiveAt,
       context.effectiveAt,
+      `${suppression.provider}:webhook`,
     );
 }
 
@@ -303,12 +343,14 @@ function suppressionAuditInsert(
   const entityType = contactMatches ? "contact" : "message";
   const entityId = context.contactId ?? messageId;
   return db.prepare(`INSERT OR IGNORE INTO audit_entries (id, actor_email, action, entity_type, entity_id, details_json)
-    VALUES (?, 'mailgun:webhook', 'contact.provider_suppressed', ?, ?, ?)`)
+    VALUES (?, ?, 'contact.provider_suppressed', ?, ?, ?)`)
     .bind(
       `provider-audit:${messageId}:${suppression.kind}`,
+      `${suppression.provider}:webhook`,
       entityType,
       entityId,
       JSON.stringify({
+        provider: suppression.provider,
         suppression: suppression.kind,
         messageId,
         addressNormalized: context.address,
@@ -321,37 +363,60 @@ function suppressionAuditInsert(
 async function latestRecipientSuppression(
   db: CrmDatabase,
   messageId: string,
+  expectedProvider: EventTransportProvider,
 ): Promise<RecipientSuppressionSignal | null> {
   const events = await db
     .prepare(
-      `SELECT event_type AS eventType, severity, payload_json AS payloadJson,
+      `SELECT transport_provider AS provider, event_type AS eventType,
+              severity, reason, failure_class AS failureClass,
+              payload_json AS payloadJson,
               event_timestamp AS occurredAt
        FROM message_events
-       WHERE message_id = ?
+       WHERE message_id = ? AND transport_provider = ?
        ORDER BY event_timestamp DESC, rowid DESC`,
     )
-    .bind(messageId)
+    .bind(messageId, expectedProvider)
     .all<{
+      provider: "mailgun" | "cakemail";
       eventType: string;
       severity: string | null;
+      reason: string | null;
+      failureClass: string | null;
       payloadJson: string;
       occurredAt: string;
     }>();
 
   let selected: RecipientSuppressionSignal | null = null;
   for (const event of events.results) {
-    const kind = mailgunRecipientSuppression({
-      eventType: event.eventType,
-      severity: event.severity,
-      reason: mailgunReasonFromPayloadJson(event.payloadJson),
-    });
+    const kind = providerRecipientSuppression(event.provider, event);
     if (!kind) continue;
     selected = preferredSuppression(selected, {
+      provider: event.provider,
       kind,
       occurredAt: event.occurredAt,
     });
   }
   return selected;
+}
+
+function providerRecipientSuppression(
+  provider: EventTransportProvider,
+  event: StoredProviderEvent,
+): MailgunRecipientSuppression | null {
+  if (provider === "mailgun") {
+    return mailgunRecipientSuppression({
+      eventType: event.eventType,
+      severity: event.severity,
+      reason: event.reason ?? mailgunReasonFromPayloadJson(event.payloadJson),
+    });
+  }
+
+  // Cakemail's free-form reason is not a Mailgun suppression token. Trust only
+  // the failure class produced by the authenticated Cakemail parser.
+  if (event.failureClass === "hard_bounce") return "bounce";
+  if (event.failureClass === "complaint") return "complaint";
+  if (event.failureClass === "unsubscribe") return "unsubscribe";
+  return null;
 }
 
 function preferredSuppression(
@@ -417,9 +482,14 @@ function nullishValue<T>(value: T | null | undefined, fallback: T): T {
 async function refreshDeliveryStatus(
   db: CrmDatabase,
   messageId: string,
+  expectedProvider: EventTransportProvider,
 ): Promise<OutboundDeliveryState | null> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const result = await persistLatestDeliverySnapshot(db, messageId);
+    const result = await persistLatestDeliverySnapshot(
+      db,
+      messageId,
+      expectedProvider,
+    );
     if (!result.retry) return result.status;
   }
   return null;
@@ -432,8 +502,13 @@ type DeliverySnapshotPersistence =
 async function persistLatestDeliverySnapshot(
   db: CrmDatabase,
   messageId: string,
+  expectedProvider: EventTransportProvider,
 ): Promise<DeliverySnapshotPersistence> {
-  const snapshot = await latestDeliverySnapshot(db, messageId);
+  const snapshot = await latestDeliverySnapshot(
+    db,
+    messageId,
+    expectedProvider,
+  );
   if (!snapshot.status) return { retry: false, status: null };
 
   const updated = await db
@@ -441,20 +516,26 @@ async function persistLatestDeliverySnapshot(
       `UPDATE messages
        SET status = ?
        WHERE id = ?
+         AND transport_provider = ?
          AND ? = (
-           SELECT COUNT(*) FROM message_events WHERE message_id = ?
+           SELECT COUNT(*) FROM message_events
+           WHERE message_id = ? AND transport_provider = ?
          )
          AND ? = COALESCE((
-           SELECT MAX(rowid) FROM message_events WHERE message_id = ?
+           SELECT MAX(rowid) FROM message_events
+           WHERE message_id = ? AND transport_provider = ?
          ), 0)`,
     )
     .bind(
       snapshot.status,
       messageId,
+      expectedProvider,
       snapshot.eventCount,
       messageId,
+      expectedProvider,
       snapshot.maxSequence,
       messageId,
+      expectedProvider,
     )
     .run();
   if ((updated.meta.changes ?? 0) > 0) {
@@ -466,6 +547,7 @@ async function persistLatestDeliverySnapshot(
 async function latestDeliverySnapshot(
   db: CrmDatabase,
   messageId: string,
+  expectedProvider: EventTransportProvider,
 ): Promise<{
   status: OutboundDeliveryState | null;
   eventCount: number;
@@ -473,16 +555,20 @@ async function latestDeliverySnapshot(
 }> {
   const events = await db
     .prepare(
-      `SELECT event_type AS eventType, severity, payload_json AS payloadJson,
+      `SELECT event_type AS eventType, severity, reason,
+              failure_class AS failureClass,
+              payload_json AS payloadJson,
               rowid AS sequence
        FROM message_events
-       WHERE message_id = ?
+       WHERE message_id = ? AND transport_provider = ?
        ORDER BY event_timestamp DESC, rowid DESC`,
     )
-    .bind(messageId)
+    .bind(messageId, expectedProvider)
     .all<{
       eventType: string;
       severity: string | null;
+      reason: string | null;
+      failureClass: string | null;
       payloadJson: string;
       sequence: number;
     }>();
@@ -492,10 +578,12 @@ async function latestDeliverySnapshot(
   for (const event of events.results) {
     maxSequence = Math.max(maxSequence, event.sequence);
     if (status) continue;
-    status = mailgunDeliveryState({
+    status = providerDeliveryState(expectedProvider, {
       eventType: event.eventType,
       severity: event.severity,
-      reason: mailgunReasonFromPayloadJson(event.payloadJson),
+      reason: event.reason,
+      failureClass: event.failureClass,
+      payloadJson: event.payloadJson,
     });
   }
   return { status, eventCount: events.results.length, maxSequence };

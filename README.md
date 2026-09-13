@@ -15,8 +15,11 @@ pipeline et suivis. L’application gère trois identités distinctes :
 - D1 pour les courriels, contacts, dossiers, tâches et journaux d’événements;
 - R2 privé pour les pièces jointes, dont le téléchargement reste bloqué tant
   qu’une analyse antimalware n’est pas configurée;
-- Mailgun pour l’envoi et la réception, avec validation HMAC des webhooks et
-  déduplication des événements.
+- Mailgun par défaut pour l’envoi et toujours pour la réception, avec
+  validation HMAC des webhooks et déduplication des événements;
+- Cakemail comme transport sortant optionnel, désactivé tant que les preuves
+  de politique, de préservation des en-têtes et d’alignement DKIM strict ne
+  sont pas confirmées.
 
 Le site public `27pm.org` et son hébergement GitHub Pages restent entièrement
 séparés du CRM.
@@ -64,6 +67,11 @@ La procédure complète, le test de santé et la création idempotente de la rou
 Mailgun sont décrits dans [docs/operations.md](docs/operations.md). La création
 du compte Google avec l’adresse existante `admin@27pm.org` est décrite dans
 [docs/google-accounts.md](docs/google-accounts.md).
+
+L’adaptateur sortant Cakemail, ses variables, son webhook signé, son canari
+obligatoire, sa résolution auditée des résultats inconnus et son retour arrière
+sans changement de MX sont documentés dans
+[docs/cakemail.md](docs/cakemail.md).
 
 Le plan complet de délivrabilité, ses seuils, les limites des signaux SMTP et
 les actions externes qui exigent une validation opérateur sont documentés dans

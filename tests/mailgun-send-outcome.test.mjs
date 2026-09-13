@@ -22,9 +22,10 @@ test("classifies only a received Mailgun rejection as a definitive failure", () 
   );
 });
 
-test("maps Mailgun 4xx to rejection and 5xx to an unknown outcome", () => {
+test("keeps ambiguous Mailgun status codes outcome-unknown", () => {
   assert.equal(mailgunFailureKindForStatus(400), "rejected");
-  assert.equal(mailgunFailureKindForStatus(429), "rejected");
+  assert.equal(mailgunFailureKindForStatus(408), "outcome_unknown");
+  assert.equal(mailgunFailureKindForStatus(429), "outcome_unknown");
   assert.equal(mailgunFailureKindForStatus(500), "outcome_unknown");
   assert.equal(mailgunFailureKindForStatus(503), "outcome_unknown");
 });

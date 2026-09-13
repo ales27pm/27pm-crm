@@ -30,9 +30,16 @@ import {
 } from "../../lib/deliverability-canary";
 import {
   createSendAttemptRegistry,
-  shouldRetainSendAttempt,
   type SendAttemptRegistry,
 } from "../../lib/send-attempt-registry";
+import {
+  classifyCanarySendHttpResponse,
+  classifyMessageSendHttpResponse,
+  LOCAL_REPAIR_MESSAGE,
+  type SendUiOutcome,
+  type SendUiResult,
+  UNKNOWN_SEND_MESSAGE,
+} from "../../lib/send-ui-result";
 import {
   ProjectsView,
   SettingsView,
@@ -53,6 +60,13 @@ const viewTitles: Record<NavView, string> = {
   tasks: "Tâches",
   settings: "Paramètres",
 };
+
+function sendUiResult(
+  outcome: SendUiOutcome,
+  message: string,
+): SendUiResult {
+  return { outcome, message };
+}
 
 export function CrmApp({ initialData, operator }: CrmAppProps) {
   const [data, setData] = useState(initialData);
@@ -422,8 +436,15 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
     }
   }
 
-  async function sendMessage(payload: Record<string, string | boolean>) {
-    if (!sendEnabled) return false;
+  async function sendMessage(
+    payload: Record<string, string | boolean>,
+  ): Promise<SendUiResult> {
+    if (!sendEnabled) {
+      return sendUiResult(
+        "definitive_failure",
+        "Configurez le transport de courriel avant l’envoi.",
+      );
+    }
     const isDeliverabilityCanary =
       payload.from === DELIVERABILITY_CANARY_SENDER &&
       typeof payload.to === "string" &&
@@ -439,64 +460,95 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
             text: payload.body,
           }),
         });
-        if (!response.ok) return false;
-        setSyncMessage("Test de délivrabilité accepté par Mailgun.");
-        return true;
+        const result = (await response.json().catch(() => ({}))) as {
+          accepted?: unknown;
+          error?: unknown;
+        };
+        const outcome = classifyCanarySendHttpResponse(response.status, result);
+        const message =
+          outcome === "accepted"
+            ? "Test de délivrabilité accepté par Mailgun."
+            : outcome === "outcome_unknown"
+              ? UNKNOWN_SEND_MESSAGE
+              : typeof result.error === "string"
+                ? outreachErrorMessage(result.error)
+                : "Le test a été refusé avant toute acceptation; corrigez la demande puis réessayez.";
+        setSyncMessage(message);
+        return sendUiResult(outcome, message);
       } catch {
-        return false;
+        setSyncMessage(UNKNOWN_SEND_MESSAGE);
+        return sendUiResult("outcome_unknown", UNKNOWN_SEND_MESSAGE);
       }
     }
 
     const attempts = sendAttemptRegistryRef.current;
-    if (!attempts) return false;
+    if (!attempts) {
+      return sendUiResult(
+        "definitive_failure",
+        "Le registre local d’envoi est indisponible; rien n’a été transmis.",
+      );
+    }
+    let idempotencyKey: string;
     try {
-      const idempotencyKey = await attempts.keyFor(payload);
-      const response = await fetch("/api/messages/send", {
+      idempotencyKey = await attempts.keyFor(payload);
+    } catch {
+      const message =
+        "Le brouillon n’a pas pu être protégé contre un double envoi; rien n’a été transmis.";
+      setSyncMessage(message);
+      return sendUiResult("definitive_failure", message);
+    }
+
+    let response: Response;
+    try {
+      response = await fetch("/api/messages/send", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...payload, idempotencyKey }),
       });
-      const result = (await response.json().catch(() => ({}))) as {
-        crmRecorded?: boolean;
-        error?: string;
-      };
-      if (!response.ok) {
-        if (
-          !shouldRetainSendAttempt(
-            response.status,
-            typeof result.error === "string" ? result.error : null,
-          )
-        ) {
-          await attempts.confirm(payload, idempotencyKey);
-        }
-        return false;
-      }
+    } catch {
+      setSyncMessage(UNKNOWN_SEND_MESSAGE);
+      return sendUiResult("outcome_unknown", UNKNOWN_SEND_MESSAGE);
+    }
+
+    const result = (await response.json().catch(() => ({}))) as {
+      accepted?: unknown;
+      crmRecorded?: unknown;
+      error?: unknown;
+    };
+    const outcome = classifyMessageSendHttpResponse(response.status, result);
+    if (outcome === "outcome_unknown") {
+      setSyncMessage(UNKNOWN_SEND_MESSAGE);
+      return sendUiResult(outcome, UNKNOWN_SEND_MESSAGE);
+    }
+    if (outcome === "definitive_failure") {
       await attempts.confirm(payload, idempotencyKey);
-      const crmRecordingFailed = result.crmRecorded === false;
-      let refreshFailed = false;
+      const message =
+        typeof result.error === "string"
+          ? outreachErrorMessage(result.error)
+          : "La demande a été refusée avant toute acceptation; corrigez-la puis réessayez.";
+      setSyncMessage(message);
+      return sendUiResult(outcome, message);
+    }
+    if (outcome === "local_repair") {
       try {
         await refreshDashboard();
       } catch {
-        refreshFailed = true;
+        // The exact draft and its idempotency key remain available for repair.
       }
-      if (crmRecordingFailed) {
-        setSyncMessage(
-          "Courriel accepté par Mailgun; son enregistrement CRM doit être vérifié avant tout autre envoi.",
-        );
-      } else if (refreshFailed) {
-        setSyncMessage(
-          "Courriel accepté; actualisez la réception pour voir son état de livraison.",
-        );
-      }
-      return true;
-    } catch {
-      return false;
+      setSyncMessage(LOCAL_REPAIR_MESSAGE);
+      return sendUiResult(outcome, LOCAL_REPAIR_MESSAGE);
     }
-  }
 
-  function confirmReply(payload: Record<string, string>) {
-    if (!window.confirm("Confirmer la qualification, le fondement LCAP et les preuves à jour pour ce destinataire unique?")) return Promise.resolve(false);
-    return sendMessage({ ...payload, complianceConfirmed: true });
+    await attempts.confirm(payload, idempotencyKey);
+    try {
+      await refreshDashboard();
+      return sendUiResult("accepted", "Courriel accepté par le transport.");
+    } catch {
+      const message =
+        "Courriel accepté; actualisez la réception pour voir son état de livraison.";
+      setSyncMessage(message);
+      return sendUiResult("accepted", message);
+    }
   }
 
   const inboxContext = (
@@ -606,17 +658,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
                 contextTriggerRef={contextTriggerRef}
                 onBack={() => setMobileThreadOpen(false)}
                 onOpenContext={() => setContextOpen(true)}
-                onSend={(body) =>
-                  selectedConversation
-                    ? confirmReply({
-                        conversationId: selectedConversation.id,
-                        from: selectedConversation.mailboxAddress,
-                        to: selectedConversation.contactEmail,
-                        subject: selectedConversation.subject,
-                        body,
-                      })
-                    : Promise.resolve(false)
-                }
+                onSend={sendMessage}
               />
             </div>
             {inboxContext}

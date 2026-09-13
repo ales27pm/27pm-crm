@@ -1,26 +1,24 @@
 import { normalizeMessageId } from "./mailgun";
+import {
+  classifyOutboundFailure,
+  OutboundSendError,
+  type OutboundSendFailureKind,
+} from "./outbound-send-outcome";
 
-export type MailgunSendFailureKind = "rejected" | "outcome_unknown";
+export type MailgunSendFailureKind = OutboundSendFailureKind;
 
 export function mailgunFailureKindForStatus(
   status: number,
 ): MailgunSendFailureKind {
-  return status >= 500 ? "outcome_unknown" : "rejected";
+  return status === 408 || status === 429 || status >= 500
+    ? "outcome_unknown"
+    : "rejected";
 }
 
-export class MailgunSendError extends Error {
-  readonly status: number;
-  readonly kind: MailgunSendFailureKind;
-
+export class MailgunSendError extends OutboundSendError {
   constructor(status: number, kind: MailgunSendFailureKind) {
-    super(
-      kind === "rejected"
-        ? "Mailgun rejected the send request."
-        : "The Mailgun send outcome is unknown.",
-    );
+    super("mailgun", status, kind);
     this.name = "MailgunSendError";
-    this.status = status;
-    this.kind = kind;
   }
 }
 
@@ -49,9 +47,5 @@ export function classifyMailgunFailure(
   providerDispatchStarted: boolean,
   cause: unknown,
 ): "definitive_failure" | "outcome_unknown" {
-  if (!providerDispatchStarted) return "definitive_failure";
-  if (cause instanceof MailgunSendError && cause.kind === "rejected") {
-    return "definitive_failure";
-  }
-  return "outcome_unknown";
+  return classifyOutboundFailure(providerDispatchStarted, cause);
 }

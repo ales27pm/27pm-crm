@@ -22,7 +22,7 @@ export async function sendMailgunMessage(
   message: OutboundMailgunMessage,
   config: MailgunClientConfig,
   options: MailgunRequestOptions = {},
-): Promise<{ id: string; message: string }> {
+): Promise<{ id: string; message: string; responseStatus: number }> {
   const apiBase = config.apiBase.replace(/\/+$/u, "");
   const response = await dispatchMailgunRequest(
     message,
@@ -57,5 +57,6 @@ export async function sendMailgunMessage(
   return {
     id,
     message: typeof record.message === "string" ? record.message : "Queued",
+    responseStatus: response.status,
   };
 }

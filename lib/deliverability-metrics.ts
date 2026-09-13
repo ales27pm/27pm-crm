@@ -23,6 +23,7 @@ export type DeliverabilityTelemetryEvent = {
 
 export type DeliverabilityTelemetryMessage = {
   id: string;
+  transportProvider?: "mailgun" | "cakemail" | "unknown";
   recipient: string;
   trafficType: string;
   tags: readonly string[];
@@ -58,6 +59,7 @@ export type DeliverabilitySegment = {
 
 export type DeliverabilitySummary = {
   overall: DeliverabilitySegment;
+  transports: DeliverabilitySegment[];
   providers: DeliverabilitySegment[];
   sendingDomains: DeliverabilitySegment[];
   sendingIps: DeliverabilitySegment[];
@@ -76,6 +78,7 @@ export type DeliverabilitySummary = {
 
 type ClassifiedMessage = {
   source: DeliverabilityTelemetryMessage;
+  transportProvider: "mailgun" | "cakemail" | "unknown";
   provider: MailboxProvider;
   sendingDomain: string;
   sendingIp: string;
@@ -158,6 +161,14 @@ export function summarizeDeliverability(
 
   return {
     overall: segment("all", "Tous les fournisseurs", classified, options),
+    transports: groupedSegments(
+      classified,
+      (message) => message.transportProvider,
+      options,
+    ).map((transport) => ({
+      ...transport,
+      label: transportLabel(transport.key),
+    })),
     providers: MAILBOX_PROVIDERS.map((provider) =>
       segment(
         provider,
@@ -202,15 +213,24 @@ export function summarizeDeliverability(
 function classifyMessage(
   source: DeliverabilityTelemetryMessage,
 ): ClassifiedMessage {
+  const transportProvider = normalizedTransportProvider(
+    source.transportProvider,
+  );
   const events = [...source.events].toSorted((left, right) =>
     left.occurredAt.localeCompare(right.occurredAt),
   );
   const facts = inspectEvents(events);
-  const outcomes = classifyOutcomes(source.status, events.length, facts);
+  const outcomes = classifyOutcomes(
+    source.status,
+    events.length,
+    facts,
+    transportProvider,
+  );
   const tags = collectMessageTags(source.tags, events);
 
   return {
     source,
+    transportProvider,
     provider: facts.provider ?? mailboxProviderForAddress(source.recipient),
     sendingDomain: facts.sendingDomain ?? "unknown",
     sendingIp: facts.sendingIp ?? "unknown",
@@ -268,16 +288,23 @@ function classifyOutcomes(
   status: string,
   eventCount: number,
   facts: EventFacts,
+  transportProvider: ClassifiedMessage["transportProvider"],
 ): MessageOutcomes {
   const delivered = isDeliveredMessage(status, facts.eventTypes);
-  const hardBounced = isHardBouncedMessage(status, eventCount, facts);
+  const hardBounced = isHardBouncedMessage(
+    status,
+    eventCount,
+    facts,
+    transportProvider,
+  );
   const complained = hasAny(facts.eventTypes, COMPLAINT_EVENT_TYPES);
   const unsubscribed = hasAny(facts.eventTypes, UNSUBSCRIBE_EVENT_TYPES);
   const temporarilyFailed = facts.eventClasses.has("temporary");
   const policyBlocked = facts.eventClasses.has("policy_block");
   const authFailed = facts.eventClasses.has("auth_failure");
   const otherPermanent = isOtherPermanentMessage(status, eventCount, facts);
-  const providerSuppressed = hasProviderSuppression(facts.reasons);
+  const providerSuppressed =
+    transportProvider === "mailgun" && hasProviderSuppression(facts.reasons);
   const terminal = [
     delivered,
     hardBounced,
@@ -312,15 +339,24 @@ function isHardBouncedMessage(
   status: string,
   eventCount: number,
   facts: EventFacts,
+  transportProvider: ClassifiedMessage["transportProvider"],
 ): boolean {
   return [
-    hasUnsuppressedHardBounce(facts),
+    hasUnsuppressedHardBounce(facts, transportProvider),
     isStatusWithoutEvents(status, eventCount, "bounced"),
   ].includes(true);
 }
 
-function hasUnsuppressedHardBounce(facts: EventFacts): boolean {
-  if (facts.reasons.has("suppress-bounce")) return false;
+function hasUnsuppressedHardBounce(
+  facts: EventFacts,
+  transportProvider: ClassifiedMessage["transportProvider"],
+): boolean {
+  if (
+    transportProvider === "mailgun" &&
+    facts.reasons.has("suppress-bounce")
+  ) {
+    return false;
+  }
   return facts.eventClasses.has("hard_bounce");
 }
 
@@ -559,6 +595,22 @@ function providerLabel(provider: MailboxProvider): string {
     yahoo: "Yahoo / AOL",
     other: "Autres / non attribués",
   }[provider];
+}
+
+function normalizedTransportProvider(
+  provider: DeliverabilityTelemetryMessage["transportProvider"],
+): "mailgun" | "cakemail" | "unknown" {
+  return provider === "mailgun" || provider === "cakemail"
+    ? provider
+    : "unknown";
+}
+
+function transportLabel(provider: string): string {
+  return {
+    mailgun: "Mailgun",
+    cakemail: "Cakemail",
+    unknown: "Transport non attribué",
+  }[provider] ?? "Transport non attribué";
 }
 
 function isEventClass(

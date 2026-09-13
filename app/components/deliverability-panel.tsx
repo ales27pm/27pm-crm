@@ -132,7 +132,16 @@ function DeliverabilityResults({ data }: { data: DeliverabilityResponse }) {
     <>
       <MetricSummary segment={data.summary.overall} />
       <PolicyState reputation={data.reputation} />
-      <ProviderTable segments={data.summary.providers} />
+      <SegmentTable
+        caption="Résultats par transport sortant"
+        heading="Transport"
+        segments={data.summary.transports}
+      />
+      <SegmentTable
+        caption="Résultats par fournisseur de boîte aux lettres"
+        heading="Fournisseur"
+        segments={data.summary.providers}
+      />
       <CompletenessNotice data={data} />
       <ul className="deliverability-caveats">
         {data.caveats.map((caveat) => <li key={caveat}>{caveat}</li>)}
@@ -144,7 +153,7 @@ function DeliverabilityResults({ data }: { data: DeliverabilityResponse }) {
 function MetricSummary({ segment }: { segment: DeliverabilitySegment }) {
   return (
     <dl className="deliverability-summary">
-      <MetricFact label="Acceptés Mailgun" value={segment.counts.accepted} />
+      <MetricFact label="Acceptés par le transport" value={segment.counts.accepted} />
       <MetricFact label="Remises serveur" value={segment.counts.delivered} />
       <MetricFact label="Rebonds durs" value={segment.counts.hardBounced} />
       <MetricFact label="Plaintes" value={segment.counts.complained} />
@@ -169,13 +178,21 @@ function PolicyState({ reputation }: { reputation: DeliverabilityResponse["reput
   );
 }
 
-function ProviderTable({ segments }: { segments: DeliverabilitySegment[] }) {
+function SegmentTable({
+  caption,
+  heading,
+  segments,
+}: {
+  caption: string;
+  heading: string;
+  segments: DeliverabilitySegment[];
+}) {
   return (
     <div className="deliverability-table-wrap">
       <table className="deliverability-table">
-        <caption>Résultats par fournisseur de boîte aux lettres</caption>
+        <caption>{caption}</caption>
         <thead><tr>
-          <th scope="col">Fournisseur</th><th scope="col">Acceptés</th>
+          <th scope="col">{heading}</th><th scope="col">Acceptés</th>
           <th scope="col">Remise</th><th scope="col">Rebond dur</th>
           <th scope="col">Plainte</th><th scope="col">Temp./politique</th>
           <th scope="col">Lecture</th>
@@ -191,7 +208,7 @@ function ProviderTable({ segments }: { segments: DeliverabilitySegment[] }) {
 function CompletenessNotice({ data }: { data: DeliverabilityResponse }) {
   const volume = data.completeness.complete
     ? `${data.summary.dataQuality.messages} messages uniques · ${data.summary.dataQuality.events} événements normalisés.`
-    : "Vue incomplète : la limite de sécurité de la requête a été atteinte. Utilisez les agrégats Mailgun pour une analyse exhaustive.";
+    : "Vue incomplète : la limite de sécurité de la requête a été atteinte. Utilisez les agrégats du fournisseur pour une analyse exhaustive.";
   const tagCoverage = data.summary.dataQuality.tagSegmentsTruncated
     ? "Segments de tags plafonnés à 256; la vue par tag est partielle."
     : data.summary.dataQuality.messagesWithTagTruncation > 0

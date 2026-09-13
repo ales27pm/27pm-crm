@@ -4,25 +4,37 @@ import {
   advanceSendAuthorization,
   canEmail,
   complianceEvidenceSnapshot,
+  type ComplianceConfiguration,
   loadComplianceConfiguration,
   loadContactCompliance,
   type ContactCompliance,
   UNSUBSCRIBE_TOKEN_VALIDITY_MS,
 } from "@/lib/compliance";
+import { recordAcceptedOutboundMessage } from "@/lib/accepted-outbound-message";
+import { cakemailAudiencePolicyViolation } from "@/lib/cakemail-audience-policy";
 import { jsonError, readJsonObject } from "@/lib/http";
-import { sendMailgunMessage } from "@/lib/mailgun-client";
-import { mailgunConfig } from "@/lib/mailgun-runtime";
-import { reconcileMailgunEventsBestEffort } from "@/lib/mailgun-event-reconciliation";
-import { classifyMailgunFailure } from "@/lib/mailgun-send-outcome";
 import {
   normalizeCommandIdempotencyKey,
   requestFingerprint,
 } from "@/lib/mailgun";
+import { extractEmailAddress, parseAddressList } from "@/lib/mailboxes";
 import {
-  CRM_MAILBOXES,
-  extractEmailAddress,
-  parseAddressList,
-} from "@/lib/mailboxes";
+  createOutboundExternalMessageId,
+  outboundTransmittedContent,
+  sendOutboundMessage,
+} from "@/lib/outbound-email";
+import {
+  outboundMessageSnapshotJson,
+  parseOutboundMessageSnapshot,
+  type OutboundMessageSnapshot,
+} from "@/lib/outbound-message-snapshot";
+import { reconcileOutboundEventsBestEffort } from "@/lib/outbound-event-reconciliation";
+import {
+  requireOutboundOperationalConfig,
+  type OutboundProvider,
+  type OutboundTransportConfig,
+} from "@/lib/outbound-runtime";
+import { classifyOutboundFailure } from "@/lib/outbound-send-outcome";
 import {
   sendContentFromPayload,
   sendMailboxFromPayload,
@@ -35,12 +47,19 @@ export const dynamic = "force-dynamic";
 const CRM_PROSPECTING_TAGS = ["source-crm", "traffic-prospecting"] as const;
 
 type SendCommandRow = {
+  commandId: string;
   requestHash: string;
   status: "pending" | "authorized" | "dispatching" | "sent" | "failed" | "cancelled";
+  transportProvider: OutboundProvider;
+  contactId: string | null;
   providerMessageId: string | null;
+  externalMessageId: string | null;
   conversationId: string | null;
   crmRecorded: number | boolean;
+  messageSnapshotJson: string | null;
 };
+
+type ParsedSendCommand = NonNullable<ReturnType<typeof parseSendCommand>>;
 
 export async function POST(request: Request) {
   const auth = requireOperatorRequest(request);
@@ -58,7 +77,6 @@ export async function POST(request: Request) {
   const command = parseSendCommand(payload);
   if (!command) return jsonError(400, "message_invalid");
   if (payload.complianceConfirmed !== true) return jsonError(409, "operator_compliance_confirmation_required");
-
   const requestHash = await requestFingerprint({
     mailboxId: command.mailbox.id,
     to: command.to,
@@ -68,6 +86,27 @@ export async function POST(request: Request) {
     conversationId: command.conversationId,
   });
   const db = crmDatabase();
+  try {
+    const existing = await loadSendCommand(db, idempotencyKey);
+    if (existing) {
+      return responseForExistingSendCommand(
+        db,
+        existing,
+        requestHash,
+        command,
+      );
+    }
+  } catch {
+    return jsonError(503, "send_command_lookup_failed");
+  }
+
+  let transport: OutboundTransportConfig;
+  try {
+    transport = requireOutboundOperationalConfig();
+  } catch {
+    return jsonError(503, "transport_configuration_invalid");
+  }
+  const transportProvider = transport.provider;
   const commandId = crypto.randomUUID();
   let conversation: {
     id: string;
@@ -79,6 +118,8 @@ export async function POST(request: Request) {
   let providerDispatchStarted = false;
   let providerAccepted = false;
   let providerMessageId: string | null = null;
+  let providerResponseStatus: number | null = null;
+  let externalMessageId: string | null = null;
   let recordedConversationId: string | null = null;
 
   try {
@@ -123,13 +164,14 @@ export async function POST(request: Request) {
     const inserted = await db
       .prepare(
         `INSERT OR IGNORE INTO send_commands
-          (id, idempotency_key, request_hash, mailbox_id, conversation_id, status,
+          (id, transport_provider, idempotency_key, request_hash, mailbox_id, conversation_id, status,
            contact_id, contact_compliance_version, configuration_version,
            operator_confirmed_at, compliance_snapshot_json)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)`,
       )
       .bind(
         commandId,
+        transportProvider,
         idempotencyKey,
         requestHash,
         command.mailbox.id,
@@ -143,42 +185,14 @@ export async function POST(request: Request) {
       .run();
 
     if (changedRows(inserted) === 0) {
-      const existing = await db
-        .prepare(
-          `SELECT request_hash AS requestHash, status,
-                  provider_message_id AS providerMessageId,
-                  conversation_id AS conversationId,
-                  EXISTS (
-                    SELECT 1 FROM messages message
-                    WHERE message.external_message_id = send_commands.provider_message_id
-                  ) AS crmRecorded
-           FROM send_commands WHERE idempotency_key = ? LIMIT 1`,
-        )
-        .bind(idempotencyKey)
-        .first<SendCommandRow>();
+      const existing = await loadSendCommand(db, idempotencyKey);
       if (!existing) return jsonError(409, "send_command_conflict");
-      if (existing.requestHash !== requestHash) {
-        return jsonError(409, "idempotency_key_reused");
-      }
-      if (existing.status === "sent") {
-        await reconcileMailgunEventsBestEffort(
-          db,
-          existing.providerMessageId,
-        );
-        return Response.json({
-          accepted: true,
-          idempotent: true,
-          providerMessageId: existing.providerMessageId,
-          conversationId: existing.conversationId,
-          crmRecorded: Boolean(existing.crmRecorded),
-        });
-      }
-      if (existing.status === "pending") {
-        return jsonError(409, "send_command_in_progress");
-      }
-      if (existing.status === "authorized" || existing.status === "dispatching") return jsonError(409, "send_command_in_progress");
-      if (existing.status === "cancelled") return jsonError(409, "send_command_cancelled");
-      return jsonError(502, "send_command_failed");
+      return responseForExistingSendCommand(
+        db,
+        existing,
+        requestHash,
+        command,
+      );
     }
 
     const authorized = await advanceSendAuthorization(db, commandId, contact, configuration, "pending", "authorized", authorizationSnapshot, auth.operator.email, suppressionCategory);
@@ -186,28 +200,80 @@ export async function POST(request: Request) {
       await cancelSendCommand(db, commandId, "compliance_state_changed");
       return jsonError(409, "compliance_state_changed");
     }
-    const publicOrigin = new URL(requireRuntimeString("CRM_PUBLIC_ORIGIN"));
-    if (publicOrigin.protocol !== "https:") {
+    let compliantContent;
+    try {
+      compliantContent = await compliantOutboundContent(
+        command,
+        contact,
+        configuration,
+      );
+    } catch {
       await cancelSendCommand(db, commandId, "unsubscribe_origin_invalid");
       return jsonError(503, "unsubscribe_origin_invalid");
     }
-    const expiresAt = new Date(Date.now() + UNSUBSCRIBE_TOKEN_VALIDITY_MS).toISOString();
-    const unsubscribeToken = await createUnsubscribeToken(requireRuntimeString("CRM_UNSUBSCRIBE_SIGNING_KEY"), {
-      contactId: contact.contactId,
-      email: contact.addressNormalized,
-      expiresAt,
-    });
-    const unsubscribeUrl = new URL("/api/public/unsubscribe", publicOrigin);
-    unsubscribeUrl.searchParams.set("token", unsubscribeToken);
-    const compliantContent = appendComplianceFooter(command.text, command.html, configuration, unsubscribeUrl.toString());
     const dispatching = await advanceSendAuthorization(db, commandId, contact, configuration, "authorized", "dispatching", authorizationSnapshot, auth.operator.email, suppressionCategory);
     if (!dispatching) {
       await cancelSendCommand(db, commandId, "compliance_state_changed");
       return jsonError(409, "compliance_state_changed");
     }
 
-    const config = mailgunConfig();
-    const result = await sendMailgunMessage(
+    externalMessageId = createOutboundExternalMessageId(
+      transport,
+      command.mailbox.address,
+    );
+    const transmittedContent = outboundTransmittedContent(
+      compliantContent,
+      transport,
+    );
+    const occurredAt = new Date().toISOString();
+    const messageSnapshotJson = outboundMessageSnapshotJson({
+      version: 1,
+      requestHash,
+      provider: transportProvider,
+      contactId: contact.contactId,
+      mailbox: {
+        id: command.mailbox.id,
+        address: command.mailbox.address,
+        purpose: command.mailbox.purpose,
+      },
+      recipient: command.to[0],
+      subject: command.subject,
+      contentMode: transmittedContent.contentMode,
+      text: transmittedContent.text,
+      html: transmittedContent.html,
+      actorEmail: auth.operator.email,
+      conversationId: conversation?.id ?? null,
+      occurredAt,
+    });
+    const snapshotRecorded = await db
+      .prepare(
+        `UPDATE send_commands
+         SET external_message_id = ?, message_snapshot_json = ?,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND transport_provider = ?
+           AND status = 'dispatching' AND message_snapshot_json IS NULL`,
+      )
+      .bind(
+        externalMessageId,
+        messageSnapshotJson,
+        commandId,
+        transportProvider,
+      )
+      .run();
+    if (changedRows(snapshotRecorded) !== 1) {
+      throw new Error("outbound_snapshot_persistence_failed");
+    }
+
+    const audienceViolation = cakemailAudiencePolicyViolation(
+      transport,
+      contact,
+    );
+    if (audienceViolation) {
+      await cancelSendCommand(db, commandId, audienceViolation);
+      return jsonError(409, audienceViolation);
+    }
+
+    const result = await sendOutboundMessage(
       {
         fromAddress: command.mailbox.address,
         fromName: command.mailbox.displayName,
@@ -220,128 +286,76 @@ export async function POST(request: Request) {
           ? [conversation.externalMessageId]
           : undefined,
         replyTo: command.mailbox.address,
-        unsubscribeUrl: unsubscribeUrl.toString(),
+        unsubscribeUrl: compliantContent.unsubscribeUrl,
         tags: CRM_PROSPECTING_TAGS,
       },
-      config,
+      transport,
       {
+        externalMessageId,
         onDispatchStart: () => {
           providerDispatchStarted = true;
         },
       },
     );
 
-    providerMessageId = result.id;
+    if (result.provider !== transportProvider) {
+      throw new Error("transport_provider_mismatch");
+    }
+    providerMessageId = result.providerMessageId;
+    externalMessageId = result.externalMessageId;
+    providerResponseStatus = result.responseStatus;
     providerAccepted = true;
     const acceptanceRecorded = await db
       .prepare(
         `UPDATE send_commands
-         SET status = 'sent', provider_message_id = ?, response_status = 200,
+         SET status = 'sent', provider_message_id = ?, external_message_id = ?,
+             response_status = ?,
              failure_code = NULL, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ? AND status = 'dispatching'`,
+         WHERE id = ? AND transport_provider = ? AND status = 'dispatching'`,
       )
-      .bind(providerMessageId, commandId)
+      .bind(
+        providerMessageId,
+        externalMessageId,
+        providerResponseStatus,
+        commandId,
+        transportProvider,
+      )
       .run();
     if (changedRows(acceptanceRecorded) !== 1) {
       throw new Error("provider_acceptance_persistence_failed");
     }
 
-    const occurredAt = new Date().toISOString();
-    recordedConversationId =
-      conversation?.id ??
-      (await createOutboundConversation(
-        db,
-        command.mailbox,
-        command.to[0],
-        command.subject,
-        providerMessageId,
-        occurredAt,
-      ));
-
-    await db.batch([
-      db
-        .prepare(
-          `INSERT OR IGNORE INTO messages
-            (id, conversation_id, mailbox_id, direction, external_message_id,
-             sender, recipients_json, subject, text_body, html_body,
-             traffic_type, tags_json, status, occurred_at)
-           VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, 'prospecting', ?,
-                   'accepted', ?)`,
-        )
-        .bind(
-          crypto.randomUUID(),
-          recordedConversationId,
-          command.mailbox.id,
-          providerMessageId,
-          command.mailbox.address,
-          JSON.stringify(command.to),
-          command.subject,
-          compliantContent.text,
-          compliantContent.html,
-          JSON.stringify(CRM_PROSPECTING_TAGS),
-          occurredAt,
-        ),
-      db
-        .prepare(
-          `UPDATE conversations
-           SET is_unread = 0, last_message_at = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = ?`,
-        )
-        .bind(occurredAt, recordedConversationId),
-      db
-        .prepare(
-          `UPDATE send_commands
-           SET conversation_id = ?, failure_code = NULL,
-               updated_at = CURRENT_TIMESTAMP
-           WHERE id = ? AND status = 'sent'`,
-        )
-        .bind(recordedConversationId, commandId),
-      db
-        .prepare(
-          `INSERT INTO audit_entries
-            (id, actor_email, action, entity_type, entity_id, details_json)
-           VALUES (?, ?, 'message.sent', 'conversation', ?, ?)`,
-        )
-        .bind(
-          crypto.randomUUID(),
-          auth.operator.email,
-          recordedConversationId,
-          JSON.stringify({
-            mailboxId: command.mailbox.id,
-            trafficType: "prospecting",
-            tags: CRM_PROSPECTING_TAGS,
-          }),
-        ),
-      db
-        .prepare(
-          `UPDATE contacts
-           SET last_contact_at = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = (SELECT contact_id FROM conversations WHERE id = ?)`,
-        )
-        .bind(occurredAt, recordedConversationId),
-      db
-        .prepare(
-          `UPDATE organizations
-           SET last_contact_at = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE id = (
-             SELECT COALESCE(deal.organization_id, contact.organization_id)
-             FROM conversations conversation
-             LEFT JOIN deals deal ON deal.conversation_id = conversation.id
-             LEFT JOIN contacts contact ON contact.id = conversation.contact_id
-             WHERE conversation.id = ? LIMIT 1
-           )`,
-        )
-        .bind(occurredAt, recordedConversationId),
-    ]);
+    recordedConversationId = await recordAcceptedOutboundMessage(db, {
+      commandId,
+      contactId: contact.contactId,
+      provider: transportProvider,
+      providerMessageId,
+      externalMessageId,
+      mailbox: command.mailbox,
+      recipient: command.to[0],
+      subject: command.subject,
+      text: transmittedContent.text,
+      html: transmittedContent.html,
+      actorEmail: auth.operator.email,
+      conversationId: conversation?.id,
+      occurredAt,
+    });
 
     // A provider callback can arrive before this outbound row is committed.
-    // Link any such callback by Mailgun message ID and apply its latest state.
-    await reconcileMailgunEventsBestEffort(db, providerMessageId);
+    // Link it using the transport-specific correlation contract.
+    await reconcileOutboundEventsBestEffort(
+      db,
+      transportProvider,
+      providerMessageId,
+      externalMessageId,
+    );
 
     return Response.json(
       {
         accepted: true,
+        provider: transportProvider,
         providerMessageId,
+        externalMessageId,
         conversationId: recordedConversationId,
         crmRecorded: true,
       },
@@ -354,20 +368,31 @@ export async function POST(request: Request) {
           .prepare(
             `UPDATE send_commands
              SET status = 'sent', provider_message_id = COALESCE(?, provider_message_id),
-                 response_status = 200,
+                 external_message_id = COALESCE(?, external_message_id),
+                 response_status = COALESCE(?, response_status),
                  failure_code = 'post_acceptance_persistence_failure',
                  updated_at = CURRENT_TIMESTAMP
-             WHERE id = ? AND status IN ('dispatching','sent')`,
+             WHERE id = ? AND transport_provider = ?
+               AND status IN ('dispatching','sent')`,
           )
-          .bind(providerMessageId, commandId)
+          .bind(
+            providerMessageId,
+            externalMessageId,
+            providerResponseStatus,
+            commandId,
+            transportProvider,
+          )
           .run();
       } catch {
-        // Mailgun accepted the message; never turn a D1 outage into a retry signal.
+        // The provider accepted the message; never turn a D1 outage into a
+        // retry signal.
       }
       return Response.json(
         {
           accepted: true,
+          provider: transportProvider,
           providerMessageId,
+          externalMessageId,
           conversationId: recordedConversationId,
           crmRecorded: false,
         },
@@ -376,7 +401,7 @@ export async function POST(request: Request) {
     }
 
     if (
-      classifyMailgunFailure(providerDispatchStarted, cause) ===
+      classifyOutboundFailure(providerDispatchStarted, cause) ===
       "outcome_unknown"
     ) {
       try {
@@ -393,7 +418,7 @@ export async function POST(request: Request) {
       } catch {
         // Keep the durable dispatching state non-retryable when D1 is unavailable.
       }
-      return jsonError(503, "mailgun_send_unconfirmed");
+      return jsonError(503, "outbound_send_unconfirmed");
     }
 
     try {
@@ -409,13 +434,137 @@ export async function POST(request: Request) {
     } catch {
       // Preserve the original generic failure without exposing runtime details.
     }
-    return jsonError(502, "mailgun_send_failed");
+    return jsonError(502, "outbound_send_failed");
   }
+}
+
+async function loadSendCommand(
+  db: ReturnType<typeof crmDatabase>,
+  idempotencyKey: string,
+): Promise<SendCommandRow | null> {
+  return db
+    .prepare(
+      `SELECT id AS commandId, request_hash AS requestHash, status,
+              transport_provider AS transportProvider,
+              contact_id AS contactId,
+              provider_message_id AS providerMessageId,
+              external_message_id AS externalMessageId,
+              conversation_id AS conversationId,
+              message_snapshot_json AS messageSnapshotJson,
+              EXISTS (
+                SELECT 1 FROM messages message
+                WHERE message.transport_provider = send_commands.transport_provider
+                  AND message.provider_message_id = send_commands.provider_message_id
+              ) AS crmRecorded
+       FROM send_commands WHERE idempotency_key = ? LIMIT 1`,
+    )
+    .bind(idempotencyKey)
+    .first<SendCommandRow>();
+}
+
+async function responseForExistingSendCommand(
+  db: ReturnType<typeof crmDatabase>,
+  existing: SendCommandRow,
+  requestHash: string,
+  command: ParsedSendCommand,
+): Promise<Response> {
+  if (existing.requestHash !== requestHash) {
+    return jsonError(409, "idempotency_key_reused");
+  }
+  if (existing.status === "sent") {
+    return responseForAcceptedSendCommand(db, existing, command);
+  }
+  if (
+    existing.status === "pending" ||
+    existing.status === "authorized" ||
+    existing.status === "dispatching"
+  ) {
+    return jsonError(409, "send_command_in_progress");
+  }
+  if (existing.status === "cancelled") {
+    return jsonError(409, "send_command_cancelled");
+  }
+  return jsonError(502, "send_command_failed");
+}
+
+async function responseForAcceptedSendCommand(
+  db: ReturnType<typeof crmDatabase>,
+  existing: SendCommandRow,
+  command: ParsedSendCommand,
+): Promise<Response> {
+  let crmRecorded = Boolean(existing.crmRecorded);
+  let conversationId = existing.conversationId;
+  const snapshot = parseOutboundMessageSnapshot(existing.messageSnapshotJson);
+  if (
+    !crmRecorded &&
+    existing.providerMessageId &&
+    existing.externalMessageId &&
+    snapshot &&
+    snapshotMatchesCommand(snapshot, existing, command)
+  ) {
+    try {
+      conversationId = await recordAcceptedOutboundMessage(db, {
+        commandId: existing.commandId,
+        contactId: snapshot.contactId,
+        provider: existing.transportProvider,
+        providerMessageId: existing.providerMessageId,
+        externalMessageId: existing.externalMessageId,
+        mailbox: snapshot.mailbox,
+        recipient: snapshot.recipient,
+        subject: snapshot.subject,
+        text: snapshot.text,
+        html: snapshot.html,
+        actorEmail: snapshot.actorEmail,
+        conversationId: existing.conversationId ?? snapshot.conversationId,
+        occurredAt: snapshot.occurredAt,
+      });
+      crmRecorded = true;
+    } catch {
+      // Provider acceptance is authoritative. The same key may safely retry
+      // this local-only repair without redispatching the message.
+    }
+  }
+  await reconcileOutboundEventsBestEffort(
+    db,
+    existing.transportProvider,
+    existing.providerMessageId,
+    existing.externalMessageId,
+  );
+  return Response.json({
+    accepted: true,
+    idempotent: true,
+    provider: existing.transportProvider,
+    providerMessageId: existing.providerMessageId,
+    externalMessageId: existing.externalMessageId,
+    conversationId,
+    crmRecorded,
+  });
+}
+
+function snapshotMatchesCommand(
+  snapshot: OutboundMessageSnapshot,
+  existing: SendCommandRow,
+  command: ParsedSendCommand,
+): boolean {
+  return (
+    snapshot.requestHash === existing.requestHash &&
+    snapshot.provider === existing.transportProvider &&
+    snapshot.contactId === existing.contactId &&
+    snapshot.mailbox.id === command.mailbox.id &&
+    snapshot.mailbox.address === command.mailbox.address &&
+    snapshot.mailbox.purpose === command.mailbox.purpose &&
+    snapshot.recipient === command.to[0] &&
+    snapshot.subject === command.subject &&
+    (existing.conversationId === null ||
+      snapshot.conversationId === null ||
+      existing.conversationId === snapshot.conversationId)
+  );
 }
 
 async function cancelSendCommand(db: ReturnType<typeof crmDatabase>, commandId: string, reason: string) {
   await db.prepare(`UPDATE send_commands SET status='cancelled', failure_code=?, updated_at=CURRENT_TIMESTAMP
-    WHERE id=? AND status IN ('pending','authorized')`).bind(reason, commandId).run();
+    WHERE id=? AND status IN ('pending','authorized','dispatching')
+      AND provider_message_id IS NULL`).bind(reason, commandId).run();
 }
 
 function parseSendCommand(payload: Record<string, unknown>) {
@@ -486,48 +635,39 @@ function bodyWithinLimit(value: string | null): boolean {
   return value === null || value.length <= 2_000_000;
 }
 
-async function createOutboundConversation(
-  db: ReturnType<typeof crmDatabase>,
-  mailbox: (typeof CRM_MAILBOXES)[number],
-  recipient: string,
-  subject: string,
-  externalMessageId: string | null,
-  occurredAt: string,
-): Promise<string> {
-  const contact = await db
-    .prepare("SELECT id, organization_id AS organizationId FROM contacts WHERE email = ? LIMIT 1")
-    .bind(recipient)
-    .first<{ id: string; organizationId: string | null }>();
-  if (!contact) throw new Error("contact_create_failed");
-
-  const conversationId = crypto.randomUUID();
-  const threadKey = externalMessageId
-    ? `message:${externalMessageId}`
-    : `outbound:${crypto.randomUUID()}`;
-  await db
-    .prepare(
-      `INSERT INTO conversations
-        (id, mailbox_id, contact_id, subject, normalized_subject, thread_key,
-         is_unread, last_message_at)
-       VALUES (?, ?, ?, ?, lower(trim(?)), ?, 0, ?)`,
-    )
-    .bind(
-      conversationId,
-      mailbox.id,
-      contact.id,
-      subject,
-      subject,
-      threadKey,
-      occurredAt,
-    )
-    .run();
-  if (mailbox.purpose === "sales") {
-    await db
-      .prepare(
-        "INSERT INTO deals (id, conversation_id, organization_id, contact_id, stage) VALUES (?, ?, ?, ?, 'new')",
-      )
-      .bind(crypto.randomUUID(), conversationId, contact.organizationId, contact.id)
-      .run();
+async function compliantOutboundContent(
+  command: NonNullable<ReturnType<typeof parseSendCommand>>,
+  contact: ContactCompliance,
+  configuration: ComplianceConfiguration,
+): Promise<{ text: string; html: string; unsubscribeUrl: string }> {
+  const publicOrigin = new URL(requireRuntimeString("CRM_PUBLIC_ORIGIN"));
+  if (
+    publicOrigin.protocol !== "https:" ||
+    publicOrigin.username ||
+    publicOrigin.password
+  ) {
+    throw new Error("unsubscribe_origin_invalid");
   }
-  return conversationId;
+  const expiresAt = new Date(
+    Date.now() + UNSUBSCRIBE_TOKEN_VALIDITY_MS,
+  ).toISOString();
+  const unsubscribeToken = await createUnsubscribeToken(
+    requireRuntimeString("CRM_UNSUBSCRIBE_SIGNING_KEY"),
+    {
+      contactId: contact.contactId,
+      email: contact.addressNormalized,
+      expiresAt,
+    },
+  );
+  const unsubscribeUrl = new URL("/api/public/unsubscribe", publicOrigin.origin);
+  unsubscribeUrl.searchParams.set("token", unsubscribeToken);
+  return {
+    ...appendComplianceFooter(
+      command.text,
+      command.html,
+      configuration,
+      unsubscribeUrl.toString(),
+    ),
+    unsubscribeUrl: unsubscribeUrl.toString(),
+  };
 }

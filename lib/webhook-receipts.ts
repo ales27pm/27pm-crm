@@ -10,21 +10,32 @@ export async function hasWebhookToken(db: CrmDatabase, token: string): Promise<b
 
 export async function reserveWebhook(
   db: CrmDatabase,
-  input: { kind: "inbound" | "event"; token: string; signatureTimestamp: number; callbackKey: string },
+  input: {
+    provider?: "mailgun" | "cakemail";
+    kind: "inbound" | "event";
+    token: string;
+    signatureTimestamp: number;
+    callbackKey: string;
+  },
 ): Promise<WebhookReservation> {
+  const provider = input.provider ?? "mailgun";
   try {
     await db.prepare(`INSERT INTO webhook_receipts
-      (kind, signature_token, signature_timestamp, callback_key)
-      VALUES (?, ?, ?, ?)`).bind(input.kind, input.token, input.signatureTimestamp, input.callbackKey).run();
+      (transport_provider, kind, signature_token, signature_timestamp, callback_key)
+      VALUES (?, ?, ?, ?, ?)`).bind(provider, input.kind, input.token, input.signatureTimestamp, input.callbackKey).run();
     return "accepted";
   } catch (error) {
     if (!isUniqueConstraintError(error)) throw error;
     const tokenReceipt = await db.prepare(
-      "SELECT status, callback_key AS callbackKey, kind FROM webhook_receipts WHERE signature_token=? LIMIT 1",
-    ).bind(input.token).first<{ status: string; callbackKey: string; kind: string }>();
+      "SELECT status, callback_key AS callbackKey, kind, transport_provider AS provider FROM webhook_receipts WHERE signature_token=? LIMIT 1",
+    ).bind(input.token).first<{ status: string; callbackKey: string; kind: string; provider: string }>();
     if (tokenReceipt) {
       if (tokenReceipt.status === "processed") return "replay";
-      if (tokenReceipt.callbackKey === input.callbackKey && tokenReceipt.kind === input.kind) return "accepted";
+      if (
+        tokenReceipt.callbackKey === input.callbackKey &&
+        tokenReceipt.kind === input.kind &&
+        tokenReceipt.provider === provider
+      ) return "accepted";
     }
     const callbackReceipt = await db.prepare(
       "SELECT status FROM webhook_receipts WHERE callback_key=? LIMIT 1",

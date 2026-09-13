@@ -6,11 +6,11 @@ import { evaluateOutreachChannels } from "@/lib/outreach-readiness";
 import { demoDashboard } from "../../demo-data";
 import {
   buildDeliveryTimeline,
-  mailgunDeliveryState,
-  mailgunReasonFromPayloadJson,
   storedMessageDeliveryState,
   type DeliveryTimelineEvent,
 } from "@/lib/mailgun-lifecycle";
+import { providerDeliveryState } from "@/lib/outbound-delivery-state";
+import { outboundTransportOperational } from "@/lib/outbound-runtime";
 import { runtimeString } from "@/lib/runtime";
 
 export const dynamic = "force-dynamic";
@@ -109,14 +109,17 @@ type MessageRow = {
   sender: string;
   subject: string;
   textBody: string | null;
+  htmlBody: string | null;
   status: string;
   occurredAt: string;
 };
 
 type MessageEventRow = {
   messageId: string;
+  transportProvider: "mailgun" | "cakemail";
   eventType: string;
   severity: string | null;
+  failureClass: string | null;
   eventTimestamp: string;
   payloadJson: string;
   eventSequence: number;
@@ -366,7 +369,7 @@ export async function GET(request: Request) {
           .prepare(
             `SELECT m.id, m.conversation_id AS conversationId,
                     m.direction, m.sender, m.subject,
-                    m.text_body AS textBody, m.status,
+                    m.text_body AS textBody, m.html_body AS htmlBody, m.status,
                     m.occurred_at AS occurredAt
              FROM messages m
              JOIN conversations c ON c.id = m.conversation_id
@@ -378,13 +381,16 @@ export async function GET(request: Request) {
         db
           .prepare(
             `SELECT me.message_id AS messageId,
+                    me.transport_provider AS transportProvider,
                     me.event_type AS eventType,
                     me.severity,
+                    me.failure_class AS failureClass,
                     me.event_timestamp AS eventTimestamp,
                     me.payload_json AS payloadJson,
                     me.rowid AS eventSequence
              FROM message_events me
              JOIN messages m ON m.id = me.message_id
+               AND m.transport_provider = me.transport_provider
              JOIN conversations c ON c.id = m.conversation_id
              ${where}
              ORDER BY me.event_timestamp, me.rowid`,
@@ -510,10 +516,11 @@ export async function GET(request: Request) {
       DeliveryTimelineEvent[]
     >();
     for (const event of messageEvents.results) {
-      const state = mailgunDeliveryState({
+      const state = providerDeliveryState(event.transportProvider, {
         eventType: event.eventType,
         severity: event.severity,
-        reason: mailgunReasonFromPayloadJson(event.payloadJson),
+        failureClass: event.failureClass,
+        payloadJson: event.payloadJson,
       });
       if (!state) continue;
       const current = deliveryEventsByMessage.get(event.messageId) ?? [];
@@ -565,7 +572,7 @@ export async function GET(request: Request) {
             contactEmail: conversation.contactEmail ?? "",
             organization: conversation.organization ?? "",
             subject: conversation.subject,
-            preview: latest?.textBody?.slice(0, 280) ?? "",
+            preview: latest ? messagePresentationBody(latest).slice(0, 280) : "",
             updatedLabel: displayDate(conversation.lastMessageAt),
             unread: Boolean(conversation.isUnread),
             followUp: ["pending", "waiting"].includes(
@@ -600,7 +607,7 @@ export async function GET(request: Request) {
                     : conversation.mailboxAddress,
                 sentAt: displayDate(message.occurredAt),
                 sentAtIso: message.occurredAt,
-                body: message.textBody ?? "",
+                body: messagePresentationBody(message),
                 deliveryState:
                   deliveryTimeline.at(-1)?.state ?? storedState,
                 deliveryEvents: deliveryTimeline.map((event) => ({
@@ -758,11 +765,23 @@ function parseBooleanFilter(value: string | null): boolean | undefined | null {
 }
 
 function transportState(): "operational" | "configuration" {
-  return runtimeString("MAILGUN_DOMAIN") === "27pm.org" &&
-    Boolean(runtimeString("MAILGUN_SENDING_KEY")) &&
-    Boolean(runtimeString("MAILGUN_WEBHOOK_SIGNING_KEY"))
-    ? "operational"
-    : "configuration";
+  return outboundTransportOperational() ? "operational" : "configuration";
+}
+
+function messagePresentationBody(message: MessageRow): string {
+  if (message.textBody) return message.textBody;
+  return (message.htmlBody ?? "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/giu, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/giu, " ")
+    .replace(/<[^>]*>/gu, " ")
+    .replace(/&nbsp;/giu, " ")
+    .replace(/&amp;/giu, "&")
+    .replace(/&lt;/giu, "<")
+    .replace(/&gt;/giu, ">")
+    .replace(/&quot;/giu, '"')
+    .replace(/&#39;/giu, "'")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function presentationStage(

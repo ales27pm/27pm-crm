@@ -126,7 +126,9 @@ export function shouldRetainSendAttempt(
   errorCode: string | null,
 ): boolean {
   if (
+    errorCode === "outbound_send_unconfirmed" ||
     errorCode === "mailgun_send_unconfirmed" ||
+    errorCode === "canary_send_unconfirmed" ||
     errorCode === "send_command_in_progress" ||
     errorCode === "idempotency_key_reused" ||
     errorCode === "send_command_conflict"
@@ -138,7 +140,9 @@ export function shouldRetainSendAttempt(
   if (responseStatus >= 500) {
     return !(
       (responseStatus === 502 &&
-        (errorCode === "mailgun_send_failed" ||
+        (errorCode === "outbound_send_failed" ||
+          errorCode === "mailgun_send_failed" ||
+          errorCode === "canary_send_failed" ||
           errorCode === "send_command_failed")) ||
       (responseStatus === 503 && errorCode === "unsubscribe_origin_invalid")
     );

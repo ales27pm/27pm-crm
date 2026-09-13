@@ -9,6 +9,33 @@ export function jsonError(
   );
 }
 
+export function privateJsonError(status: number, error: string): Response {
+  return Response.json(
+    { error },
+    { status, headers: privateNoStoreHeaders() },
+  );
+}
+
+export function privateNoStoreHeaders(): HeadersInit {
+  return {
+    "cache-control": "private, no-store",
+    "referrer-policy": "no-referrer",
+  };
+}
+
+export function isSameOriginBrowserRequest(request: Request): boolean {
+  const fetchSite = request.headers.get("sec-fetch-site");
+  if (fetchSite && fetchSite !== "same-origin") return false;
+
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  try {
+    return new URL(origin).origin === new URL(request.url).origin;
+  } catch {
+    return false;
+  }
+}
+
 export async function readJsonObject(
   request: Request,
 ): Promise<Record<string, unknown> | null> {

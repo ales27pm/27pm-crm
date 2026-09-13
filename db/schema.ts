@@ -397,6 +397,8 @@ export const messages = sqliteTable(
       .notNull()
       .references(() => mailboxes.id, { onDelete: "restrict" }),
     direction: text("direction").notNull(),
+    transportProvider: text("transport_provider").notNull().default("mailgun"),
+    providerMessageId: text("provider_message_id"),
     externalMessageId: text("external_message_id"),
     providerStorageKey: text("provider_storage_key"),
     sender: text("sender").notNull(),
@@ -417,6 +419,10 @@ export const messages = sqliteTable(
     uniqueIndex("messages_external_message_id_unique").on(
       table.externalMessageId,
     ),
+    uniqueIndex("messages_provider_message_unique").on(
+      table.transportProvider,
+      table.providerMessageId,
+    ),
     index("messages_conversation_occurred_idx").on(
       table.conversationId,
       table.occurredAt,
@@ -424,6 +430,10 @@ export const messages = sqliteTable(
     check(
       "messages_direction_check",
       sql`${table.direction} in ('inbound', 'outbound')`,
+    ),
+    check(
+      "messages_transport_provider_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
     ),
     check(
       "messages_status_check",
@@ -738,6 +748,7 @@ export const webhookReceipts = sqliteTable(
   "webhook_receipts",
   {
     id: integer("id").primaryKey({ autoIncrement: true }),
+    transportProvider: text("transport_provider").notNull().default("mailgun"),
     kind: text("kind").notNull(),
     signatureToken: text("signature_token").notNull(),
     signatureTimestamp: integer("signature_timestamp").notNull(),
@@ -756,6 +767,10 @@ export const webhookReceipts = sqliteTable(
       sql`${table.kind} in ('inbound', 'event')`,
     ),
     check(
+      "webhook_receipts_transport_provider_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
+    ),
+    check(
       "webhook_receipts_status_check",
       sql`${table.status} in ('reserved', 'processed')`,
     ),
@@ -766,6 +781,8 @@ export const messageEvents = sqliteTable(
   "message_events",
   {
     id: text("id").primaryKey(),
+    transportProvider: text("transport_provider").notNull().default("mailgun"),
+    providerMessageId: text("provider_message_id"),
     messageId: text("message_id").references(() => messages.id, {
       onDelete: "set null",
     }),
@@ -791,10 +808,16 @@ export const messageEvents = sqliteTable(
     createdAt: timestamp("created_at"),
   },
   (table) => [
-    uniqueIndex("message_events_provider_event_id_unique").on(
+    uniqueIndex("message_events_provider_event_unique").on(
+      table.transportProvider,
       table.providerEventId,
     ),
     uniqueIndex("message_events_callback_key_unique").on(table.callbackKey),
+    index("message_events_provider_message_idx").on(
+      table.transportProvider,
+      table.providerMessageId,
+      table.messageId,
+    ),
     index("message_events_message_timestamp_idx").on(
       table.messageId,
       table.eventTimestamp,
@@ -811,6 +834,10 @@ export const messageEvents = sqliteTable(
       table.failureClass,
       table.eventTimestamp,
     ),
+    check(
+      "message_events_transport_provider_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
+    ),
   ],
 );
 
@@ -818,6 +845,7 @@ export const sendCommands = sqliteTable(
   "send_commands",
   {
     id: text("id").primaryKey(),
+    transportProvider: text("transport_provider").notNull().default("mailgun"),
     idempotencyKey: text("idempotency_key").notNull(),
     requestHash: text("request_hash").notNull(),
     mailboxId: text("mailbox_id")
@@ -837,7 +865,9 @@ export const sendCommands = sqliteTable(
     dispatchedAt: text("dispatched_at"),
     operatorConfirmedAt: text("operator_confirmed_at"),
     complianceSnapshotJson: text("compliance_snapshot_json"),
+    messageSnapshotJson: text("message_snapshot_json"),
     providerMessageId: text("provider_message_id"),
+    externalMessageId: text("external_message_id"),
     responseStatus: integer("response_status"),
     failureCode: text("failure_code"),
     createdAt: timestamp("created_at"),
@@ -847,8 +877,13 @@ export const sendCommands = sqliteTable(
     uniqueIndex("send_commands_idempotency_key_unique").on(
       table.idempotencyKey,
     ),
-    uniqueIndex("send_commands_provider_message_id_unique").on(
+    uniqueIndex("send_commands_provider_message_unique").on(
+      table.transportProvider,
       table.providerMessageId,
+    ),
+    check(
+      "send_commands_transport_provider_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
     ),
     check(
       "send_commands_status_check",

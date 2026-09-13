@@ -131,7 +131,7 @@ test("canonicalizes the same command exactly as the send route", () => {
 
 test("retains only ambiguous attempts and releases definitive responses", () => {
   assert.equal(
-    shouldRetainSendAttempt(503, "mailgun_send_unconfirmed"),
+    shouldRetainSendAttempt(503, "outbound_send_unconfirmed"),
     true,
   );
   assert.equal(
@@ -145,6 +145,7 @@ test("retains only ambiguous attempts and releases definitive responses", () => 
   assert.equal(shouldRetainSendAttempt(500, null), true);
   assert.equal(shouldRetainSendAttempt(500, "internal_server_error"), true);
   assert.equal(shouldRetainSendAttempt(409, null), true);
+  assert.equal(shouldRetainSendAttempt(502, "outbound_send_failed"), false);
   assert.equal(shouldRetainSendAttempt(502, "mailgun_send_failed"), false);
   assert.equal(shouldRetainSendAttempt(409, "recipient_not_qualified"), false);
 });

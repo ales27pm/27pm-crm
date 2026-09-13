@@ -1,5 +1,9 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorJsonRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
+import {
+  privateJsonError,
+  privateNoStoreHeaders,
+} from "@/lib/http";
 import {
   MAILGUN_HANDOFF_EXPIRES_AT,
   MAILGUN_HANDOFF_ID,
@@ -11,22 +15,16 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = await requireSameOriginOperatorJsonRequest(
+    request,
+    "handoff_payload_invalid",
+  );
   if (auth.response) return auth.response;
-  if (!isSameOriginBrowserRequest(request)) {
-    return handoffError(403, "cross_origin_request_forbidden");
-  }
-
-  let payload: unknown;
-  try {
-    payload = await request.json();
-  } catch {
-    return handoffError(400, "handoff_payload_invalid");
-  }
+  const { payload } = auth;
 
   const validation = validateMailgunHandoffPayload(payload);
   if (!validation.ok) {
-    return handoffError(
+    return privateJsonError(
       validation.reason === "expired" ? 410 : 400,
       `handoff_${validation.reason}`,
     );
@@ -58,7 +56,7 @@ export async function POST(request: Request) {
       .run();
 
     if (changedRows(result) === 0) {
-      return handoffError(409, "handoff_already_consumed");
+      return privateJsonError(409, "handoff_already_consumed");
     }
 
     await db
@@ -78,33 +76,9 @@ export async function POST(request: Request) {
 
     return Response.json(
       { accepted: true, expiresAt: MAILGUN_HANDOFF_EXPIRES_AT },
-      { status: 202, headers: noStoreHeaders() },
+      { status: 202, headers: privateNoStoreHeaders() },
     );
   } catch {
-    return handoffError(500, "handoff_persistence_failed");
+    return privateJsonError(500, "handoff_persistence_failed");
   }
-}
-
-function isSameOriginBrowserRequest(request: Request): boolean {
-  const fetchSite = request.headers.get("sec-fetch-site");
-  if (fetchSite && fetchSite !== "same-origin") return false;
-
-  const origin = request.headers.get("origin");
-  if (!origin) return true;
-  try {
-    return new URL(origin).origin === new URL(request.url).origin;
-  } catch {
-    return false;
-  }
-}
-
-function handoffError(status: number, error: string): Response {
-  return Response.json({ error }, { status, headers: noStoreHeaders() });
-}
-
-function noStoreHeaders(): HeadersInit {
-  return {
-    "cache-control": "private, no-store",
-    "referrer-policy": "no-referrer",
-  };
 }

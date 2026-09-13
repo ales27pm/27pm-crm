@@ -15,23 +15,56 @@ const privateRoutes = [
   "../app/api/privacy-requests/route.ts",
   "../app/api/privacy-requests/[id]/route.ts",
   "../app/api/admin/mailgun-canary/route.ts",
+  "../app/api/admin/cakemail-send-resolution/route.ts",
 ];
 
 test("every new administrative CRM route fails closed through operator auth", async () => {
   for (const route of privateRoutes) {
     const source = await readFile(new URL(route, import.meta.url), "utf8");
-    assert.match(source, /requireOperatorRequest\(request\)/u, route);
+    assert.match(
+      source,
+      /require(?:SameOriginOperatorJson|SameOriginOperator|Operator)Request\(\s*request/u,
+      route,
+    );
     assert.match(source, /if \(auth\.response\) return auth\.response/u, route);
   }
 });
 
+test("Cakemail unknown outcomes require bounded same-origin evidence and never redispatch", async () => {
+  const source = await readFile(
+    new URL("../app/api/admin/cakemail-send-resolution/route.ts", import.meta.url),
+    "utf8",
+  );
+  const implementation = await readFile(
+    new URL("../lib/cakemail-unknown-send-resolution.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /boundedRequest/u);
+  const auth = await readFile(
+    new URL("../lib/api-auth.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(source, /requireSameOriginOperatorRequest\(request\)/u);
+  assert.match(auth, /cross_origin_request_forbidden/u);
+  assert.match(implementation, /providerObservedAt/u);
+  assert.match(implementation, /evidenceReference/u);
+  assert.match(
+    implementation,
+    /verifiedMessageIdHeader === `<\$\{core\.externalMessageId\}>`/u,
+  );
+  assert.match(implementation, /transport_outcome_unknown/u);
+  assert.doesNotMatch(
+    `${source}\n${implementation}`,
+    /sendCakemailMessage|sendOutboundMessage|fetch\(/u,
+  );
+});
+
 test("the Mailgun canary is operator-only and pinned to one configured recipient", async () => {
   const source = await readFile(new URL("../app/api/admin/mailgun-canary/route.ts", import.meta.url), "utf8");
-  assert.match(source, /requireOperatorRequest\(request\)/u);
   assert.match(source, /CRM_CANARY_RECIPIENT/u);
   assert.match(source, /recipient !== configuredRecipient/u);
   assert.match(source, /confirmed !== true/u);
-  assert.match(source, /cross_origin_request_forbidden/u);
+  assert.match(source, /requireSameOriginOperatorJsonRequest\(/u);
   assert.match(source, /DELIVERABILITY_CANARY_SENDER/u);
   assert.doesNotMatch(source, /loadContactCompliance|canEmail|appendComplianceFooter/u);
 });

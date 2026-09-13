@@ -26,6 +26,15 @@ test("deliverability endpoint is operator-only, no-store, bounded, and never sel
   assert.match(source, /cache-control": "private, no-store"/u);
   assert.match(source, /MESSAGE_LIMIT = 10_000/u);
   assert.match(source, /EVENT_LIMIT = 50_000/u);
+  assert.match(source, /event\.transport_provider AS transportProvider/u);
+  assert.match(
+    source,
+    /event\.transport_provider=message\.transport_provider/u,
+  );
+  assert.match(
+    source,
+    /row\.transportProvider === "cakemail"[\s\S]*return "unknown"/u,
+  );
   assert.doesNotMatch(source, /payload_json AS/u);
   assert.doesNotMatch(source, /recipientsJson[},\s]*\n?\s*summary/u);
   assert.match(source, /Gmail.*sources externes/u);
@@ -51,6 +60,8 @@ test("settings exposes provider-segmented transport metrics without claiming inb
   assert.match(panel, /Données insuffisantes/u);
   assert.match(panel, /Tracking ouverture\/clic désactivé/u);
   assert.match(panel, /Segments de tags plafonnés à 256/u);
+  assert.match(panel, /Résultats par transport sortant/u);
+  assert.match(panel, /data\.summary\.transports/u);
   assert.doesNotMatch(panel, /payloadJson|recipientsJson/u);
 });
 
@@ -73,6 +84,7 @@ test("deliverability migrations add normalized indexed dimensions and safe messa
     "attempt_no",
     "tags_json",
     "campaigns_json",
+    "transport_provider",
   ]);
   assertIncludes(databaseIndexes(database, "message_events"), [
     "message_events_provider_timestamp_idx",
@@ -82,6 +94,8 @@ test("deliverability migrations add normalized indexed dimensions and safe messa
   assertIncludes(databaseColumns(database, "messages"), [
     "traffic_type",
     "tags_json",
+    "transport_provider",
+    "provider_message_id",
   ]);
 });
 

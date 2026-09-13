@@ -30,10 +30,12 @@ them. Never commit a production value to `.env.example`.
 | Name | Sites secret? | Purpose |
 | --- | --- | --- |
 | `CRM_ADMIN_EMAILS` | Yes | Explicit operator allowlist; it must not be empty in production. |
+| `CRM_OUTBOUND_PROVIDER` | No | `mailgun` by default; set `cakemail` only after every gate in `docs/cakemail.md` passes. |
 | `MAILGUN_SENDING_KEY` | Yes | Domain-scoped sending key used by the CRM; do not use the account route-administration key here. |
 | `MAILGUN_WEBHOOK_SIGNING_KEY` | Yes | Verifies fresh Mailgun HMAC-SHA256 callbacks and rejects replay. |
 | `MAILGUN_API_BASE` | No | `https://api.mailgun.net` for US or `https://api.eu.mailgun.net` for EU. |
 | `MAILGUN_DOMAIN` | No | Must remain exactly `27pm.org`. |
+| `CRM_CANARY_RECIPIENT` | Yes | Optional exact controlled mailbox accepted by the Mailgun canary route; configuration never authorizes a send. |
 | `CRM_PUBLIC_ORIGIN` | No | Stable production HTTPS origin, normally `https://crm.27pm.org`. |
 | `CRM_UNSUBSCRIBE_SIGNING_KEY` | Yes | Dedicated secret (at least 32 random bytes) for opaque AES-GCM authenticated unsubscribe tokens. No production fallback exists. |
 | `CRM_WEBHOOK_MAX_AGE_SECONDS` | No | Maximum accepted webhook age; the current operational default is 900 seconds. |
@@ -45,7 +47,19 @@ them. Never commit a production value to `.env.example`.
 | `PUBLIC_INTAKE_HASH_SALT` | Yes | Random secret used only to hash requester IPs for rate limiting. |
 | `PUBLIC_INTAKE_TURNSTILE_ACTION` | No | Expected Turnstile widget action; defaults to `crm_intake`. |
 
-## Migrations CRM 0004 à 0011
+The optional Cakemail variables are listed in `.env.example` and governed by
+the separate [Cakemail outbound runbook](cakemail.md). Even with Cakemail
+selected, `MAILGUN_WEBHOOK_SIGNING_KEY` remains mandatory because Mailgun still
+owns inbound mail. The send route also fails closed unless every event-specific
+Cakemail webhook secret, the four affirmative list-policy, tracking-domain,
+header-preservation, and DKIM-alignment booleans, the selected audience-policy
+mode and evidence, and the exact non-secret version-2
+account/list/content/sender/audience binding are configured. Unknown Cakemail
+outcomes are listed and evidence-resolved through the operator-only
+`/api/admin/cakemail-send-resolution` endpoint described in `docs/cakemail.md`;
+that endpoint never retries provider delivery.
+
+## Migrations CRM 0004 à 0014
 
 The Sites build packages the SQL migrations and the production D1 binding is
 owned by the Sites project. Do not run Wrangler against the placeholder local
@@ -61,7 +75,10 @@ Before an authorized deployment:
 4. verify `GET /api/health`, operator denial/allowlist behavior, the five
    accounts, six fail-closed research contacts, and `PRAGMA foreign_key_check` through the
    approved D1 console;
-5. verify a duplicate import key returns an idempotent no-change result.
+5. call the operator-only `GET /api/admin/database-health` and require HTTP 200,
+   `status=ok`, `migration0014=true`, `quickCheck=["ok"]`, zero foreign-key
+   violations, and the expected pre-deployment message/event row counts;
+6. verify a duplicate import key returns an idempotent no-change result.
 
 Rollback is not `DROP TABLE`: pause writes, restore the captured D1 snapshot
 and the prior Sites checkpoint together. If restoration is unavailable, keep
@@ -95,12 +112,18 @@ Migrations 0012 and 0013 add non-PII traffic tags plus normalized delivery
 dimensions (provider, sending domain/IP, failure class and redacted SMTP
 diagnostics). Raw signed webhook payloads remain restricted to the event audit
 store and are never returned by the deliverability API.
+Migration 0014 separates transport-provider IDs from Internet `Message-ID`
+values, records the exact pre-dispatch outbound snapshot needed for idempotent
+local repair, and adds provider provenance to messages, commands, events and
+webhook receipts. Historical transport rows are backfilled as Mailgun; the
+migration does not contact either provider or create an outbound send.
 A code rollback without a data rollback has not been claimed compatible.
 
-Before applying 0006, validate the full export by restoring it to a disposable
-D1/SQLite target and record the source database, UTC timestamp, object count,
-checksum and exact restore command. A truncated SQL display or an untested
-download is not a restorable backup. After migration, run `PRAGMA
+Before applying any pending production migration, including 0014, validate the
+full export by restoring it to a disposable D1/SQLite target and record the
+source database, UTC timestamp, object count, checksum and exact restore
+command. A truncated SQL display or an untested download is not a restorable
+backup. After migration, run `PRAGMA
 foreign_key_check`, confirm the five cohort accounts remain ordered, confirm
 the six research contacts retain their provenance and fail-closed state, and
 confirm all 30 planning steps exist without a message or send command.

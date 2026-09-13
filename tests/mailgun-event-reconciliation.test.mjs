@@ -71,6 +71,54 @@ test("reconciles a callback received before its outbound message", async (t) => 
   );
 });
 
+test("never links a Mailgun callback to a Cakemail message with the same RFC ID", async (t) => {
+  const database = await migratedDatabase();
+  t.after(() => database.close());
+  seedConversation(database);
+  const externalMessageId = "shared-correlation@27pm.org";
+
+  database.prepare(`INSERT INTO messages
+    (id, conversation_id, mailbox_id, direction, transport_provider,
+     provider_message_id, external_message_id, sender, recipients_json,
+     status, occurred_at)
+    VALUES ('message-cakemail-scope', 'conversation-race', 'mailbox_bonjour',
+      'outbound', 'cakemail', '7b111111-2222-4333-8444-555555555555', ?,
+      'bonjour@27pm.org', '["race@example.com"]', 'accepted',
+      '2026-08-25T13:00:00.000Z')`).run(externalMessageId);
+  database.prepare(`INSERT INTO message_events
+    (id, transport_provider, message_id, callback_key, event_type,
+     event_timestamp, payload_json)
+    VALUES ('event-mailgun-scope', 'mailgun', NULL, 'event:mailgun-scope',
+      'complained', '2026-08-25T13:01:00.000Z', ?)`).run(
+    eventPayload(externalMessageId),
+  );
+
+  assert.deepEqual(
+    await reconcileMailgunEventsForMessage(
+      d1Adapter(database),
+      externalMessageId,
+    ),
+    { messageId: null, linkedEvents: 0, status: null },
+  );
+  assert.equal(
+    database.prepare(
+      "SELECT message_id AS messageId FROM message_events WHERE id='event-mailgun-scope'",
+    ).get().messageId,
+    null,
+  );
+  assert.equal(
+    database.prepare(
+      "SELECT status FROM messages WHERE id='message-cakemail-scope'",
+    ).get().status,
+    "accepted",
+  );
+  assert.equal(
+    database.prepare("SELECT COUNT(*) AS count FROM contact_suppressions").get()
+      .count,
+    0,
+  );
+});
+
 test("uses callback insertion order consistently when provider timestamps tie", async (t) => {
   const database = await migratedDatabase();
   t.after(() => database.close());
@@ -348,7 +396,7 @@ test("a reconciliation failure cannot turn an accepted send into a retryable fai
   );
   assert.doesNotMatch(sendRoute, /reconcileMailgunEventsForMessage/u);
   assert.equal(
-    sendRoute.match(/await reconcileMailgunEventsBestEffort\(/gu)?.length,
+    sendRoute.match(/await reconcileOutboundEventsBestEffort\(/gu)?.length,
     2,
   );
 });

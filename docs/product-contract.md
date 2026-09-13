@@ -11,10 +11,12 @@ identities:
 - `admin@27pm.org` receives service-account, supplier, security, recovery, and
   Google Search Console messages.
 
-Mailgun remains the SMTP transport already authorized by the public DNS. The
-CRM receives signed Mailgun HTTP callbacks and sends through a domain-scoped
-sending key. GitHub Pages continues to host the public 27PM site and stores no
-CRM data.
+Mailgun remains the default outbound transport and the sole inbound transport
+authorized by the public DNS. The CRM receives signed Mailgun HTTP callbacks
+and normally sends through a domain-scoped sending key. A gated Cakemail REST
+adapter may replace only the outbound leg; it never changes Mailgun MX, routes,
+or inbound storage. GitHub Pages continues to host the public 27PM site and
+stores no CRM data.
 
 ## Primary workflow
 
@@ -23,23 +25,29 @@ CRM data.
 3. Reply from the correct mailbox identity.
 4. For sales messages, qualify the lead, choose a project type, and schedule a
    next action without leaving the conversation.
-5. Track delivery, bounce, complaint, and failure events from Mailgun.
+5. Track delivery, bounce, complaint, and failure events with explicit
+   Mailgun/Cakemail provenance.
 
 ## Security invariants
 
 - CRM pages and operator API routes require dispatch-owned ChatGPT sign-in and
   an explicit server-side email allowlist.
-- Mailgun endpoints remain public but accept only fresh HMAC-SHA256 signed
-  requests and reject replayed tokens.
+- Provider webhook endpoints remain public but require their provider-specific
+  HMAC-SHA256 signatures and deduplicate or reject replayed callback identities
+  according to each provider contract.
 - Runtime secrets never reach browser code, D1 records, logs, Git, or rendered
   HTML.
+- An ambiguous Cakemail dispatch is never resent automatically. Its operator
+  resolution requires a provider-timestamped evidence reference, uses an
+  atomic state/audit write, and can only repair local CRM state after a verified
+  provider acceptance.
 - Received HTML is stored for audit only and is never rendered unsanitized.
 - Attachment bytes remain private in R2. New attachments are marked
   `unscanned` and cannot be downloaded until a malware-scanning decision is
   implemented.
 - All message, pipeline, task, and audit state is authoritative in D1, not
   browser storage.
-- Duplicate Mailgun callbacks and duplicate send commands are idempotent.
+- Duplicate provider callbacks and duplicate send commands are idempotent.
 
 ## Public HTTP seams
 
@@ -50,6 +58,8 @@ CRM data.
   idempotent suppression; never sends a message.
 - `POST /api/webhooks/mailgun/inbound` — signed inbound email callback.
 - `POST /api/webhooks/mailgun/events` — signed delivery-event callback.
+- `POST /api/webhooks/cakemail/events` — signed outbound delivery-event
+  callback; never an inbound email route.
 
 ## Protected HTTP seams
 
