@@ -63,6 +63,8 @@ const OUTREACH_ERROR_LABELS: Readonly<Record<string, string>> = {
   email_status_not_valid: "L’adresse courriel n’est pas encore validée.",
   email_suppressed: "L’adresse courriel est sous suppression.",
   email_lawful_basis_missing: "Le fondement LCAP n’est pas documenté.",
+  operational_reply_confirmation_required: "Confirmez que le dernier message entrant sollicite cette réponse administrative unique.",
+  operational_reply_not_allowed: "Cette conversation ne permet plus une réponse administrative sûre. Actualisez la boîte de réception.",
   cakemail_audience_lawful_basis_not_permitted: "Cakemail est limité aux destinataires ayant donné leur consentement, demandé une réponse ou ayant une relation commerciale existante.",
   cakemail_audience_role_mailbox_not_permitted: "Cakemail bloque cette boîte générique sans exception écrite liée à la configuration active.",
   outbound_send_failed: "Le transport a refusé le courriel avant toute acceptation. Corrigez la configuration ou le contenu, puis réessayez.",

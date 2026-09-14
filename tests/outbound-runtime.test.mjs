@@ -23,6 +23,7 @@ register(
 const {
   outboundTransportConfig,
   outboundTransportOperational,
+  requireMailgunOperationalConfig,
   requireOutboundOperationalConfig,
   selectedOutboundProvider,
 } = await import("../lib/outbound-runtime.ts");
@@ -183,6 +184,63 @@ test("builds a pinned, gated Cakemail configuration", async () => {
       });
       assert.equal(outboundTransportOperational(), true);
     },
+  );
+});
+
+test("pins operational replies to Mailgun even when Cakemail is selected", async () => {
+  await withEnvironment(
+    {
+      ...VALID_CAKEMAIL_ENV,
+      MAILGUN_DOMAIN: "27pm.org",
+      MAILGUN_SENDING_KEY: "mailgun-operations-key",
+    },
+    () => {
+      assert.equal(selectedOutboundProvider(), "cakemail");
+      assert.deepEqual(requireMailgunOperationalConfig(), {
+        provider: "mailgun",
+        config: {
+          apiBase: "https://api.mailgun.net",
+          domain: "27pm.org",
+          sendingKey: "mailgun-operations-key",
+        },
+      });
+    },
+  );
+});
+
+test("operational Mailgun replies require signing and sending configuration", async () => {
+  await withEnvironment(
+    {
+      CRM_OUTBOUND_PROVIDER: "cakemail",
+      MAILGUN_DOMAIN: "27pm.org",
+      MAILGUN_SENDING_KEY: "mailgun-operations-key",
+    },
+    () => assert.throws(
+      requireMailgunOperationalConfig,
+      /MAILGUN_WEBHOOK_SIGNING_KEY is unavailable/u,
+    ),
+  );
+  await withEnvironment(
+    {
+      CRM_OUTBOUND_PROVIDER: "cakemail",
+      MAILGUN_WEBHOOK_SIGNING_KEY: "mailgun-webhook-key",
+      MAILGUN_DOMAIN: "27pm.org",
+    },
+    () => assert.throws(
+      requireMailgunOperationalConfig,
+      /MAILGUN_SENDING_KEY is unavailable/u,
+    ),
+  );
+  await withEnvironment(
+    {
+      CRM_OUTBOUND_PROVIDER: "cakemail",
+      MAILGUN_WEBHOOK_SIGNING_KEY: "mailgun-webhook-key",
+      MAILGUN_SENDING_KEY: "mailgun-operations-key",
+    },
+    () => assert.throws(
+      requireMailgunOperationalConfig,
+      /MAILGUN_DOMAIN is unavailable/u,
+    ),
   );
 });
 

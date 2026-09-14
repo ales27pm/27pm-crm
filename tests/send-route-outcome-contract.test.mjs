@@ -133,8 +133,10 @@ test("persists the provider's actual acceptance status", async () => {
 
 test("enforces the Cakemail audience guard immediately before dispatch", async () => {
   const source = await readFile(routeUrl, "utf8");
+  const dispatching = source.indexOf("const dispatching = operationalReply");
   const dispatchAuthorization = source.indexOf(
-    "const dispatching = await advanceSendAuthorization",
+    "await advanceSendAuthorization(",
+    dispatching,
   );
   const audienceGuard = source.indexOf(
     "cakemailAudiencePolicyViolation(",
@@ -142,6 +144,7 @@ test("enforces the Cakemail audience guard immediately before dispatch", async (
   );
   const providerCall = source.indexOf("await sendOutboundMessage(", audienceGuard);
 
+  assert.ok(dispatching >= 0);
   assert.ok(dispatchAuthorization >= 0);
   assert.ok(audienceGuard > dispatchAuthorization);
   assert.ok(providerCall > audienceGuard);

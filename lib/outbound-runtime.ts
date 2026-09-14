@@ -49,6 +49,16 @@ export function requireOutboundOperationalConfig(): OutboundTransportConfig {
   return outboundTransportConfig();
 }
 
+export function requireMailgunOperationalConfig(): Extract<
+  OutboundTransportConfig,
+  { provider: "mailgun" }
+> {
+  if (!runtimeString("MAILGUN_WEBHOOK_SIGNING_KEY")) {
+    throw new Error("MAILGUN_WEBHOOK_SIGNING_KEY is unavailable.");
+  }
+  return { provider: "mailgun", config: mailgunConfig() };
+}
+
 export function outboundTransportOperational(): boolean {
   try {
     requireOutboundOperationalConfig();

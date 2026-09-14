@@ -1,6 +1,7 @@
 import type { CrmDatabase } from "./d1";
 
 const CRM_PROSPECTING_TAGS = ["source-crm", "traffic-prospecting"] as const;
+const CRM_ADMINISTRATIVE_TAGS = ["source-crm", "traffic-administrative"] as const;
 
 type AcceptedOutboundProvider = "mailgun" | "cakemail";
 
@@ -63,6 +64,12 @@ export async function recordAcceptedOutboundMessage(
   const recipient = input.recipient.trim().toLowerCase();
   const contact = await authorizedContact(db, input.contactId);
   if (!contact) throw new Error("accepted_message_contact_not_found");
+  const trafficType = input.mailbox.purpose === "operations"
+    ? "administrative"
+    : "prospecting";
+  const tags = input.mailbox.purpose === "operations"
+    ? CRM_ADMINISTRATIVE_TAGS
+    : CRM_PROSPECTING_TAGS;
 
   const conversation = input.conversationId
     ? await existingConversation(db, input.conversationId)
@@ -91,7 +98,7 @@ export async function recordAcceptedOutboundMessage(
            provider_message_id, external_message_id, sender, recipients_json,
            subject, text_body, html_body, traffic_type, tags_json, status,
            occurred_at)
-         VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, ?, ?, 'prospecting',
+         VALUES (?, ?, ?, 'outbound', ?, ?, ?, ?, ?, ?, ?, ?, ?,
                  ?, 'accepted', ?)`,
       )
       .bind(
@@ -106,7 +113,8 @@ export async function recordAcceptedOutboundMessage(
         input.subject,
         input.text,
         input.html,
-        JSON.stringify(CRM_PROSPECTING_TAGS),
+        trafficType,
+        JSON.stringify(tags),
         input.occurredAt,
       ),
     db
@@ -145,8 +153,8 @@ export async function recordAcceptedOutboundMessage(
         conversation.id,
         JSON.stringify({
           mailboxId: input.mailbox.id,
-          trafficType: "prospecting",
-          tags: CRM_PROSPECTING_TAGS,
+          trafficType,
+          tags,
           provider: input.provider,
           providerMessageId: input.providerMessageId,
           externalMessageId: input.externalMessageId,
