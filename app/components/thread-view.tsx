@@ -19,6 +19,7 @@ import {
   restoreFrozenDraft,
 } from "./frozen-send-ui";
 import { Icon } from "./icons";
+import { Illustration } from "./visual-assets";
 
 type ThreadViewProps = {
   conversation: Conversation | null;
@@ -132,7 +133,7 @@ export function ThreadView({
   if (!conversation) {
     return (
       <section className="thread-view thread-empty" aria-label="Conversation">
-        <Icon name="mail" />
+        <Illustration className="crm-empty-art" name="thread-select" />
         <h2>Sélectionnez une conversation.</h2>
         <p>Le message et son contexte client s’ouvriront ici.</p>
       </section>

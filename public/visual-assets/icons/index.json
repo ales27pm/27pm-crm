@@ -1,0 +1,329 @@
+{
+  "version": "1.0.0",
+  "count": 40,
+  "source": "ales27pm/27pm-crm app/components/icons.tsx",
+  "source_commit": "04f5c233244def06ee9c8847af5fbf5c7c607de4",
+  "default_stroke": 1.7,
+  "icons": [
+    {
+      "id": "inbox",
+      "label_fr": "Réception",
+      "file": "/visual-assets/icons/inbox.svg",
+      "symbol_id": "crm-inbox",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "contacts",
+      "label_fr": "Contacts",
+      "file": "/visual-assets/icons/contacts.svg",
+      "symbol_id": "crm-contacts",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "pipeline",
+      "label_fr": "Pipeline",
+      "file": "/visual-assets/icons/pipeline.svg",
+      "symbol_id": "crm-pipeline",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "projects",
+      "label_fr": "Projets",
+      "file": "/visual-assets/icons/projects.svg",
+      "symbol_id": "crm-projects",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "tasks",
+      "label_fr": "Tâches",
+      "file": "/visual-assets/icons/tasks.svg",
+      "symbol_id": "crm-tasks",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "settings",
+      "label_fr": "Paramètres",
+      "file": "/visual-assets/icons/settings.svg",
+      "symbol_id": "crm-settings",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "compose",
+      "label_fr": "Rédiger",
+      "file": "/visual-assets/icons/compose.svg",
+      "symbol_id": "crm-compose",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "search",
+      "label_fr": "Rechercher",
+      "file": "/visual-assets/icons/search.svg",
+      "symbol_id": "crm-search",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "reply",
+      "label_fr": "Répondre",
+      "file": "/visual-assets/icons/reply.svg",
+      "symbol_id": "crm-reply",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "clock",
+      "label_fr": "Horloge",
+      "file": "/visual-assets/icons/clock.svg",
+      "symbol_id": "crm-clock",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "more",
+      "label_fr": "Plus d’options",
+      "file": "/visual-assets/icons/more.svg",
+      "symbol_id": "crm-more",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "attachment",
+      "label_fr": "Pièce jointe",
+      "file": "/visual-assets/icons/attachment.svg",
+      "symbol_id": "crm-attachment",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "send",
+      "label_fr": "Envoyer",
+      "file": "/visual-assets/icons/send.svg",
+      "symbol_id": "crm-send",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "plus",
+      "label_fr": "Ajouter",
+      "file": "/visual-assets/icons/plus.svg",
+      "symbol_id": "crm-plus",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "note",
+      "label_fr": "Note",
+      "file": "/visual-assets/icons/note.svg",
+      "symbol_id": "crm-note",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "globe",
+      "label_fr": "Site web",
+      "file": "/visual-assets/icons/globe.svg",
+      "symbol_id": "crm-globe",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "calendar",
+      "label_fr": "Calendrier",
+      "file": "/visual-assets/icons/calendar.svg",
+      "symbol_id": "crm-calendar",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "mail",
+      "label_fr": "Courriel",
+      "file": "/visual-assets/icons/mail.svg",
+      "symbol_id": "crm-mail",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "close",
+      "label_fr": "Fermer",
+      "file": "/visual-assets/icons/close.svg",
+      "symbol_id": "crm-close",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "back",
+      "label_fr": "Retour",
+      "file": "/visual-assets/icons/back.svg",
+      "symbol_id": "crm-back",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "chevron",
+      "label_fr": "Développer",
+      "file": "/visual-assets/icons/chevron.svg",
+      "symbol_id": "crm-chevron",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "check",
+      "label_fr": "Terminé",
+      "file": "/visual-assets/icons/check.svg",
+      "symbol_id": "crm-check",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "folder",
+      "label_fr": "Dossier",
+      "file": "/visual-assets/icons/folder.svg",
+      "symbol_id": "crm-folder",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "drag",
+      "label_fr": "Déplacer",
+      "file": "/visual-assets/icons/drag.svg",
+      "symbol_id": "crm-drag",
+      "viewBox": "0 0 24 24",
+      "origin": "existing-crm-geometry"
+    },
+    {
+      "id": "download",
+      "label_fr": "Télécharger",
+      "file": "/visual-assets/icons/download.svg",
+      "symbol_id": "crm-download",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "upload",
+      "label_fr": "Importer",
+      "file": "/visual-assets/icons/upload.svg",
+      "symbol_id": "crm-upload",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "external-link",
+      "label_fr": "Ouvrir dans un nouvel onglet",
+      "file": "/visual-assets/icons/external-link.svg",
+      "symbol_id": "crm-external-link",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "lock",
+      "label_fr": "Accès privé",
+      "file": "/visual-assets/icons/lock.svg",
+      "symbol_id": "crm-lock",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "shield",
+      "label_fr": "Vérification",
+      "file": "/visual-assets/icons/shield.svg",
+      "symbol_id": "crm-shield",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "info",
+      "label_fr": "Information",
+      "file": "/visual-assets/icons/info.svg",
+      "symbol_id": "crm-info",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "warning",
+      "label_fr": "Attention",
+      "file": "/visual-assets/icons/warning.svg",
+      "symbol_id": "crm-warning",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "refresh",
+      "label_fr": "Actualiser",
+      "file": "/visual-assets/icons/refresh.svg",
+      "symbol_id": "crm-refresh",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "chevron-right",
+      "label_fr": "Suivant",
+      "file": "/visual-assets/icons/chevron-right.svg",
+      "symbol_id": "crm-chevron-right",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "arrow-right",
+      "label_fr": "Continuer",
+      "file": "/visual-assets/icons/arrow-right.svg",
+      "symbol_id": "crm-arrow-right",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "user",
+      "label_fr": "Utilisateur",
+      "file": "/visual-assets/icons/user.svg",
+      "symbol_id": "crm-user",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "building",
+      "label_fr": "Entreprise",
+      "file": "/visual-assets/icons/building.svg",
+      "symbol_id": "crm-building",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "filter",
+      "label_fr": "Filtrer",
+      "file": "/visual-assets/icons/filter.svg",
+      "symbol_id": "crm-filter",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "bell",
+      "label_fr": "Notifications",
+      "file": "/visual-assets/icons/bell.svg",
+      "symbol_id": "crm-bell",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "copy",
+      "label_fr": "Copier",
+      "file": "/visual-assets/icons/copy.svg",
+      "symbol_id": "crm-copy",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    },
+    {
+      "id": "trash",
+      "label_fr": "Supprimer",
+      "file": "/visual-assets/icons/trash.svg",
+      "symbol_id": "crm-trash",
+      "viewBox": "0 0 24 24",
+      "origin": "suite-extension"
+    }
+  ]
+}

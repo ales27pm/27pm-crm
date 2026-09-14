@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import type { Deal, PipelineStage } from "../crm-types";
 import { Icon } from "./icons";
+import { Illustration } from "./visual-assets";
 
 const columns: Array<{ stage: PipelineStage; label: string }> = [
   { stage: "nouveau", label: "Nouveau" },
@@ -44,7 +45,11 @@ export function PipelineView({ deals, selectedId, onSelect, onMove }: PipelineVi
   }, [deals, filter, search, sort]);
 
   return (
-    <section className="pipeline-view" aria-label="Pipeline des projets">
+    <section
+      className="pipeline-view"
+      data-empty={visibleDeals.length === 0 || undefined}
+      aria-label="Pipeline des projets"
+    >
       <p className="sr-only" id="pipeline-keyboard-help">
         Appuyez sur Entrée pour ouvrir un dossier. Utilisez Alt et les flèches gauche ou droite pour le déplacer.
       </p>
@@ -84,65 +89,79 @@ export function PipelineView({ deals, selectedId, onSelect, onMove }: PipelineVi
         </label>
       </div>
 
-      <div className="pipeline-board">
-        {columns.map((column) => {
-          const stageDeals = visibleDeals.filter((deal) => deal.stage === column.stage);
-          return (
-            <section
-              className="pipeline-column"
-              data-drag-target={dragTarget === column.stage || undefined}
-              key={column.stage}
-              aria-labelledby={`stage-${column.stage}`}
-              onDragOver={(event) => {
-                event.preventDefault();
-                setDragTarget(column.stage);
-              }}
-              onDragLeave={() => setDragTarget(null)}
-              onDrop={(event) => {
-                event.preventDefault();
-                if (draggedId) onMove(draggedId, column.stage);
-                setDraggedId(null);
-                setDragTarget(null);
-              }}
-            >
-              <header>
-                <h2 id={`stage-${column.stage}`}>{column.label}</h2>
-                <span aria-label={`${stageDeals.length} dossiers`}>{stageDeals.length}</span>
-              </header>
-              <div className="pipeline-stack">
-                {stageDeals.map((deal) => (
-                  <article
-                    className="deal-card"
-                    data-selected={selectedId === deal.id || undefined}
-                    key={deal.id}
-                    draggable
-                    role="button"
-                    tabIndex={0}
-                    aria-pressed={selectedId === deal.id}
-                    aria-describedby="pipeline-keyboard-help"
-                    onClick={() => onSelect(deal.id)}
-                    onDragStart={() => setDraggedId(deal.id)}
-                    onDragEnd={() => {
-                      setDraggedId(null);
-                      setDragTarget(null);
-                    }}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        onSelect(deal.id);
-                        return;
-                      }
-                      const index = columns.findIndex((item) => item.stage === deal.stage);
-                      if (event.altKey && event.key === "ArrowRight" && columns[index + 1]) {
-                        event.preventDefault();
-                        onMove(deal.id, columns[index + 1].stage);
-                      }
-                      if (event.altKey && event.key === "ArrowLeft" && columns[index - 1]) {
-                        event.preventDefault();
-                        onMove(deal.id, columns[index - 1].stage);
-                      }
-                    }}
-                  >
+      {visibleDeals.length === 0 ? (
+        <div className="pipeline-empty-state" role="status">
+          <Illustration
+            className="crm-empty-art"
+            name={deals.length === 0 ? "pipeline-empty" : "search-empty"}
+          />
+          <h2>{deals.length === 0 ? "Le pipeline est vide" : "Aucun projet trouvé"}</h2>
+          <p>
+            {deals.length === 0
+              ? "Les opportunités qualifiées apparaîtront ici, sans créer d’action automatique."
+              : "Modifiez les filtres ou la recherche pour retrouver un projet."}
+          </p>
+        </div>
+      ) : (
+        <div className="pipeline-board">
+          {columns.map((column) => {
+            const stageDeals = visibleDeals.filter((deal) => deal.stage === column.stage);
+            return (
+              <section
+                className="pipeline-column"
+                data-drag-target={dragTarget === column.stage || undefined}
+                key={column.stage}
+                aria-labelledby={`stage-${column.stage}`}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  setDragTarget(column.stage);
+                }}
+                onDragLeave={() => setDragTarget(null)}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  if (draggedId) onMove(draggedId, column.stage);
+                  setDraggedId(null);
+                  setDragTarget(null);
+                }}
+              >
+                <header>
+                  <h2 id={`stage-${column.stage}`}>{column.label}</h2>
+                  <span aria-label={`${stageDeals.length} dossiers`}>{stageDeals.length}</span>
+                </header>
+                <div className="pipeline-stack">
+                  {stageDeals.map((deal) => (
+                    <article
+                      className="deal-card"
+                      data-selected={selectedId === deal.id || undefined}
+                      key={deal.id}
+                      draggable
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={selectedId === deal.id}
+                      aria-describedby="pipeline-keyboard-help"
+                      onClick={() => onSelect(deal.id)}
+                      onDragStart={() => setDraggedId(deal.id)}
+                      onDragEnd={() => {
+                        setDraggedId(null);
+                        setDragTarget(null);
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          onSelect(deal.id);
+                          return;
+                        }
+                        const index = columns.findIndex((item) => item.stage === deal.stage);
+                        if (event.altKey && event.key === "ArrowRight" && columns[index + 1]) {
+                          event.preventDefault();
+                          onMove(deal.id, columns[index + 1].stage);
+                        }
+                        if (event.altKey && event.key === "ArrowLeft" && columns[index - 1]) {
+                          event.preventDefault();
+                          onMove(deal.id, columns[index - 1].stage);
+                        }
+                      }}
+                    >
                     <div className="deal-card__title">
                       <Icon name="drag" />
                       <div>
@@ -159,9 +178,10 @@ export function PipelineView({ deals, selectedId, onSelect, onMove }: PipelineVi
                 ))}
               </div>
             </section>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </section>
   );
 }

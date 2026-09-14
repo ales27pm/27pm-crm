@@ -3,6 +3,7 @@
 import type { OutreachStep, OutreachStrategy, Organization } from "../crm-types";
 import { isGlobalComplianceReason, outreachErrorMessage } from "../../lib/outreach-errors";
 import { replaceZonedDate, zonedDateValue } from "../../lib/zoned-date-time";
+import { Illustration } from "./visual-assets";
 
 type Props = {
   account: Organization;
@@ -48,8 +49,11 @@ export function OutreachStrategyPanel({
       </header>
       {!strategy ? (
         <div className="outreach-empty">
-          <strong>Aucun plan préparé</strong>
-          <p>Définissez la cible, l’angle, la date du premier courriel et les relances avant toute action.</p>
+          <Illustration className="crm-empty-art" name="strategy-empty" />
+          <div>
+            <strong>Aucun plan préparé</strong>
+            <p>Définissez la cible, l’angle, la date du premier courriel et les relances avant toute action.</p>
+          </div>
         </div>
       ) : (
         <div className="outreach-plan">

@@ -23,6 +23,7 @@ import { PipelineView } from "./pipeline-view";
 import { Sidebar } from "./sidebar";
 import { ThreadView } from "./thread-view";
 import { TodayView } from "./today-view";
+import { Illustration } from "./visual-assets";
 import { outreachErrorMessage } from "../../lib/outreach-errors";
 import {
   DELIVERABILITY_CANARY_RECIPIENT,
@@ -584,7 +585,17 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         <header className="workspace-header">
           <div>
             <h1 ref={workspaceTitleRef} tabIndex={-1}>{viewTitles[activeView]}</h1>
-            {syncMessage ? <p role="status">{syncMessage}</p> : null}
+            {syncMessage ? (
+              <div
+                className="workspace-sync"
+                data-error={syncMessage.startsWith("Serveur indisponible") || undefined}
+              >
+                {syncMessage.startsWith("Serveur indisponible") ? (
+                  <Illustration className="workspace-sync-art" name="connection-error" />
+                ) : null}
+                <p role="status">{syncMessage}</p>
+              </div>
+            ) : null}
           </div>
           {activeView === "inbox" ? (
             <button className="primary-action" type="button" onClick={() => setComposeOpen(true)}>

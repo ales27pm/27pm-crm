@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { DashboardData, Deal } from "../crm-types";
 import { buildTodayDashboard, type TodayFollowUp } from "../today-dashboard";
 import { Icon } from "./icons";
+import { Illustration } from "./visual-assets";
 
 type TodayViewProps = {
   data: DashboardData;
@@ -101,7 +102,7 @@ export function TodayView({
 
           {snapshot.actionCount === 0 ? (
             <div className="today-empty">
-              <Icon name="check" />
+              <Illustration className="crm-empty-art" name="tasks-clear" />
               <div>
                 <h3>Tout est à jour</h3>
                 <p>Les nouvelles demandes, les relances et les messages apparaîtront ici.</p>

@@ -11,9 +11,17 @@
 }
 
 .outreach-empty {
-  padding: 1.2rem;
-  border: 1px dashed var(--line-strong);
+  display: grid;
+  align-items: center;
+  gap: 1rem;
+  grid-template-columns: minmax(8rem, 10rem) minmax(0, 1fr);
+  padding: 0.9rem 1.2rem;
+  border: 1px solid var(--line);
   background: color-mix(in srgb, var(--ivory-raised) 84%, var(--blue-soft));
+}
+
+.outreach-empty .crm-empty-art {
+  width: 100%;
 }
 
 .outreach-empty p,
@@ -252,6 +260,16 @@
 }
 
 @media (max-width: 520px) {
+  .outreach-empty {
+    grid-template-columns: 1fr;
+    justify-items: center;
+    text-align: center;
+  }
+
+  .outreach-empty .crm-empty-art {
+    width: min(100%, 10rem);
+  }
+
   .outreach-plan-summary {
     padding: 0.9rem;
   }
@@ -346,6 +364,13 @@ svg {
   display: block;
 }
 
+.crm-empty-art {
+  width: min(100%, 20rem);
+  height: auto;
+  object-fit: contain;
+  pointer-events: none;
+}
+
 h1,
 h2,
 h3,
@@ -408,9 +433,20 @@ h3 {
   align-items: center;
   padding: 0 1.75rem;
   background: transparent;
-  font-size: 1.9rem;
-  font-weight: 760;
-  letter-spacing: -0.055em;
+}
+
+.sidebar-brand img {
+  height: auto;
+  object-fit: contain;
+}
+
+.sidebar-logo-wide {
+  width: 7.8rem;
+}
+
+.sidebar-logo-compact {
+  display: none;
+  width: 2.5rem;
 }
 
 .sidebar nav {
@@ -522,6 +558,22 @@ h3 {
   margin-top: 0.35rem;
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.workspace-sync {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+.workspace-sync-art {
+  display: none;
+  width: 3.4rem;
+  flex: 0 0 auto;
+}
+
+.workspace-sync[data-error] .workspace-sync-art {
+  display: block;
 }
 
 .primary-action,
@@ -792,6 +844,16 @@ h3 {
   margin-bottom: 1rem;
 }
 
+.empty-list .crm-empty-art {
+  width: min(100%, 11rem);
+  margin-bottom: 0.75rem;
+}
+
+.thread-empty .crm-empty-art {
+  width: min(100%, 17rem);
+  margin-bottom: 0.75rem;
+}
+
 .empty-list strong,
 .thread-empty h2 {
   color: var(--ink);
@@ -814,6 +876,10 @@ h3 {
   height: 100%;
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.thread-view.thread-empty {
+  display: flex;
 }
 
 .thread-header {
@@ -1385,6 +1451,40 @@ h3 {
   overflow: hidden;
 }
 
+.pipeline-empty-state,
+.work-empty-state {
+  display: grid;
+  min-height: 20rem;
+  place-content: center;
+  justify-items: center;
+  padding: 2rem;
+  text-align: center;
+}
+
+.pipeline-empty-state {
+  height: calc(100% - 4.8rem);
+}
+
+.pipeline-empty-state .crm-empty-art,
+.work-empty-state .crm-empty-art {
+  width: min(100%, 18rem);
+}
+
+.pipeline-empty-state h2,
+.work-empty-state h2 {
+  margin-top: 0.4rem;
+  font-size: 1.8rem;
+}
+
+.pipeline-empty-state p,
+.work-empty-state p {
+  max-width: 30rem;
+  margin-top: 0.45rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
 .pipeline-toolbar {
   display: flex;
   min-height: 4.8rem;
@@ -1484,7 +1584,7 @@ h3 {
 .deal-card:hover,
 .deal-card:focus-visible {
   border-color: var(--blue);
-  box-shadow: inset 0 -3px 0 var(--blue);
+  background: color-mix(in srgb, var(--ivory-raised) 94%, var(--blue));
 }
 
 .deal-card__title {
@@ -1836,9 +1936,13 @@ h3 {
 }
 
 .account-master-empty {
+  display: grid;
+  justify-items: center;
+  gap: 0.35rem;
   padding: 2rem 1rem;
   color: var(--muted);
   font-size: 0.76rem;
+  text-align: center;
 }
 
 .account-detail {
@@ -2260,6 +2364,10 @@ h3 {
   color: var(--blue);
 }
 
+.account-detail-empty .crm-empty-art {
+  width: min(100%, 19rem);
+}
+
 .account-detail-empty h2 {
   margin-top: 1rem;
   font-size: 2rem;
@@ -2522,6 +2630,11 @@ h3 {
   color: var(--green);
 }
 
+.today-empty .crm-empty-art {
+  width: min(42%, 13rem);
+  flex: 0 1 13rem;
+}
+
 .today-empty h3 {
   color: var(--ink);
   font-size: 1.5rem;
@@ -2611,7 +2724,7 @@ h3 {
 }
 
 .dialog-backdrop { position: fixed; z-index: 100; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(23 23 20 / 38%); }
-.crm-dialog { width: min(52rem, 100%); max-height: calc(100svh - 2rem); overflow: auto; border: 1px solid var(--line-strong); background: var(--ivory); box-shadow: 0 1.5rem 6rem rgb(23 23 20 / 25%); }
+.crm-dialog { width: min(52rem, 100%); max-height: calc(100svh - 2rem); overflow: auto; border: 1px solid var(--line-strong); background: var(--ivory); }
 .crm-dialog > header { display: flex; justify-content: space-between; align-items: center; padding: 1rem 1.2rem; border-bottom: 1px solid var(--line); }
 .crm-dialog h2 { font-size: 1.5rem; }
 .crm-dialog .icon-button { width: 2.5rem; height: 2.5rem; background: transparent; font-size: 1.5rem; }
@@ -2837,7 +2950,7 @@ h3 {
 }
 
 .strategy-task-row[data-status="blocked"] {
-  background: linear-gradient(90deg, #fff4e7 0, transparent 62%);
+  background: #fff9f0;
 }
 
 .strategy-task-row[data-overdue] {
@@ -2949,7 +3062,6 @@ h3 {
   border-radius: 4px;
   background: var(--ivory);
   color: var(--ink);
-  box-shadow: 0 1.5rem 6rem rgb(23 23 20 / 25%);
 }
 
 .compose-dialog::backdrop {
@@ -3085,36 +3197,36 @@ h3 {
 .access-screen {
   display: grid;
   min-height: 100svh;
-  align-content: space-between;
-  padding: clamp(1.5rem, 4vw, 4rem);
+  grid-template-columns: minmax(21rem, 0.85fr) minmax(25rem, 1.15fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   background: var(--ivory);
 }
 
 .access-brand {
+  grid-column: 1;
   display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  font-size: 1.65rem;
-  font-weight: 760;
-  letter-spacing: -0.045em;
+  padding: clamp(1.5rem, 3vw, 3rem);
 }
 
 .access-brand img {
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 9.4rem;
+  height: auto;
   object-fit: contain;
 }
 
 .access-panel {
-  width: min(100%, 56rem);
-  padding: clamp(3rem, 8vw, 7rem) 0;
+  grid-column: 1;
+  align-self: center;
+  margin: 0 clamp(1.5rem, 3vw, 3rem);
+  padding: clamp(2.5rem, 5vw, 5rem) 0;
   border-top: 2px solid var(--blue);
 }
 
 .access-panel h1 {
-  max-width: 12ch;
-  font-size: clamp(4rem, 8vw, 8rem);
-  line-height: 0.88;
+  max-width: 10ch;
+  font-size: clamp(3.4rem, 5.8vw, 6.6rem);
+  line-height: 0.9;
 }
 
 .access-panel p {
@@ -3128,7 +3240,40 @@ h3 {
   margin-top: 2rem;
 }
 
+.access-visual {
+  grid-column: 2;
+  grid-row: 1 / -1;
+  min-width: 0;
+  min-height: 100svh;
+  overflow: hidden;
+  border-left: 1px solid var(--line);
+  background: var(--ivory-raised);
+}
+
+.access-picture,
+.access-background {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.access-background {
+  object-fit: cover;
+}
+
+.access-screen[data-state="denied"] .access-visual {
+  display: grid;
+  place-items: center;
+  padding: clamp(2rem, 6vw, 6rem);
+}
+
+.access-screen[data-state="denied"] .access-visual .crm-empty-art {
+  width: min(70%, 24rem);
+}
+
 .access-footnote {
+  grid-column: 1;
+  padding: clamp(1.5rem, 3vw, 3rem);
   color: var(--muted);
   font-size: 0.75rem;
 }
@@ -3333,7 +3478,14 @@ h3 {
   .sidebar-brand {
     justify-content: center;
     padding: 0;
-    font-size: 1.25rem;
+  }
+
+  .sidebar-logo-wide {
+    display: none;
+  }
+
+  .sidebar-logo-compact {
+    display: block;
   }
 
   .nav-item {
@@ -3388,7 +3540,6 @@ h3 {
     bottom: 0;
     width: min(22rem, 88vw);
     border-left: 1px solid var(--line-strong);
-    box-shadow: -1rem 0 4rem rgb(23 23 20 / 15%);
     visibility: hidden;
     pointer-events: none;
     transform: translateX(105%);
@@ -3469,6 +3620,16 @@ h3 {
 
   .today-layout {
     display: block;
+  }
+
+  .today-empty {
+    flex-direction: column;
+    text-align: center;
+  }
+
+  .today-empty .crm-empty-art {
+    width: min(100%, 11rem);
+    flex-basis: auto;
   }
 
   .today-priorities {
@@ -3696,6 +3857,66 @@ h3 {
     overflow: hidden;
   }
 
+  .access-screen {
+    height: 100svh;
+    overflow-y: auto;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(13rem, 30svh) auto;
+  }
+
+  .access-brand,
+  .access-panel,
+  .access-visual,
+  .access-footnote {
+    grid-column: 1;
+  }
+
+  .access-brand {
+    padding: 1.25rem;
+  }
+
+  .access-brand img {
+    width: 8.5rem;
+  }
+
+  .access-panel {
+    align-self: stretch;
+    margin: 0 1.25rem;
+    padding: 2.25rem 0;
+  }
+
+  .access-panel h1 {
+    font-size: clamp(3.2rem, 15vw, 5rem);
+  }
+
+  .access-panel p {
+    margin-top: 1.25rem;
+    font-size: 1rem;
+  }
+
+  .access-panel .primary-action {
+    width: 100%;
+    margin-top: 1.5rem;
+  }
+
+  .access-visual {
+    grid-row: 3;
+    min-height: 13rem;
+    border-top: 1px solid var(--line);
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    border-left: 0;
+  }
+
+  .access-background {
+    object-position: center top;
+  }
+
+  .access-footnote {
+    grid-row: 4;
+    padding: 1.25rem;
+  }
+
   .crm-app {
     display: block;
   }
@@ -3724,6 +3945,10 @@ h3 {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .workspace-sync-art {
+    width: 2.8rem;
   }
 
   .workspace-header .primary-action {
@@ -3834,7 +4059,6 @@ h3 {
     padding: 2rem 1rem 5.5rem;
     border-top: 1px solid var(--line-strong);
     border-left: 0;
-    box-shadow: 0 -1rem 4rem rgb(23 23 20 / 18%);
     transform: translateY(105%);
   }
 
@@ -3888,6 +4112,15 @@ h3 {
   .pipeline-board {
     height: calc(100% - 4rem);
     min-width: 0;
+  }
+
+  .pipeline-empty-state {
+    height: calc(100% - 4rem);
+  }
+
+  .pipeline-view[data-empty] {
+    overflow-x: hidden;
+    overflow-y: auto;
   }
 
   .list-view {

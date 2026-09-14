@@ -7,6 +7,7 @@ import { Icon } from "./icons";
 import { ComplianceSettings } from "./compliance-settings";
 import { DeliverabilityPanel } from "./deliverability-panel";
 import { PrivacyRequestsPanel } from "./privacy-requests-panel";
+import { Illustration } from "./visual-assets";
 
 export function ProjectsView({ deals }: { deals: Deal[] }) {
   return (
@@ -14,7 +15,13 @@ export function ProjectsView({ deals }: { deals: Deal[] }) {
       <header className="list-header projects-columns">
         <span>Projet</span><span>Client</span><span>Type</span><span>Étape</span><span>Prochaine action</span>
       </header>
-      {deals.map((deal) => (
+      {deals.length === 0 ? (
+        <div className="work-empty-state" role="status">
+          <Illustration className="crm-empty-art" name="projects-empty" />
+          <h2>Aucun projet actif</h2>
+          <p>Les opportunités converties en projet apparaîtront dans cette liste.</p>
+        </div>
+      ) : deals.map((deal) => (
         <article className="list-row projects-columns" key={deal.id}>
           <span className="list-primary"><strong>{deal.title}</strong><small>{deal.source}</small></span>
           <span>{deal.contactName}</span>
@@ -77,25 +84,33 @@ export function TasksView({
           <span><strong>{task.title}</strong><small>{task.dueLabel}</small></span>
         </label>
       ))}
-      {tasks.length === 0 ? (
+      {tasks.length === 0 && strategySteps.length === 0 ? (
+        <div className="work-empty-state" role="status">
+          <Illustration className="crm-empty-art" name="tasks-clear" />
+          <h2>Tout est à jour</h2>
+          <p>Les nouvelles tâches et étapes planifiées apparaîtront ici.</p>
+        </div>
+      ) : tasks.length === 0 ? (
         <p className="empty-state">Aucune action. Ajoutez une relance depuis un dossier du pipeline.</p>
       ) : null}
-      <section className="strategy-task-list" aria-labelledby="strategy-task-title">
-        <header><div><span>À l’avance</span><h2 id="strategy-task-title">Séquences de prospection</h2></div></header>
-        {strategySteps.map(({ strategy, step, timing }) => (
-          <article className="strategy-task-row" data-status={step.status} data-overdue={timing === "overdue" || undefined} key={step.id}>
-            <span className="strategy-task-kind">{strategyActionLabel(step.actionType)}</span>
-            <div>
-              <strong>{step.title}</strong>
-              <small>{strategy.organization} · {step.scheduledLabel} · {strategyStepStatus(step.status)}{timing === "overdue" ? " · En retard" : timing === "today" ? " · Aujourd’hui" : ""}</small>
-            </div>
-            <button type="button" className="secondary-action" onClick={() => onOpenStrategy(strategy.organizationId)}>
-              Ouvrir le plan
-            </button>
-          </article>
-        ))}
-        {strategySteps.length === 0 ? <p className="empty-state">Aucune séquence planifiée.</p> : null}
-      </section>
+      {tasks.length > 0 || strategySteps.length > 0 ? (
+        <section className="strategy-task-list" aria-labelledby="strategy-task-title">
+          <header><div><span>À l’avance</span><h2 id="strategy-task-title">Séquences de prospection</h2></div></header>
+          {strategySteps.map(({ strategy, step, timing }) => (
+            <article className="strategy-task-row" data-status={step.status} data-overdue={timing === "overdue" || undefined} key={step.id}>
+              <span className="strategy-task-kind">{strategyActionLabel(step.actionType)}</span>
+              <div>
+                <strong>{step.title}</strong>
+                <small>{strategy.organization} · {step.scheduledLabel} · {strategyStepStatus(step.status)}{timing === "overdue" ? " · En retard" : timing === "today" ? " · Aujourd’hui" : ""}</small>
+              </div>
+              <button type="button" className="secondary-action" onClick={() => onOpenStrategy(strategy.organizationId)}>
+                Ouvrir le plan
+              </button>
+            </article>
+          ))}
+          {strategySteps.length === 0 ? <p className="empty-state">Aucune séquence planifiée.</p> : null}
+        </section>
+      ) : null}
     </section>
   );
 }
