@@ -14,6 +14,7 @@ import type {
 import { isGlobalComplianceReason, outreachErrorMessage } from "../../lib/outreach-errors";
 import { Icon } from "./icons";
 import { OutreachStrategyPanel } from "./outreach-strategy-panel";
+import { Illustration } from "./visual-assets";
 
 type AccountsViewProps = {
   requestedAccountId?: string | null;
@@ -145,6 +146,7 @@ export function AccountsView({
     visibleAccounts.find((account) => account.id === selectedAccountId) ??
     visibleAccounts[0] ??
     null;
+  const searchHasNoResults = organizations.length > 0 && visibleAccounts.length === 0;
 
   const selectedNameIsUnique = selectedAccount
     ? accountNameCounts.get(normalize(selectedAccount.name)) === 1
@@ -252,7 +254,9 @@ export function AccountsView({
             ))}
           </div>
           {visibleAccounts.length === 0 ? (
-            <p className="account-master-empty">Aucune entreprise ne correspond à ces critères.</p>
+            <div className="account-master-empty" role="status">
+              <p>Aucune entreprise ne correspond à ces critères.</p>
+            </div>
           ) : null}
         </aside>
 
@@ -484,9 +488,20 @@ export function AccountsView({
             </>
           ) : (
             <div className="account-detail-empty">
-              <Icon name="contacts" />
-              <h2>Aucune entreprise sélectionnée</h2>
-              <p>Modifiez la recherche ou créez une entreprise pour commencer.</p>
+              <Illustration
+                className="crm-empty-art"
+                name={searchHasNoResults ? "search-empty" : "accounts-empty"}
+              />
+              <h2>
+                {searchHasNoResults
+                  ? "Aucun résultat pour cette recherche"
+                  : "Aucune entreprise sélectionnée"}
+              </h2>
+              <p>
+                {searchHasNoResults
+                  ? "Modifiez la recherche ou les filtres pour retrouver une entreprise."
+                  : "Créez une entreprise pour commencer."}
+              </p>
             </div>
           )}
 

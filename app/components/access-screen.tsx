@@ -1,5 +1,6 @@
 import Image from "next/image";
 import { chatGPTSignInPath, chatGPTSignOutPath } from "../chatgpt-auth";
+import { Illustration } from "./visual-assets";
 
 type AccessScreenProps = {
   state: "signed-out" | "denied";
@@ -10,17 +11,16 @@ export function AccessScreen({ state, email }: AccessScreenProps) {
   const signedOut = state === "signed-out";
 
   return (
-    <main className="access-screen">
-      <div className="access-brand" aria-label="27PM">
+    <main className="access-screen" data-state={state}>
+      <div className="access-brand">
         <Image
-          src="/brand/27-mark.png"
-          alt=""
-          width={52}
-          height={52}
+          src="/visual-assets/brand/27pm-crm-horizontal.svg"
+          alt="27PM CRM"
+          width={150}
+          height={48}
           priority
           unoptimized
         />
-        <span>27PM</span>
       </div>
       <section className="access-panel" aria-labelledby="access-title">
         <h1 id="access-title">
@@ -43,6 +43,27 @@ export function AccessScreen({ state, email }: AccessScreenProps) {
           {signedOut ? "Se connecter avec ChatGPT" : "Changer de compte"}
         </a>
       </section>
+      <div className="access-visual" aria-hidden="true">
+        {signedOut ? (
+          <picture className="access-picture">
+            <source
+              media="(max-width: 760px)"
+              srcSet="/visual-assets/backgrounds/mobile-flow-ivory.png"
+            />
+            <img
+              className="access-background"
+              src="/visual-assets/backgrounds/login-flow-ivory.png"
+              alt=""
+              width={1536}
+              height={1024}
+              decoding="async"
+              fetchPriority="high"
+            />
+          </picture>
+        ) : (
+          <Illustration className="crm-empty-art" name="access-denied" loading="eager" />
+        )}
+      </div>
       <p className="access-footnote">
         Les données clients ne sont jamais publiées sur le site 27pm.org.
       </p>

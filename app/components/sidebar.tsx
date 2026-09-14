@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import type { NavView, TransportState } from "../crm-types";
 import { Icon, type IconName } from "./icons";
 
@@ -34,8 +35,27 @@ export function Sidebar({
 
   return (
     <aside className="sidebar" aria-label="Navigation principale">
-      <button className="sidebar-brand" type="button" onClick={() => onNavigate("today")}>
-        <span>27PM</span>
+      <button
+        className="sidebar-brand"
+        type="button"
+        aria-label="Aller à Aujourd’hui"
+        onClick={() => onNavigate("today")}
+      >
+        <picture className="sidebar-logo">
+          <source
+            media="(max-width: 1260px)"
+            srcSet="/visual-assets/brand/27pm-crm-compact.svg"
+            width={40}
+            height={40}
+          />
+          <Image
+            src="/visual-assets/brand/27pm-crm-horizontal.svg"
+            alt=""
+            width={150}
+            height={48}
+            unoptimized
+          />
+        </picture>
       </button>
       <nav>
         {items.map((item) => (

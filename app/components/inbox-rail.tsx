@@ -2,6 +2,7 @@
 
 import type { Conversation, Mailbox } from "../crm-types";
 import { Icon } from "./icons";
+import { Illustration } from "./visual-assets";
 
 export type InboxFilter = "all" | "unread" | "follow-up";
 
@@ -108,7 +109,7 @@ export function InboxRail({
           ))
         ) : (
           <div className="empty-list">
-            <Icon name="mail" />
+            <Illustration className="crm-empty-art" name="inbox-empty" />
             <strong>Aucune conversation ici.</strong>
             <p>Les nouveaux messages apparaîtront dans cette boîte.</p>
           </div>

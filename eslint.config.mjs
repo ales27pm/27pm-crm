@@ -12,6 +12,8 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Published reference component; it is not part of the running application.
+    "design/visual-assets-suite/integration/VisualAsset.tsx",
   ]),
 ]);
 
