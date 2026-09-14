@@ -151,7 +151,7 @@ test("fails closed when provider identity, DKIM, tracking, webhook, or PAT metad
       runtimePat: {
         key_prefix: RUNTIME_PREFIX,
         name: "runtime",
-        scopes: ["emailapi:send", "lists:write"],
+        scopes: ["emailapi:read", "emailapi:send", "lists:write"],
         allowed_account_ids: null,
         status: "active",
         created_at: 1,
@@ -286,7 +286,7 @@ test("rejects overprivileged or schema-invalid PAT metadata", async () => {
       runtimePat: {
         key_prefix: RUNTIME_PREFIX,
         name: "crm-runtime",
-        scopes: ["emailapi:send"],
+        scopes: ["emailapi:read", "emailapi:send"],
         allowed_account_ids: [ACCOUNT_ID],
         status: "active",
         created_at: 1,
@@ -301,6 +301,28 @@ test("rejects overprivileged or schema-invalid PAT metadata", async () => {
   assert.equal(gates.preflight_pat.status, "fail");
   assert.equal(gates.runtime_pat.status, "fail");
   assert.equal(gates.runtime_pat.expiryMetadataValid, false);
+});
+
+test("rejects runtime PAT scopes outside Cakemail's exact effective closure", async () => {
+  for (const scopes of [
+    ["emailapi:send"],
+    ["emailapi:read", "emailapi:send", "lists:read"],
+  ]) {
+    const result = await preflightCakemailActivation({
+      config: preflightConfigFromEnvironment(VALID_ENV),
+      nowMs: NOW_MS,
+      fetchImpl: fixtureFetch([], {
+        runtimePat: {
+          ...runtimePatFixture(),
+          scopes,
+        },
+      }),
+    });
+
+    const gate = result.gates.find(({ name }) => name === "runtime_pat");
+    assert.equal(gate.status, "fail");
+    assert.deepEqual(gate.scopes, [...scopes].sort());
+  }
 });
 
 test("rejects occupied DKIM selectors and additional active webhooks", async () => {
@@ -645,7 +667,7 @@ function runtimePatFixture() {
   return {
     key_prefix: RUNTIME_PREFIX,
     name: "crm-runtime",
-    scopes: ["emailapi:send"],
+    scopes: ["emailapi:read", "emailapi:send"],
     allowed_account_ids: [ACCOUNT_ID],
     status: "active",
     created_at: 1,

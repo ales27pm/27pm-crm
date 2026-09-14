@@ -56,7 +56,12 @@ const PREFLIGHT_REQUIRED_SCOPES = Object.freeze([
   "tokens:read",
   "webhooks:read",
 ]);
-const RUNTIME_REQUIRED_SCOPES = Object.freeze(["emailapi:send"]);
+// Cakemail expands a PAT requested with only `emailapi:send` to this effective
+// read/send scope closure in the token metadata returned by the API.
+const RUNTIME_REQUIRED_SCOPES = Object.freeze([
+  "emailapi:read",
+  "emailapi:send",
+]);
 const SENDER_ENVIRONMENT = Object.freeze([
   {
     address: "bonjour@27pm.org",

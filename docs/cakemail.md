@@ -67,9 +67,11 @@ CAKEMAIL_HEADER_PRESERVATION_CONFIRMED=true
 CAKEMAIL_DKIM_ALIGNMENT_CONFIRMED=true
 ```
 
-Store `CAKEMAIL_PAT` and webhook secrets only as Sites runtime secrets. The PAT
-must be restricted to the 27PM account and have exactly the `emailapi:send`
-scope. Provider mutations, including webhook provisioning, must use a separate,
+Store `CAKEMAIL_PAT` and webhook secrets only as Sites runtime secrets. Request
+the PAT with only `emailapi:send` and restrict it to the 27PM account. Cakemail
+1.25.3 currently expands that request to the exact effective metadata scopes
+`emailapi:read` and `emailapi:send`; the preflight rejects every other scope.
+Provider mutations, including webhook provisioning, must use a separate,
 task-specific credential that is never deployed to the runtime.
 `CAKEMAIL_ACTIVATION_BINDING_JSON` is not secret. Version 2 must exactly
 reproduce the account ID, list ID, selected content mode, complete sender-ID
@@ -104,11 +106,12 @@ origin and prints no token or webhook signing secret. Every gate must report
 
 The audit PAT must be active, unexpired, restricted to exactly the configured
 account ID, and have exactly these six read scopes: `dkim:read`, `domains:read`,
-`lists:read`, `senders:read`, `tokens:read`, and `webhooks:read`. The runtime PAT
-must independently be active, unexpired, restricted to that same single account,
-and have exactly `emailapi:send`. Their 12-character prefixes must be distinct.
-A PAT with mutation, administration, wildcard, or additional scopes fails the
-preflight even if it also includes the required read or send scopes.
+`lists:read`, `senders:read`, `tokens:read`, and `webhooks:read`. Request the
+runtime PAT independently with only `emailapi:send` and restrict it to that same
+single account. Cakemail currently reports its effective scopes as exactly
+`emailapi:read` and `emailapi:send`; this unavoidable read closure is accepted.
+Their 12-character prefixes must be distinct. Any other mutation,
+administration, wildcard, or additional scope fails the preflight.
 
 `permission_relationship` is the preferred mode. It requires deployed source
 enforcement that accepts only the exact `explicit_consent`,
@@ -306,8 +309,9 @@ configured sender address** against Cakemail's API with the same payload
 produced by `buildCakemailPayload`. At minimum this means one received canary
 for `bonjour@27pm.org` and one for `alexis@27pm.org`; include
 `admin@27pm.org` if its optional ID is configured. Each canary is intentionally
-run outside the production CRM route with a non-deployed send-only token;
-the production route never bypasses its activation gates. Retain each raw
+run outside the production CRM route with a non-deployed token requested only
+for `emailapi:send` and carrying Cakemail's automatic read closure; the
+production route never bypasses its activation gates. Retain each raw
 received message and verify all of the following for every identity:
 
 Generate and inspect the exact payload first:
@@ -339,9 +343,11 @@ npm run cakemail:canary-payload
 
 The second preview must have the same SHA-256. Only after the operator has
 reviewed that exact output and gives immediate approval naming the recipient
-and digest, provide a non-deployed, account-restricted PAT with exactly
-`emailapi:send` plus the account ID, then run the one-call sender. It pins the
-official origin, sends exactly once, and never retries an ambiguous response:
+and digest, provide a non-deployed, account-restricted PAT requested with only
+`emailapi:send` plus the account ID, then run the one-call sender. Cakemail may
+report the resulting effective scopes as `emailapi:read` plus `emailapi:send`.
+The sender pins the official origin, sends exactly once, and never retries an
+ambiguous response:
 
 ```bash
 export CAKEMAIL_PAT='ck_pat_<40-lowercase-hex-characters>'
@@ -349,9 +355,10 @@ export CAKEMAIL_ACCOUNT_ID='<positive-account-id>'
 npm run cakemail:canary
 ```
 
-The canary PAT is a send-only credential, not an administrative PAT. It may be
-the future runtime PAT before deployment or a separate short-lived canary PAT;
-do not grant read/write administration scopes. Clear the local shell variables
+The canary PAT is a send-only-request credential, not an administrative PAT. It
+may be the future runtime PAT before deployment or a separate short-lived
+canary PAT; do not grant scopes beyond Cakemail's automatic `emailapi:read`
+closure. Clear the local shell variables
 after retaining the redacted request and received-message evidence. The digest
 gate is an additional technical control and never replaces immediate human
 approval for the exact external email.
