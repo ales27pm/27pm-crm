@@ -1,0 +1,513 @@
+{
+  "source_repo": "ales27pm/27pm",
+  "source_ref": "003bad433ad4915d9afbfe068fd414d57deda944",
+  "crm_source_ref": "04f5c233244def06ee9c8847af5fbf5c7c607de4",
+  "brand": "Confiance calme v4/v5",
+  "hybrid_notice": "SVG lockups, social graphics and favicons embed the exact authoritative raster mark. They are hybrid masters, not reconstructed vector logos. Typography is native font glyph outlines. Patterns are true vector.",
+  "source_alpha": {
+    "mode": "RGBA",
+    "size": [
+      1024,
+      1024
+    ],
+    "alpha_range": [
+      0,
+      255
+    ],
+    "corner_rgba": [
+      0,
+      0,
+      0,
+      0
+    ]
+  },
+  "fonts": {
+    "Instrument Sans Variable": "outlined at weights 500, 600, 650, 700",
+    "Newsreader Variable": "outlined at weight 480"
+  },
+  "email_template_note": "Templates reference the final production asset URL. They require deployment of the assets before email use. No messages were sent.",
+  "files": [
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal.svg",
+      "kind": "hybrid-lockup",
+      "width": 450,
+      "height": 144,
+      "hybrid": true,
+      "sha256": "d8e69c83c2e5dcd3f94af31b56f74e9334811cec4421d3efa2c64d4583b5c824"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked.svg",
+      "kind": "hybrid-lockup",
+      "width": 360,
+      "height": 360,
+      "hybrid": true,
+      "sha256": "adba88ba241373777377f33eecb7d507494d3ea8862dfcb98b418593dbc0f271"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact.svg",
+      "kind": "hybrid-lockup",
+      "width": 256,
+      "height": 256,
+      "hybrid": true,
+      "sha256": "fd319b7053caf8521bd7e50fc47d69ea4c591657d18da44a14fa896fd78ab4a4"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-mark-original-1024.png",
+      "kind": "source-mark",
+      "width": 1024,
+      "height": 1024,
+      "source": "unaltered authoritative asset",
+      "sha256": "16161b8daab77c4912db110ceafe09635d9def2ca13b3e05b37837586353b14a"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-field.svg",
+      "kind": "vector-pattern",
+      "width": 1200,
+      "height": 800,
+      "hybrid": false,
+      "sha256": "aa1d1a2dab670f559ae7465d87595f2b2092646dcf8b967ab1ead2d3a872f16e"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-orbital.svg",
+      "kind": "vector-pattern",
+      "width": 800,
+      "height": 800,
+      "hybrid": false,
+      "sha256": "a64aa2bfef561f85940ab5ca2ddc37fdb20f4c36c08aab573a70faef99687c85"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-ribbon.svg",
+      "kind": "vector-pattern",
+      "width": 1600,
+      "height": 320,
+      "hybrid": false,
+      "sha256": "bb437cbe4422ac5f3932f82103666f467b63fdafa1dfb94b563f368e2508e802"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-og-1200x630.svg",
+      "kind": "hybrid-social",
+      "width": 1200,
+      "height": 630,
+      "hybrid": true,
+      "sha256": "55dacf4b5e5b98af559546645f91fd96ac4b108e120a32c6473961b030deb503"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-square-1080x1080.svg",
+      "kind": "hybrid-social",
+      "width": 1080,
+      "height": 1080,
+      "hybrid": true,
+      "sha256": "9d3e790225cf4ab12b470c3805dfef7709ef9322bd4c6dbcadfe1ef4fe744787"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-cover-1600x900.svg",
+      "kind": "hybrid-social",
+      "width": 1600,
+      "height": 900,
+      "hybrid": true,
+      "sha256": "c90b015707bd01c03f9dd4a60878b02b7aadf5564439c8e4e6202d42a4ba0a0b"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-64.png",
+      "kind": "source-favicon",
+      "width": 64,
+      "height": 64,
+      "source": "unaltered authoritative asset",
+      "sha256": "4491bd79cd69f5daabfc2c6867af8379e00f4481409074cd3c5a9e7f2b4d7079"
+    },
+    {
+      "path": "public/visual-assets/app-icons/apple-touch-icon-180.png",
+      "kind": "source-apple-icon",
+      "width": 180,
+      "height": 180,
+      "source": "unaltered authoritative asset",
+      "sha256": "8bd3457baa57563eebd1d2726b2078988f0ca91ba3b3ff35a5feaefd6d61cf3d"
+    },
+    {
+      "path": "public/visual-assets/app-icons/icon-192.png",
+      "kind": "source-pwa-icon",
+      "width": 192,
+      "height": 192,
+      "source": "unaltered authoritative asset",
+      "sha256": "ab762035b6570d9abe8c8d0d3bb06b8f85ef9201481f622dd6ca4dd0f02a0be4"
+    },
+    {
+      "path": "public/visual-assets/app-icons/icon-512.png",
+      "kind": "source-pwa-icon",
+      "width": 512,
+      "height": 512,
+      "source": "unaltered authoritative asset",
+      "sha256": "a02efa674fbf9f81a181cc0b00bcd196c99e8522ffee794440ae20045fb0732c"
+    },
+    {
+      "path": "public/visual-assets/app-icons/icon-maskable-512.png",
+      "kind": "source-maskable-icon",
+      "width": 512,
+      "height": 512,
+      "source": "unaltered authoritative asset",
+      "sha256": "93e427a6a1f1a38f36c7a8838944e104b586e832fc85d2ee8893bd81addb582d"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-16.svg",
+      "kind": "hybrid-favicon",
+      "width": 16,
+      "height": 16,
+      "hybrid": true,
+      "sha256": "aee2ef341a50d6010ee8c7bc9a561c8f2ff3a7c16b19c21f4a96a8505c569cdb"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-32.svg",
+      "kind": "hybrid-favicon",
+      "width": 32,
+      "height": 32,
+      "hybrid": true,
+      "sha256": "c071b15056f3c820e4e01a68d80681aee081ee09c414f7c00005ba60911fb803"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-64.svg",
+      "kind": "hybrid-favicon",
+      "width": 64,
+      "height": 64,
+      "hybrid": true,
+      "sha256": "2fe88b3d852d810b1846cb65cee1f85018d78316d4089f00c0d8168f68bac1c5"
+    },
+    {
+      "path": "public/visual-assets/app-icons/site.webmanifest",
+      "kind": "webmanifest",
+      "width": null,
+      "height": null,
+      "hybrid": false,
+      "sha256": "2f75bd290b3c87b8e26a87349db6e0b905b627821de03cc10cf5660a21e81337"
+    },
+    {
+      "path": "templates/email-signature.html",
+      "kind": "email-template",
+      "width": null,
+      "height": null,
+      "hybrid": false,
+      "sha256": "fbfbcd595464124e6023a6dbc0902e1d168b75dc9d38c70708cecca0d394dc01"
+    },
+    {
+      "path": "templates/email-header.html",
+      "kind": "email-template",
+      "width": null,
+      "height": null,
+      "hybrid": false,
+      "sha256": "b78186662864e04450f798bf2f65f9430254fe0d8899093dd33824fe257fd2a2"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 900,
+      "height": 288,
+      "source": "public/visual-assets/brand/27pm-crm-horizontal.svg",
+      "hybrid": true,
+      "sha256": "f95cb7ec2a71801dd73cb8b31ab36ff7a1ff68cb480dac6250ae18eebdab8ff6"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 720,
+      "height": 720,
+      "source": "public/visual-assets/brand/27pm-crm-stacked.svg",
+      "hybrid": true,
+      "sha256": "473531862a1277bd2560576b656280d54081c2c76c153bc6bbef080e727ed19d"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 512,
+      "height": 512,
+      "source": "public/visual-assets/brand/27pm-crm-compact.svg",
+      "hybrid": true,
+      "sha256": "d89baa004275b999ec99bbc3ada78fa761bce4f588fbabe7cff6f9b8e5df49e3"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-og-1200x630.png",
+      "kind": "rendered-hybrid-social",
+      "width": 1200,
+      "height": 630,
+      "source": "public/visual-assets/social/27pm-crm-og-1200x630.svg",
+      "hybrid": true,
+      "sha256": "f5f03fb255f7b50352dd8ed33eb32169500a43caf3540a258cc53699e5caedf8"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-square-1080x1080.png",
+      "kind": "rendered-hybrid-social",
+      "width": 1080,
+      "height": 1080,
+      "source": "public/visual-assets/social/27pm-crm-square-1080x1080.svg",
+      "hybrid": true,
+      "sha256": "a3d49046f948d1ecf6a75a4497f209186db71a4992297cd23e14fb14f16ed0bd"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-cover-1600x900.png",
+      "kind": "rendered-hybrid-social",
+      "width": 1600,
+      "height": 900,
+      "source": "public/visual-assets/social/27pm-crm-cover-1600x900.svg",
+      "hybrid": true,
+      "sha256": "2122601d4564bdd926853138c0756d906d8d29fb63a35664aca45fa94fa57a0b"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-16.png",
+      "kind": "rendered-hybrid-favicon",
+      "width": 16,
+      "height": 16,
+      "source": "public/visual-assets/app-icons/favicon-16.svg",
+      "hybrid": true,
+      "sha256": "1cdf9f79d16f51ab23ecee2c5c852b10e920506dae0bb55368e87bbfd7a9aa38"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-32.png",
+      "kind": "rendered-hybrid-favicon",
+      "width": 32,
+      "height": 32,
+      "source": "public/visual-assets/app-icons/favicon-32.svg",
+      "hybrid": true,
+      "sha256": "fe795d2421ef8bd31b61351facaba404c000927e72cb50d21eeb4ef439ce09d1"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon.ico",
+      "kind": "favicon-container",
+      "width": 64,
+      "height": 64,
+      "sizes": [
+        16,
+        32,
+        64
+      ],
+      "source": "PNG assets packaged unchanged in a standard ICO container",
+      "sha256": "cb037f0651be0759881fb3ea18a553e65d8d8973673175ca9d2bb3c082c6cf05"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-inverse.svg",
+      "kind": "hybrid-lockup",
+      "width": 450,
+      "height": 144,
+      "hybrid": true,
+      "variant": "inverse",
+      "source": "public/visual-assets/brand/27pm-crm-horizontal.svg",
+      "color": "#F4F0E7",
+      "sha256": "171ae9180d140acfcc9da2a8e9488cb4952562ff800a2c55a1468c8f211fb68b"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-inverse.svg",
+      "kind": "hybrid-lockup",
+      "width": 360,
+      "height": 360,
+      "hybrid": true,
+      "variant": "inverse",
+      "source": "public/visual-assets/brand/27pm-crm-stacked.svg",
+      "color": "#F4F0E7",
+      "sha256": "32342f9fe50c1ef1c7bd85e8da0ca9500a3575f16221f1ecf7b97bf0b046d67e"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-inverse.svg",
+      "kind": "hybrid-lockup",
+      "width": 256,
+      "height": 256,
+      "hybrid": true,
+      "variant": "inverse",
+      "source": "public/visual-assets/brand/27pm-crm-compact.svg",
+      "color": "#F4F0E7",
+      "sha256": "c45be5034770e6fdcd5d640c3d32e31c85740718ba778bdddfea322f7077087d"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-cobalt.svg",
+      "kind": "hybrid-lockup",
+      "width": 450,
+      "height": 144,
+      "hybrid": true,
+      "variant": "cobalt",
+      "source": "public/visual-assets/brand/27pm-crm-horizontal.svg",
+      "color": "#2846B8",
+      "sha256": "e4dec84a7c28f352eac45e5dddaeab28d24109ed31fca9a9bee53463a02f28b9"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-cobalt.svg",
+      "kind": "hybrid-lockup",
+      "width": 360,
+      "height": 360,
+      "hybrid": true,
+      "variant": "cobalt",
+      "source": "public/visual-assets/brand/27pm-crm-stacked.svg",
+      "color": "#2846B8",
+      "sha256": "9b9d093af38808ebc2114ed9c1be69efb51cd0b958c0bc9715d4ad678efd06e3"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-cobalt.svg",
+      "kind": "hybrid-lockup",
+      "width": 256,
+      "height": 256,
+      "hybrid": true,
+      "variant": "cobalt",
+      "source": "public/visual-assets/brand/27pm-crm-compact.svg",
+      "color": "#2846B8",
+      "sha256": "158d89bb396f139b4b60565b507a2a1ee576aae56f5e872ed4548324f7e9c74b"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-inverse@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 900,
+      "height": 288,
+      "variant": "inverse",
+      "color": "#F4F0E7",
+      "source": "public/visual-assets/brand/27pm-crm-horizontal-inverse.svg",
+      "hybrid": true,
+      "sha256": "574da302b4e9d6cc2af8aceb14036daa832e69254f548d8ab162ca32a1e12625"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-inverse@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 720,
+      "height": 720,
+      "variant": "inverse",
+      "color": "#F4F0E7",
+      "source": "public/visual-assets/brand/27pm-crm-stacked-inverse.svg",
+      "hybrid": true,
+      "sha256": "267c8d644e8cdd1a93ffa5ab30bd6a8f481924d0ff700a88d9a457816364120a"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-inverse@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 512,
+      "height": 512,
+      "variant": "inverse",
+      "color": "#F4F0E7",
+      "source": "public/visual-assets/brand/27pm-crm-compact-inverse.svg",
+      "hybrid": true,
+      "sha256": "313aa26b2382062155127214b820ddca7929cbf7d788f533038aeddcd1b50fdc"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-cobalt@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 900,
+      "height": 288,
+      "variant": "cobalt",
+      "color": "#2846B8",
+      "source": "public/visual-assets/brand/27pm-crm-horizontal-cobalt.svg",
+      "hybrid": true,
+      "sha256": "f86519567e2deb9f5e2f090160478f3879d82f06fb8467cbe4b196d16803b357"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-cobalt@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 720,
+      "height": 720,
+      "variant": "cobalt",
+      "color": "#2846B8",
+      "source": "public/visual-assets/brand/27pm-crm-stacked-cobalt.svg",
+      "hybrid": true,
+      "sha256": "61af01d7891a9879a74a611772f686fbd16c7c92d632c1128de26b96a562f3ca"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-cobalt@2x.png",
+      "kind": "rendered-hybrid-lockup",
+      "width": 512,
+      "height": 512,
+      "variant": "cobalt",
+      "color": "#2846B8",
+      "source": "public/visual-assets/brand/27pm-crm-compact-cobalt.svg",
+      "hybrid": true,
+      "sha256": "80c34405c934de4cbfabe6806698df0c98dc7b927cf42d24a877a0af81100d87"
+    }
+  ],
+  "verification": {
+    "checks": [
+      "All inventory paths exist",
+      "All SVG masters parse as XML",
+      "All PNG dimensions match inventory",
+      "All SHA-256 hashes match",
+      "OG/square/lockup PNG visually inspected",
+      "Original raster alpha confirmed"
+    ],
+    "errors": [],
+    "variant_checks": [
+      {
+        "layout": "horizontal",
+        "variant": "inverse",
+        "alpha_identical_to_original": true,
+        "opaque_rgb": [
+          244,
+          240,
+          231
+        ],
+        "dimensions": [
+          900,
+          288
+        ]
+      },
+      {
+        "layout": "horizontal",
+        "variant": "cobalt",
+        "alpha_identical_to_original": true,
+        "opaque_rgb": [
+          40,
+          70,
+          184
+        ],
+        "dimensions": [
+          900,
+          288
+        ]
+      },
+      {
+        "layout": "stacked",
+        "variant": "inverse",
+        "alpha_identical_to_original": true,
+        "opaque_rgb": [
+          244,
+          240,
+          231
+        ],
+        "dimensions": [
+          720,
+          720
+        ]
+      },
+      {
+        "layout": "stacked",
+        "variant": "cobalt",
+        "alpha_identical_to_original": true,
+        "opaque_rgb": [
+          40,
+          70,
+          184
+        ],
+        "dimensions": [
+          720,
+          720
+        ]
+      },
+      {
+        "layout": "compact",
+        "variant": "inverse",
+        "alpha_identical_to_original": true,
+        "opaque_rgb": [
+          244,
+          240,
+          231
+        ],
+        "dimensions": [
+          512,
+          512
+        ]
+      },
+      {
+        "layout": "compact",
+        "variant": "cobalt",
+        "alpha_identical_to_original": true,
+        "opaque_rgb": [
+          40,
+          70,
+          184
+        ],
+        "dimensions": [
+          512,
+          512
+        ]
+      }
+    ]
+  }
+}

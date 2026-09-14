@@ -1,0 +1,18 @@
+/* Additive design tokens. Import only where these assets are used. */
+@font-face {font-family:'Instrument Sans Variable';src:url('../public/visual-assets/fonts/instrument-sans-latin.woff2') format('woff2');font-weight:400 900;font-style:normal;font-display:swap}
+@font-face {font-family:'Newsreader Variable';src:url('../public/visual-assets/fonts/newsreader-latin.woff2') format('woff2');font-weight:200 800;font-style:normal;font-display:swap}
+:root {
+  --pm-ivory:#f4f0e7; --pm-raised:#fbf8f1; --pm-ink:#171714;
+  --pm-cobalt:#2846b8; --pm-cobalt-deep:#1d3697; --pm-muted:#65625b;
+  --pm-line:rgb(23 23 20 / 18%); --pm-line-strong:rgb(23 23 20 / 34%);
+  --pm-danger:#b3312f; --pm-success-text:#225c3a; --pm-success-surface:#e3f1e8;
+  --pm-warning-text:#8a4d18; --pm-warning-surface:#fff4e7;
+  --pm-serif:'Newsreader Variable',Georgia,serif;
+  --pm-sans:'Instrument Sans Variable',Arial,sans-serif;
+  --pm-radius:4px; --pm-icon-stroke:1.7; --pm-touch:44px;
+  --pm-ease:cubic-bezier(.22,1,.36,1); --pm-duration:180ms;
+}
+.pm-asset-icon {display:block;width:24px;height:24px;flex:none;color:inherit}
+.pm-asset-illustration {display:block;width:min(100%,240px);height:auto}
+.pm-asset-focus:focus-visible {outline:3px solid var(--pm-cobalt);outline-offset:3px}
+@media(prefers-reduced-motion:reduce){.pm-asset-motion{animation:none!important;transition:none!important}}
