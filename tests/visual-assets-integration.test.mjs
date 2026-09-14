@@ -41,8 +41,8 @@ test("connects logos, editorial art, empty states, and application icons", async
   const expectedReferences = {
     "app/components/access-screen.tsx": [
       "/visual-assets/brand/27pm-crm-horizontal.svg",
-      "/visual-assets/backgrounds/login-flow-ivory.webp",
-      "/visual-assets/backgrounds/mobile-flow-ivory.webp",
+      "/visual-assets/backgrounds/login-flow-ivory.png",
+      "/visual-assets/backgrounds/mobile-flow-ivory.png",
       "access-denied",
     ],
     "app/components/sidebar.tsx": [

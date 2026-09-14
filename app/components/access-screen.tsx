@@ -48,11 +48,11 @@ export function AccessScreen({ state, email }: AccessScreenProps) {
           <picture className="access-picture">
             <source
               media="(max-width: 760px)"
-              srcSet="/visual-assets/backgrounds/mobile-flow-ivory.webp"
+              srcSet="/visual-assets/backgrounds/mobile-flow-ivory.png"
             />
             <img
               className="access-background"
-              src="/visual-assets/backgrounds/login-flow-ivory.webp"
+              src="/visual-assets/backgrounds/login-flow-ivory.png"
               alt=""
               width={1536}
               height={1024}
