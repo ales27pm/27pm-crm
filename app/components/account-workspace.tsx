@@ -146,6 +146,7 @@ export function AccountsView({
     visibleAccounts.find((account) => account.id === selectedAccountId) ??
     visibleAccounts[0] ??
     null;
+  const searchHasNoResults = organizations.length > 0 && visibleAccounts.length === 0;
 
   const selectedNameIsUnique = selectedAccount
     ? accountNameCounts.get(normalize(selectedAccount.name)) === 1
@@ -489,12 +490,18 @@ export function AccountsView({
             <div className="account-detail-empty">
               <Illustration
                 className="crm-empty-art"
-                name={organizations.length > 0 && visibleAccounts.length === 0
-                  ? "search-empty"
-                  : "accounts-empty"}
+                name={searchHasNoResults ? "search-empty" : "accounts-empty"}
               />
-              <h2>Aucune entreprise sélectionnée</h2>
-              <p>Modifiez la recherche ou créez une entreprise pour commencer.</p>
+              <h2>
+                {searchHasNoResults
+                  ? "Aucun résultat pour cette recherche"
+                  : "Aucune entreprise sélectionnée"}
+              </h2>
+              <p>
+                {searchHasNoResults
+                  ? "Modifiez la recherche ou les filtres pour retrouver une entreprise."
+                  : "Créez une entreprise pour commencer."}
+              </p>
             </div>
           )}
 

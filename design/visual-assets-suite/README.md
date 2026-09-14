@@ -38,3 +38,17 @@ Les fichiers sont livrés pour intégration. Aucun déploiement du CRM n’a ét
 - Les requêtes Imagegen exactes sont dans `docs/image-prompts.json`. Création via l’outil intégré, sans API externe.
 
 `manifest.json` et `docs/validation.json` décrivent le contenu et les vérifications locales.
+
+## Régénération et validation
+
+Créer un environnement Python isolé et installer les versions documentées avant de régénérer l’aperçu ou de valider la suite :
+
+```sh
+python3 -m venv .venv-visual-assets
+.venv-visual-assets/bin/python -m pip install Pillow==12.3.0 'fonttools[woff]==4.65.0'
+.venv-visual-assets/bin/python scripts/build-overview.py
+.venv-visual-assets/bin/python scripts/build-gallery.py
+.venv-visual-assets/bin/python scripts/validate.py
+```
+
+Le validateur lit uniquement les fichiers versionnés de la suite, vérifie l’inventaire dans les deux sens et écrit toujours son résultat dans `docs/validation.json` avant de retourner un statut d’échec.

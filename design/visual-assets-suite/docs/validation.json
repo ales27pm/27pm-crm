@@ -41,9 +41,33 @@
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/app-icons/icon-192.png",
-      "width": 192,
-      "height": 192,
+      "path": "public/visual-assets/social/27pm-crm-square-1080x1080.png",
+      "width": 1080,
+      "height": 1080,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-cover-1600x900.png",
+      "width": 1600,
+      "height": 900,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-og-1200x630.png",
+      "width": 1200,
+      "height": 630,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon.ico",
+      "width": 64,
+      "height": 64,
+      "mode": "RGB"
+    },
+    {
+      "path": "public/visual-assets/app-icons/icon-maskable-512.png",
+      "width": 512,
+      "height": 512,
       "mode": "RGB"
     },
     {
@@ -53,9 +77,9 @@
       "mode": "RGB"
     },
     {
-      "path": "public/visual-assets/app-icons/favicon-64.png",
-      "width": 64,
-      "height": 64,
+      "path": "public/visual-assets/app-icons/icon-192.png",
+      "width": 192,
+      "height": 192,
       "mode": "RGB"
     },
     {
@@ -63,12 +87,6 @@
       "width": 32,
       "height": 32,
       "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/app-icons/icon-maskable-512.png",
-      "width": 512,
-      "height": 512,
-      "mode": "RGB"
     },
     {
       "path": "public/visual-assets/app-icons/apple-touch-icon-180.png",
@@ -83,45 +101,27 @@
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/app-icons/favicon.ico",
+      "path": "public/visual-assets/app-icons/favicon-64.png",
       "width": 64,
       "height": 64,
       "mode": "RGB"
     },
     {
-      "path": "public/visual-assets/social/27pm-crm-square-1080x1080.png",
-      "width": 1080,
-      "height": 1080,
+      "path": "public/visual-assets/illustrations/projects-empty.png",
+      "width": 640,
+      "height": 440,
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/social/27pm-crm-og-1200x630.png",
-      "width": 1200,
-      "height": 630,
+      "path": "public/visual-assets/illustrations/strategy-empty.png",
+      "width": 640,
+      "height": 440,
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/social/27pm-crm-cover-1600x900.png",
-      "width": 1600,
-      "height": 900,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/patterns/27pm-ribbon.png",
-      "width": 3200,
-      "height": 640,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/patterns/27pm-orbital.png",
-      "width": 1600,
-      "height": 1600,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/patterns/27pm-field.png",
-      "width": 2400,
-      "height": 1600,
+      "path": "public/visual-assets/illustrations/pipeline-empty.png",
+      "width": 640,
+      "height": 440,
       "mode": "RGBA"
     },
     {
@@ -143,25 +143,7 @@
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/illustrations/inbox-empty.png",
-      "width": 640,
-      "height": 440,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/illustrations/tasks-clear.png",
-      "width": 640,
-      "height": 440,
-      "mode": "RGBA"
-    },
-    {
       "path": "public/visual-assets/illustrations/search-empty.png",
-      "width": 640,
-      "height": 440,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/illustrations/strategy-empty.png",
       "width": 640,
       "height": 440,
       "mode": "RGBA"
@@ -173,75 +155,21 @@
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/illustrations/projects-empty.png",
+      "path": "public/visual-assets/illustrations/tasks-clear.png",
       "width": 640,
       "height": 440,
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/illustrations/pipeline-empty.png",
+      "path": "public/visual-assets/illustrations/inbox-empty.png",
       "width": 640,
       "height": 440,
       "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/backgrounds/mobile-flow-ivory.webp",
-      "width": 1024,
-      "height": 1536,
-      "mode": "RGB"
-    },
-    {
-      "path": "public/visual-assets/backgrounds/mobile-flow-ivory.png",
-      "width": 1024,
-      "height": 1536,
-      "mode": "RGB"
-    },
-    {
-      "path": "public/visual-assets/backgrounds/welcome-flow-cobalt.webp",
-      "width": 1254,
-      "height": 1254,
-      "mode": "RGB"
-    },
-    {
-      "path": "public/visual-assets/backgrounds/login-flow-ivory.png",
-      "width": 1536,
-      "height": 1024,
-      "mode": "RGB"
-    },
-    {
-      "path": "public/visual-assets/backgrounds/login-flow-ivory.webp",
-      "width": 1536,
-      "height": 1024,
-      "mode": "RGB"
-    },
-    {
-      "path": "public/visual-assets/backgrounds/welcome-flow-cobalt.png",
-      "width": 1254,
-      "height": 1254,
-      "mode": "RGB"
     },
     {
       "path": "public/visual-assets/brand/27pm-crm-compact-inverse@2x.png",
       "width": 512,
       "height": 512,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/brand/27pm-crm-compact-cobalt@2x.png",
-      "width": 512,
-      "height": 512,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/brand/27pm-crm-horizontal-inverse@2x.png",
-      "width": 900,
-      "height": 288,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/brand/27pm-crm-stacked-inverse@2x.png",
-      "width": 720,
-      "height": 720,
       "mode": "RGBA"
     },
     {
@@ -257,15 +185,9 @@
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/brand/27pm-crm-horizontal-cobalt@2x.png",
-      "width": 900,
-      "height": 288,
-      "mode": "RGBA"
-    },
-    {
-      "path": "public/visual-assets/brand/27pm-crm-horizontal@2x.png",
-      "width": 900,
-      "height": 288,
+      "path": "public/visual-assets/brand/27pm-crm-compact@2x.png",
+      "width": 512,
+      "height": 512,
       "mode": "RGBA"
     },
     {
@@ -275,10 +197,88 @@
       "mode": "RGBA"
     },
     {
-      "path": "public/visual-assets/brand/27pm-crm-compact@2x.png",
+      "path": "public/visual-assets/brand/27pm-crm-compact-cobalt@2x.png",
       "width": 512,
       "height": 512,
       "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-cobalt@2x.png",
+      "width": 900,
+      "height": 288,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-inverse@2x.png",
+      "width": 900,
+      "height": 288,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-inverse@2x.png",
+      "width": 720,
+      "height": 720,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal@2x.png",
+      "width": 900,
+      "height": 288,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-field.png",
+      "width": 2400,
+      "height": 1600,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-ribbon.png",
+      "width": 3200,
+      "height": 640,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-orbital.png",
+      "width": 1600,
+      "height": 1600,
+      "mode": "RGBA"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/welcome-flow-cobalt.webp",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGB"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/mobile-flow-ivory.png",
+      "width": 1024,
+      "height": 1536,
+      "mode": "RGB"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/login-flow-ivory.png",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/welcome-flow-cobalt.png",
+      "width": 1254,
+      "height": 1254,
+      "mode": "RGB"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/mobile-flow-ivory.webp",
+      "width": 1024,
+      "height": 1536,
+      "mode": "RGB"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/login-flow-ivory.webp",
+      "width": 1536,
+      "height": 1024,
+      "mode": "RGB"
     }
   ],
   "errors": [],

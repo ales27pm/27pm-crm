@@ -67,7 +67,7 @@ test("connects logos, editorial art, empty states, and application icons", async
   await Promise.all(Object.entries(expectedReferences).map(async ([relativePath, references]) => {
     const source = await projectFile(relativePath, "utf8");
     for (const reference of references) {
-      assert.match(source, new RegExp(reference.replaceAll("/", "\\/"), "u"), `${reference} missing from ${relativePath}`);
+      assert.ok(source.includes(reference), `${reference} missing from ${relativePath}`);
     }
   }));
 

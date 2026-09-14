@@ -8,14 +8,14 @@
 | `thread-select.svg` | `thread-view.tsx` : aucune conversation sélectionnée |
 | `accounts-empty.svg` | `account-workspace.tsx` : aucune entreprise sélectionnée |
 | `search-empty.svg` | `account-workspace.tsx` : aucune entreprise ne correspond aux filtres |
-| `pipeline-empty.svg` | `pipeline-view.tsx` : vue entièrement vide; branche à ajouter |
-| `projects-empty.svg` | `work-views.tsx` : liste des projets vide; branche à ajouter |
+| `pipeline-empty.svg` | `pipeline-view.tsx` : vue entièrement vide |
+| `projects-empty.svg` | `work-views.tsx` : liste des projets vide |
 | `tasks-clear.svg` | `today-view.tsx` : tout est à jour; réutilisable pour les tâches |
 | `strategy-empty.svg` | `outreach-strategy-panel.tsx` : aucun plan préparé |
 | `access-denied.svg` | `access-screen.tsx` : compte non autorisé |
-| `connection-error.svg` | `crm-app.tsx` : serveur indisponible, si une vue d’erreur développée est ajoutée |
+| `connection-error.svg` | `crm-app.tsx` : serveur indisponible ou transport dégradé |
 
-Les fichiers constituent un kit prêt à intégrer; aucune de ces branches de l’application n’a été modifiée. Les états compacts d’un tableau ou d’une carte gardent de préférence leur texte seul. Utiliser l’illustration une seule fois dans la vue vide principale.
+Ces illustrations sont intégrées aux branches d’état correspondantes du CRM. Les états compacts d’un tableau ou d’une carte gardent de préférence leur texte seul. Utiliser l’illustration une seule fois dans la vue vide principale.
 
 ```tsx
 <div className="thread-empty">

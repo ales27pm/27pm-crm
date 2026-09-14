@@ -41,22 +41,21 @@ export function Sidebar({
         aria-label="Aller à Aujourd’hui"
         onClick={() => onNavigate("today")}
       >
-        <Image
-          className="sidebar-logo-wide"
-          src="/visual-assets/brand/27pm-crm-horizontal.svg"
-          alt=""
-          width={150}
-          height={48}
-          unoptimized
-        />
-        <Image
-          className="sidebar-logo-compact"
-          src="/visual-assets/brand/27pm-crm-compact.svg"
-          alt=""
-          width={40}
-          height={40}
-          unoptimized
-        />
+        <picture className="sidebar-logo">
+          <source
+            media="(max-width: 1260px)"
+            srcSet="/visual-assets/brand/27pm-crm-compact.svg"
+            width={40}
+            height={40}
+          />
+          <Image
+            src="/visual-assets/brand/27pm-crm-horizontal.svg"
+            alt=""
+            width={150}
+            height={48}
+            unoptimized
+          />
+        </picture>
       </button>
       <nav>
         {items.map((item) => (

@@ -15,8 +15,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 3626,
-      "sha256": "33f8e2d650e6fa96e1ec6745160dccf40b3f59f836ec82302b31ab1aecbe4fc3"
+      "bytes": 4308,
+      "sha256": "2f6d33542b07003adc42e6c671419141402709d7e2189954c97c6df2ca630cca"
     },
     {
       "path": "brand-assets.json",
@@ -25,13 +25,13 @@
     },
     {
       "path": "docs/image-prompts.json",
-      "bytes": 3496,
-      "sha256": "8123c05e9ac07cc72230ca1cd93fa361d666ac80162d35374547e760713d06ef"
+      "bytes": 3607,
+      "sha256": "43a5d51dc9e4ae1d9699c9cec8f509b9f92c7ca95473a2cee4f46010ea007084"
     },
     {
       "path": "index.html",
-      "bytes": 35972,
-      "sha256": "6e36126cb6f9ab203c9b3d2dff250e5078343e737ae46cfb2f6a5176a5e270c5"
+      "bytes": 36044,
+      "sha256": "30a352cb72cfe05ad971b75e04d2e318f44be811abca4957eed71492578dbbfb"
     },
     {
       "path": "integration/VisualAsset.tsx",
@@ -470,8 +470,8 @@
     },
     {
       "path": "public/visual-assets/illustrations/README.md",
-      "bytes": 2208,
-      "sha256": "9b34564fa2bce6a97de1a7099f84a644be1192a69dbd03a55b623053bafc1570"
+      "bytes": 2107,
+      "sha256": "022a6876ac0e08a22478d87c0716cbf0a4e0e32ed7b39a05eceb62610f80a6b5"
     },
     {
       "path": "public/visual-assets/illustrations/access-denied.png",
@@ -640,8 +640,8 @@
     },
     {
       "path": "scripts/build-gallery.py",
-      "bytes": 10898,
-      "sha256": "cfbfb81d57304ad560796c02e67543e2edec2ca39545bbf062859384fdc24226"
+      "bytes": 11035,
+      "sha256": "f7804d93172254a22b511264a8c707a0233f06681f593f201f1cbc4c656f0df3"
     },
     {
       "path": "scripts/build-overview.py",
@@ -650,13 +650,13 @@
     },
     {
       "path": "scripts/validate.py",
-      "bytes": 3581,
-      "sha256": "2d0be90b795e162415f221698a3a2605d85693ca3903d490c6d9c40a436ca585"
+      "bytes": 8702,
+      "sha256": "92ee2fef06cd9faa55045abfceaa1085a35ae6ec9ed9ddb4779a20f32958460e"
     },
     {
       "path": "templates/email-header.html",
-      "bytes": 1480,
-      "sha256": "b78186662864e04450f798bf2f65f9430254fe0d8899093dd33824fe257fd2a2"
+      "bytes": 1516,
+      "sha256": "b17c2f9fc1d3568a356a513caea3c66541105badc4cd5cd75106a237683f89e2"
     },
     {
       "path": "templates/email-signature.html",

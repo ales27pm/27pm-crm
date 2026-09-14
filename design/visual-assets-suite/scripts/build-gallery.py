@@ -5,7 +5,11 @@ ROOT=Path(__file__).resolve().parents[1]
 A=ROOT/'public/visual-assets'
 def esc(s): return html.escape(str(s),quote=True)
 def rel(p): return p.relative_to(ROOT).as_posix()
-def label(p): return p.stem.replace('27pm-crm-','').replace('27pm-','').replace('-',' ').capitalize()
+def label(p):
+    base=p.stem.replace('27pm-crm-','').replace('27pm-','').replace('-',' ').capitalize()
+    if p.parent.name=='app-icons' and p.stem.startswith('favicon-'):
+        return f'{base} ({p.suffix[1:].upper()})'
+    return base
 cats=[('brand','Identité'),('backgrounds','Fonds éditoriaux'),('patterns','Motifs'),('illustrations','États vides'),('icons','Icônes'),('app-icons','Application'),('social','Partage')]
 parts=[]
 for folder,title in cats:

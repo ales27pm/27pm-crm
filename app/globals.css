@@ -435,18 +435,19 @@ h3 {
   background: transparent;
 }
 
-.sidebar-brand img {
+.sidebar-logo,
+.sidebar-logo img {
+  display: block;
+}
+
+.sidebar-logo img {
   height: auto;
   object-fit: contain;
 }
 
-.sidebar-logo-wide {
+.sidebar-logo,
+.sidebar-logo img {
   width: 7.8rem;
-}
-
-.sidebar-logo-compact {
-  display: none;
-  width: 2.5rem;
 }
 
 .sidebar nav {
@@ -1449,6 +1450,10 @@ h3 {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
+}
+
+.pipeline-view[data-empty] {
+  overflow-y: auto;
 }
 
 .pipeline-empty-state,
@@ -2632,7 +2637,7 @@ h3 {
 
 .today-empty .crm-empty-art {
   width: min(42%, 13rem);
-  flex: 0 1 13rem;
+  flex: 0 1 auto;
 }
 
 .today-empty h3 {
@@ -3480,12 +3485,9 @@ h3 {
     padding: 0;
   }
 
-  .sidebar-logo-wide {
-    display: none;
-  }
-
-  .sidebar-logo-compact {
-    display: block;
+  .sidebar-logo,
+  .sidebar-logo img {
+    width: 2.5rem;
   }
 
   .nav-item {
