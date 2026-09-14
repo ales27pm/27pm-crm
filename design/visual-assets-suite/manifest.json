@@ -1,0 +1,677 @@
+{
+  "suite": "27PM CRM",
+  "version": "1.0.0",
+  "fileCount": 134,
+  "files": [
+    {
+      "path": "27pm-crm-suite-overview.png",
+      "bytes": 283542,
+      "sha256": "b468bdea683e2af22eddb0d7a816f13c6fba5a5535e456369a11f34468e7ad8d"
+    },
+    {
+      "path": "27pm-crm-suite-overview.svg",
+      "bytes": 2009907,
+      "sha256": "5945bbc31c79a8027aea24f80beb5ff20fd1984124d70c716a8477820e374c14"
+    },
+    {
+      "path": "README.md",
+      "bytes": 3626,
+      "sha256": "33f8e2d650e6fa96e1ec6745160dccf40b3f59f836ec82302b31ab1aecbe4fc3"
+    },
+    {
+      "path": "brand-assets.json",
+      "bytes": 16201,
+      "sha256": "015a0715ec47861e3589cc685e9e7b4ea5d94502313f953105be08368482d741"
+    },
+    {
+      "path": "docs/image-prompts.json",
+      "bytes": 3496,
+      "sha256": "8123c05e9ac07cc72230ca1cd93fa361d666ac80162d35374547e760713d06ef"
+    },
+    {
+      "path": "index.html",
+      "bytes": 35972,
+      "sha256": "6e36126cb6f9ab203c9b3d2dff250e5078343e737ae46cfb2f6a5176a5e270c5"
+    },
+    {
+      "path": "integration/VisualAsset.tsx",
+      "bytes": 883,
+      "sha256": "84bf572a80c5097aa1d4ccaa308213cef866b41b0bda59b16484d0785e752e8f"
+    },
+    {
+      "path": "public/visual-assets/app-icons/apple-touch-icon-180.png",
+      "bytes": 6357,
+      "sha256": "8bd3457baa57563eebd1d2726b2078988f0ca91ba3b3ff35a5feaefd6d61cf3d"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-16.png",
+      "bytes": 446,
+      "sha256": "1cdf9f79d16f51ab23ecee2c5c852b10e920506dae0bb55368e87bbfd7a9aa38"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-16.svg",
+      "bytes": 3263,
+      "sha256": "aee2ef341a50d6010ee8c7bc9a561c8f2ff3a7c16b19c21f4a96a8505c569cdb"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-32.png",
+      "bytes": 851,
+      "sha256": "fe795d2421ef8bd31b61351facaba404c000927e72cb50d21eeb4ef439ce09d1"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-32.svg",
+      "bytes": 3263,
+      "sha256": "c071b15056f3c820e4e01a68d80681aee081ee09c414f7c00005ba60911fb803"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-64.png",
+      "bytes": 2209,
+      "sha256": "4491bd79cd69f5daabfc2c6867af8379e00f4481409074cd3c5a9e7f2b4d7079"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon-64.svg",
+      "bytes": 3263,
+      "sha256": "2fe88b3d852d810b1846cb65cee1f85018d78316d4089f00c0d8168f68bac1c5"
+    },
+    {
+      "path": "public/visual-assets/app-icons/favicon.ico",
+      "bytes": 3560,
+      "sha256": "cb037f0651be0759881fb3ea18a553e65d8d8973673175ca9d2bb3c082c6cf05"
+    },
+    {
+      "path": "public/visual-assets/app-icons/icon-192.png",
+      "bytes": 6658,
+      "sha256": "ab762035b6570d9abe8c8d0d3bb06b8f85ef9201481f622dd6ca4dd0f02a0be4"
+    },
+    {
+      "path": "public/visual-assets/app-icons/icon-512.png",
+      "bytes": 23454,
+      "sha256": "a02efa674fbf9f81a181cc0b00bcd196c99e8522ffee794440ae20045fb0732c"
+    },
+    {
+      "path": "public/visual-assets/app-icons/icon-maskable-512.png",
+      "bytes": 20809,
+      "sha256": "93e427a6a1f1a38f36c7a8838944e104b586e832fc85d2ee8893bd81addb582d"
+    },
+    {
+      "path": "public/visual-assets/app-icons/site.webmanifest",
+      "bytes": 568,
+      "sha256": "2f75bd290b3c87b8e26a87349db6e0b905b627821de03cc10cf5660a21e81337"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/login-flow-ivory.png",
+      "bytes": 1525394,
+      "sha256": "ecfe9a98b4e594e7cb37c20bc009efa06f366e07b2b5d37e2981e527ee52c0ad"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/login-flow-ivory.webp",
+      "bytes": 906878,
+      "sha256": "56aef9ed0c6dd4d6bfda5e5f6a678785c248f58c7c08be1b2aa323786261d33b"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/mobile-flow-ivory.png",
+      "bytes": 1415316,
+      "sha256": "7b7c310b2e5a32af30a368925f8eb5147d96f2b9581d7f9bdd65273f90228916"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/mobile-flow-ivory.webp",
+      "bytes": 897278,
+      "sha256": "6769ffbc221504c9f00fc7cf078e7432906c229049b86c3493ef913c5cb3780c"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/welcome-flow-cobalt.png",
+      "bytes": 1152628,
+      "sha256": "daa19573a2f85b0302c91f2154521d8d767821a20021463058dfd8fb30d64187"
+    },
+    {
+      "path": "public/visual-assets/backgrounds/welcome-flow-cobalt.webp",
+      "bytes": 817674,
+      "sha256": "064d9ab613961f487c8b8ee9b85b41a6f37b99988ba328651417289985a17b2f"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-cobalt.svg",
+      "bytes": 102626,
+      "sha256": "158d89bb396f139b4b60565b507a2a1ee576aae56f5e872ed4548324f7e9c74b"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-cobalt@2x.png",
+      "bytes": 16104,
+      "sha256": "80c34405c934de4cbfabe6806698df0c98dc7b927cf42d24a877a0af81100d87"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-inverse.svg",
+      "bytes": 102628,
+      "sha256": "c45be5034770e6fdcd5d640c3d32e31c85740718ba778bdddfea322f7077087d"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact-inverse@2x.png",
+      "bytes": 15894,
+      "sha256": "313aa26b2382062155127214b820ddca7929cbf7d788f533038aeddcd1b50fdc"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact.svg",
+      "bytes": 102311,
+      "sha256": "fd319b7053caf8521bd7e50fc47d69ea4c591657d18da44a14fa896fd78ab4a4"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-compact@2x.png",
+      "bytes": 15376,
+      "sha256": "d89baa004275b999ec99bbc3ada78fa761bce4f588fbabe7cff6f9b8e5df49e3"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-cobalt.svg",
+      "bytes": 103719,
+      "sha256": "e4dec84a7c28f352eac45e5dddaeab28d24109ed31fca9a9bee53463a02f28b9"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-cobalt@2x.png",
+      "bytes": 15049,
+      "sha256": "f86519567e2deb9f5e2f090160478f3879d82f06fb8467cbe4b196d16803b357"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-inverse.svg",
+      "bytes": 103721,
+      "sha256": "171ae9180d140acfcc9da2a8e9488cb4952562ff800a2c55a1468c8f211fb68b"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal-inverse@2x.png",
+      "bytes": 14857,
+      "sha256": "574da302b4e9d6cc2af8aceb14036daa832e69254f548d8ab162ca32a1e12625"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal.svg",
+      "bytes": 103404,
+      "sha256": "d8e69c83c2e5dcd3f94af31b56f74e9334811cec4421d3efa2c64d4583b5c824"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-horizontal@2x.png",
+      "bytes": 14207,
+      "sha256": "f95cb7ec2a71801dd73cb8b31ab36ff7a1ff68cb480dac6250ae18eebdab8ff6"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-cobalt.svg",
+      "bytes": 103703,
+      "sha256": "9b9d093af38808ebc2114ed9c1be69efb51cd0b958c0bc9715d4ad678efd06e3"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-cobalt@2x.png",
+      "bytes": 24979,
+      "sha256": "61af01d7891a9879a74a611772f686fbd16c7c92d632c1128de26b96a562f3ca"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-inverse.svg",
+      "bytes": 103705,
+      "sha256": "32342f9fe50c1ef1c7bd85e8da0ca9500a3575f16221f1ecf7b97bf0b046d67e"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked-inverse@2x.png",
+      "bytes": 24480,
+      "sha256": "267c8d644e8cdd1a93ffa5ab30bd6a8f481924d0ff700a88d9a457816364120a"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked.svg",
+      "bytes": 103389,
+      "sha256": "adba88ba241373777377f33eecb7d507494d3ea8862dfcb98b418593dbc0f271"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-crm-stacked@2x.png",
+      "bytes": 23678,
+      "sha256": "473531862a1277bd2560576b656280d54081c2c76c153bc6bbef080e727ed19d"
+    },
+    {
+      "path": "public/visual-assets/brand/27pm-mark-original-1024.png",
+      "bytes": 74132,
+      "sha256": "16161b8daab77c4912db110ceafe09635d9def2ca13b3e05b37837586353b14a"
+    },
+    {
+      "path": "public/visual-assets/fonts/OFL-Instrument-Sans.txt",
+      "bytes": 4404,
+      "sha256": "fa224038c6fcffc40792ecadd3127596ec68096e6e8fa46be9798e9bcc433633"
+    },
+    {
+      "path": "public/visual-assets/fonts/OFL-Newsreader.txt",
+      "bytes": 4395,
+      "sha256": "806bdd7d159dc2965b41a80078851b8a549b97103f0b64519849aa662b371297"
+    },
+    {
+      "path": "public/visual-assets/fonts/instrument-sans-latin-ext.woff2",
+      "bytes": 11144,
+      "sha256": "c4fcfea41f2c1cfeea9211fa43679845454a1d0e0d7e95e069c7e73c4ae302d2"
+    },
+    {
+      "path": "public/visual-assets/fonts/instrument-sans-latin.woff2",
+      "bytes": 30092,
+      "sha256": "2ee17598a98d8a59e4df8152d015bec9ab8e4d5672cc0ab42bef806b568e3971"
+    },
+    {
+      "path": "public/visual-assets/fonts/newsreader-latin-ext.woff2",
+      "bytes": 36244,
+      "sha256": "ac6fa9ed533278f4c8fd3ae44a1fc78c7df736040237ab86fc1160d020af0af2"
+    },
+    {
+      "path": "public/visual-assets/fonts/newsreader-latin.woff2",
+      "bytes": 58084,
+      "sha256": "62981321d9a3cc7a61a73792729043703fd6112da86e8ec848bb57f088578757"
+    },
+    {
+      "path": "public/visual-assets/icons/README.md",
+      "bytes": 1797,
+      "sha256": "9fd0060b938cd3a6bdcf66d03869486ee56059ed6f436ae0a76c83766de1e492"
+    },
+    {
+      "path": "public/visual-assets/icons/arrow-right.svg",
+      "bytes": 294,
+      "sha256": "62048b8fdaf6524d624e74538945146d8a32a28146e0867dbb7871e87f97de25"
+    },
+    {
+      "path": "public/visual-assets/icons/attachment.svg",
+      "bytes": 351,
+      "sha256": "ca3904007f17ea8c4a931e5f9aab6396a332b7161deddb81e50e51fb15b4292c"
+    },
+    {
+      "path": "public/visual-assets/icons/back.svg",
+      "bytes": 270,
+      "sha256": "840654ea60697d813ec61dafbc354b94f713e52b634f7251467eab19e46a6a56"
+    },
+    {
+      "path": "public/visual-assets/icons/bell.svg",
+      "bytes": 307,
+      "sha256": "1713f50939f086ac446a4defef2905851a5e5f92d6c5a9d0d21b85289ef2e163"
+    },
+    {
+      "path": "public/visual-assets/icons/building.svg",
+      "bytes": 329,
+      "sha256": "c89f07c01454f486eb00ab8f9ea78b868311096982f71270cd929c2f368181ad"
+    },
+    {
+      "path": "public/visual-assets/icons/calendar.svg",
+      "bytes": 343,
+      "sha256": "61b34afc5aa84a644d05bb2cc2c9f9c783d453a884e44ca8e2810faabe90dfe3"
+    },
+    {
+      "path": "public/visual-assets/icons/check.svg",
+      "bytes": 279,
+      "sha256": "6e5ab5f5066a66c59d4dc7d161f06b7ded9c3573761896e031ae8e85909958dc"
+    },
+    {
+      "path": "public/visual-assets/icons/chevron-right.svg",
+      "bytes": 287,
+      "sha256": "a2116a09e0911269d2068408895c0ba57a4e5606d2e013c5fde05b8a6845b467"
+    },
+    {
+      "path": "public/visual-assets/icons/chevron.svg",
+      "bytes": 280,
+      "sha256": "0b2d86527b0020529e00531b8147df9faba62609199537cd831850576dcf3256"
+    },
+    {
+      "path": "public/visual-assets/icons/clock.svg",
+      "bytes": 306,
+      "sha256": "e128b12072c4669f41dce81571d567e8b0ed5a9794c1582d05715f272866b90f"
+    },
+    {
+      "path": "public/visual-assets/icons/close.svg",
+      "bytes": 279,
+      "sha256": "ef1692158f9097243233718f5fe58b5a9a8bde594ce1a90dbde10fd5bf9b5031"
+    },
+    {
+      "path": "public/visual-assets/icons/compose.svg",
+      "bytes": 320,
+      "sha256": "07cfad77e375116f851d18ec47ebfc91192c0a37bbf5db03cdc6cafccd7be195"
+    },
+    {
+      "path": "public/visual-assets/icons/contacts.svg",
+      "bytes": 425,
+      "sha256": "d825549531851a1ca7924c186408d522e060cc8ea489e16f2a5515cae55b5c91"
+    },
+    {
+      "path": "public/visual-assets/icons/copy.svg",
+      "bytes": 321,
+      "sha256": "7295aa3831baf01642709cac271bfc27e493fbdbbbfcb421bf4350b6c7b3449e"
+    },
+    {
+      "path": "public/visual-assets/icons/download.svg",
+      "bytes": 305,
+      "sha256": "5de83cf3293b3fb0934a5b9761c1726a9395044d615e67ff0c6899d7cb2d70a6"
+    },
+    {
+      "path": "public/visual-assets/icons/drag.svg",
+      "bytes": 332,
+      "sha256": "d384651dac5bad3512ecddcfca94c57f0fc0aceed5b07275136d5f57a24dcdb2"
+    },
+    {
+      "path": "public/visual-assets/icons/external-link.svg",
+      "bytes": 332,
+      "sha256": "a17f3e308f5e3da4a9ba45308ab7c578ce631f415e36c732d758ed215ebaa5b5"
+    },
+    {
+      "path": "public/visual-assets/icons/filter.svg",
+      "bytes": 449,
+      "sha256": "55e7ebb7d41a08e53c6a41579487f371763e828b9ff944b727d371e63bc8cb53"
+    },
+    {
+      "path": "public/visual-assets/icons/folder.svg",
+      "bytes": 302,
+      "sha256": "f9f3d9fad6b13f6fd6bc9f860a39d3f17f6cdf91834d57a8ee9db3b0d5f06790"
+    },
+    {
+      "path": "public/visual-assets/icons/globe.svg",
+      "bytes": 341,
+      "sha256": "5c0d46a303e434f38eba241006aa99cba05606da1ca1948d504b61727c37d5ae"
+    },
+    {
+      "path": "public/visual-assets/icons/inbox.svg",
+      "bytes": 332,
+      "sha256": "fe98e9a32b9ff67a510443c122160cf5d00f8cead1c6225df9072985891e7b21"
+    },
+    {
+      "path": "public/visual-assets/icons/index.json",
+      "bytes": 8876,
+      "sha256": "f2fe1865f8551d3909aba77908767befd00f9cbd454a1a4f6546d23737b41124"
+    },
+    {
+      "path": "public/visual-assets/icons/info.svg",
+      "bytes": 366,
+      "sha256": "ae1273d3877a6bd7d510b9889deb00e4f44834abf706df24d6f45c10bda9d028"
+    },
+    {
+      "path": "public/visual-assets/icons/lock.svg",
+      "bytes": 346,
+      "sha256": "b801178956c444af69f551748eafdd0d1e7462e569c3231cc3e92bfa37eb5212"
+    },
+    {
+      "path": "public/visual-assets/icons/mail.svg",
+      "bytes": 324,
+      "sha256": "4bc44e09e7ed877ea55c52cc6899ba709638ebdc5c4f7cfaa14a6693dfaaa2ba"
+    },
+    {
+      "path": "public/visual-assets/icons/more.svg",
+      "bytes": 453,
+      "sha256": "a38080c329cf4fa71766bd82d2a66d562c27dd3ae4096a0bf58b00a2edaa9951"
+    },
+    {
+      "path": "public/visual-assets/icons/note.svg",
+      "bytes": 311,
+      "sha256": "d53845f489002b829083ee947acb40718152c871bc111d0c9044d693074f65f7"
+    },
+    {
+      "path": "public/visual-assets/icons/pipeline.svg",
+      "bytes": 292,
+      "sha256": "d90be5897e900b000efd7835c217771530eaaccc2a0e9242795fc4da3af6575d"
+    },
+    {
+      "path": "public/visual-assets/icons/plus.svg",
+      "bytes": 274,
+      "sha256": "620220940ff45ae9ba583d64dee088cc56caa8d8c535157b83efb8398ea26b92"
+    },
+    {
+      "path": "public/visual-assets/icons/projects.svg",
+      "bytes": 313,
+      "sha256": "5718d6d4b4075a5229d1c13606097554ccb2e4b151e1bf7c4d591efc0a379a8d"
+    },
+    {
+      "path": "public/visual-assets/icons/refresh.svg",
+      "bytes": 346,
+      "sha256": "0d04e6b348432ef153cb73f45da30f3c0c027ba44566433d2285b995387cb74b"
+    },
+    {
+      "path": "public/visual-assets/icons/reply.svg",
+      "bytes": 321,
+      "sha256": "5b5e1b52eca67dc9fab33dff98b1c5ec91ed5503ca154393f6010a6e18b0b7da"
+    },
+    {
+      "path": "public/visual-assets/icons/search.svg",
+      "bytes": 318,
+      "sha256": "93f846f6ae1ef85b90d63833994a953cbf0783516c263d81dc0adcf11c0a6fce"
+    },
+    {
+      "path": "public/visual-assets/icons/send.svg",
+      "bytes": 296,
+      "sha256": "51d33d25d711c7c0dab8e50d479563b5331cf2e843c565a9bf4549ca334d13b4"
+    },
+    {
+      "path": "public/visual-assets/icons/settings.svg",
+      "bytes": 521,
+      "sha256": "83cffd95ab09aea3833a852ee9c35bf3d78116dc7451fc081114cb3640d1d955"
+    },
+    {
+      "path": "public/visual-assets/icons/shield.svg",
+      "bytes": 339,
+      "sha256": "16891f185a0c2f6a64c536267c0ed792ac9c69a4f742348a1139b34f9c1b78d9"
+    },
+    {
+      "path": "public/visual-assets/icons/sprite.svg",
+      "bytes": 9313,
+      "sha256": "769e86340717cf6f857c3e026b2a18a6018982dd1cbab42b8ed903491751900e"
+    },
+    {
+      "path": "public/visual-assets/icons/tasks.svg",
+      "bytes": 333,
+      "sha256": "c9fb9055bdb2181df92d1e2a3960b98829507de35842fab2b2041a5cca1e3767"
+    },
+    {
+      "path": "public/visual-assets/icons/trash.svg",
+      "bytes": 311,
+      "sha256": "937e1a429a2fe868ae6f565fad6f66c4675d401117488c3e172407cec12e66fb"
+    },
+    {
+      "path": "public/visual-assets/icons/upload.svg",
+      "bytes": 296,
+      "sha256": "f8b069062bf9958b7ecdce431b5c7993f977687690481936170640b3645b4ed4"
+    },
+    {
+      "path": "public/visual-assets/icons/user.svg",
+      "bytes": 318,
+      "sha256": "7d310f29453af9c6288c5497d3ffa5b6b998084f3fa5c1da9f3e7112bd492dce"
+    },
+    {
+      "path": "public/visual-assets/icons/warning.svg",
+      "bytes": 355,
+      "sha256": "009e27cd385e82d2e5631407894f7dba4db0ba836f6ecd0635bf960af6e85c00"
+    },
+    {
+      "path": "public/visual-assets/illustrations/README.md",
+      "bytes": 2208,
+      "sha256": "9b34564fa2bce6a97de1a7099f84a644be1192a69dbd03a55b623053bafc1570"
+    },
+    {
+      "path": "public/visual-assets/illustrations/access-denied.png",
+      "bytes": 7217,
+      "sha256": "2c64a62f51527bc6016fa9e1e8d9c731cee1429e99aac6da56e6b34dbd86a9d1"
+    },
+    {
+      "path": "public/visual-assets/illustrations/access-denied.svg",
+      "bytes": 765,
+      "sha256": "dc47e7e10906c3d877aed8c9511f53bdc39dcb58a4f12acab08462ba8a7a585b"
+    },
+    {
+      "path": "public/visual-assets/illustrations/accounts-empty.png",
+      "bytes": 7088,
+      "sha256": "6487b4a0a50dc489a0db1e4ff6c4a5465a74fbace9e7a859ee65fee0fc442d14"
+    },
+    {
+      "path": "public/visual-assets/illustrations/accounts-empty.svg",
+      "bytes": 648,
+      "sha256": "00f3e7686176fa06ee7a52f66a88f9b676600f6c1510637a47624e0d8f3773e1"
+    },
+    {
+      "path": "public/visual-assets/illustrations/connection-error.png",
+      "bytes": 6377,
+      "sha256": "9591bfbba956d62caead73edf90ab5362af7ae631b7aad8ceb94d6a181fdfb81"
+    },
+    {
+      "path": "public/visual-assets/illustrations/connection-error.svg",
+      "bytes": 730,
+      "sha256": "bf6ddd9e8f8f770a7f84b19114db1cc8fbc141bf38cdcb47b758cf87bc459a01"
+    },
+    {
+      "path": "public/visual-assets/illustrations/inbox-empty.png",
+      "bytes": 6581,
+      "sha256": "1c636fbd3c4615fbeefd8f89d18873bc74e0953c770d2c93c7dfaf23ba9d1aa5"
+    },
+    {
+      "path": "public/visual-assets/illustrations/inbox-empty.svg",
+      "bytes": 667,
+      "sha256": "79dae79d9d668636430b916ac6cc6cdf77195d4cd9611b6b730d7d5525ef24be"
+    },
+    {
+      "path": "public/visual-assets/illustrations/index.json",
+      "bytes": 4218,
+      "sha256": "ea90bed1495c0dece85af418ecb4aedaff75782f5226d957c9bb1863f2b67fa5"
+    },
+    {
+      "path": "public/visual-assets/illustrations/pipeline-empty.png",
+      "bytes": 5098,
+      "sha256": "4d552ef83a519a42c3db4cd6956ce0c2320bf8a271de33d03239dffed23efc26"
+    },
+    {
+      "path": "public/visual-assets/illustrations/pipeline-empty.svg",
+      "bytes": 881,
+      "sha256": "9c5d45bc63709a870254cb2db6021ff492562d791a8a19ce26cc355fa767a6fa"
+    },
+    {
+      "path": "public/visual-assets/illustrations/projects-empty.png",
+      "bytes": 8527,
+      "sha256": "32e8cb283c494b0305b687e9b6ec8ee344a626f03a4caaf1c9fef57d63c1148d"
+    },
+    {
+      "path": "public/visual-assets/illustrations/projects-empty.svg",
+      "bytes": 710,
+      "sha256": "04ecd94311c70c306166b702bbe5e0083ea6c916c90efaa7a907fb4e2ef9c630"
+    },
+    {
+      "path": "public/visual-assets/illustrations/search-empty.png",
+      "bytes": 12638,
+      "sha256": "e57f9cb5e9e62af17fb5eaa3f41aa068bc16ec486c6807d9e6c0acea7be06fec"
+    },
+    {
+      "path": "public/visual-assets/illustrations/search-empty.svg",
+      "bytes": 725,
+      "sha256": "c2f5b4678e87f154d0498c64e23d4b276e0865ff22f4bd1d32cbcabf902dc013"
+    },
+    {
+      "path": "public/visual-assets/illustrations/strategy-empty.png",
+      "bytes": 4692,
+      "sha256": "59c89fba4bec9e63eb258e58a9335ef15724ef7b1021046103bf74556b9e20c8"
+    },
+    {
+      "path": "public/visual-assets/illustrations/strategy-empty.svg",
+      "bytes": 763,
+      "sha256": "4ae4428686cf395dab6ef0efdb013019c6b48950cd8e318b544d54d77f56e8af"
+    },
+    {
+      "path": "public/visual-assets/illustrations/tasks-clear.png",
+      "bytes": 8310,
+      "sha256": "a8ff85066d181fc460cbff39fb7eb2ae7e94c667440fe483f9c596dfe7310d3b"
+    },
+    {
+      "path": "public/visual-assets/illustrations/tasks-clear.svg",
+      "bytes": 802,
+      "sha256": "53d16f221867f864aa027573c741b62d37c0f9ec19a71c0ed6eba78e54c41c83"
+    },
+    {
+      "path": "public/visual-assets/illustrations/thread-select.png",
+      "bytes": 6971,
+      "sha256": "3d3cdcbe7f8fd9162f0ef129d0f9139bea4819f9f508e9c46d71ba0b1ae416c7"
+    },
+    {
+      "path": "public/visual-assets/illustrations/thread-select.svg",
+      "bytes": 679,
+      "sha256": "39cfb432fb763b95931e42027f325d0df8d60ef0f7d467626351e8d5f87017b6"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-field.png",
+      "bytes": 297670,
+      "sha256": "6430e9241d4927f554bf34b323b181f018ba2f520cae4f1b08ce33cc44f7740b"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-field.svg",
+      "bytes": 53391,
+      "sha256": "aa1d1a2dab670f559ae7465d87595f2b2092646dcf8b967ab1ead2d3a872f16e"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-orbital.png",
+      "bytes": 188399,
+      "sha256": "3d2b930979fd0692d5e09a5e5d20e8ce51a6e4cd29ab623733038bf30a9ebfee"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-orbital.svg",
+      "bytes": 40009,
+      "sha256": "a64aa2bfef561f85940ab5ca2ddc37fdb20f4c36c08aab573a70faef99687c85"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-ribbon.png",
+      "bytes": 181845,
+      "sha256": "54ce632ac37220eb17762da0ef6f861b5349fdb816d24b438916bfe89be2993b"
+    },
+    {
+      "path": "public/visual-assets/patterns/27pm-ribbon.svg",
+      "bytes": 32393,
+      "sha256": "bb437cbe4422ac5f3932f82103666f467b63fdafa1dfb94b563f368e2508e802"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-cover-1600x900.png",
+      "bytes": 103260,
+      "sha256": "2122601d4564bdd926853138c0756d906d8d29fb63a35664aca45fa94fa57a0b"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-cover-1600x900.svg",
+      "bytes": 173020,
+      "sha256": "c90b015707bd01c03f9dd4a60878b02b7aadf5564439c8e4e6202d42a4ba0a0b"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-og-1200x630.png",
+      "bytes": 64241,
+      "sha256": "f5f03fb255f7b50352dd8ed33eb32169500a43caf3540a258cc53699e5caedf8"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-og-1200x630.svg",
+      "bytes": 165055,
+      "sha256": "55dacf4b5e5b98af559546645f91fd96ac4b108e120a32c6473961b030deb503"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-square-1080x1080.png",
+      "bytes": 78311,
+      "sha256": "a3d49046f948d1ecf6a75a4497f209186db71a4992297cd23e14fb14f16ed0bd"
+    },
+    {
+      "path": "public/visual-assets/social/27pm-crm-square-1080x1080.svg",
+      "bytes": 166833,
+      "sha256": "9d3e790225cf4ab12b470c3805dfef7709ef9322bd4c6dbcadfe1ef4fe744787"
+    },
+    {
+      "path": "scripts/build-gallery.py",
+      "bytes": 10898,
+      "sha256": "cfbfb81d57304ad560796c02e67543e2edec2ca39545bbf062859384fdc24226"
+    },
+    {
+      "path": "scripts/build-overview.py",
+      "bytes": 3238,
+      "sha256": "d81f067615556ccb21703deef38d096b60cec47d4f56a5e06939626a6ade0277"
+    },
+    {
+      "path": "scripts/validate.py",
+      "bytes": 3581,
+      "sha256": "2d0be90b795e162415f221698a3a2605d85693ca3903d490c6d9c40a436ca585"
+    },
+    {
+      "path": "templates/email-header.html",
+      "bytes": 1480,
+      "sha256": "b78186662864e04450f798bf2f65f9430254fe0d8899093dd33824fe257fd2a2"
+    },
+    {
+      "path": "templates/email-signature.html",
+      "bytes": 1161,
+      "sha256": "fbfbcd595464124e6023a6dbc0902e1d168b75dc9d38c70708cecca0d394dc01"
+    },
+    {
+      "path": "tokens/27pm-crm.css",
+      "bytes": 1367,
+      "sha256": "886d5a3f1f8805fd7191df93a7b6c48418472a1f9b56a3d44fbeb7bd4e944b64"
+    },
+    {
+      "path": "tokens/27pm-crm.tokens.json",
+      "bytes": 1002,
+      "sha256": "09560cab860f03386ec8eb9fccf1ca6f9883616595dc3a7f44d7fbbd4d52b147"
+    }
+  ]
+}

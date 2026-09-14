@@ -1,0 +1,146 @@
+{
+  "version": "1.0.0",
+  "count": 10,
+  "illustrations": [
+    {
+      "id": "inbox-empty",
+      "label_fr": "Boîte de réception vide",
+      "usage_fr": "Réception — aucune conversation",
+      "component": "app/components/inbox-rail.tsx",
+      "file": "/visual-assets/illustrations/inbox-empty.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "thread-select",
+      "label_fr": "Conversation à ouvrir",
+      "usage_fr": "Réception — sélectionner une conversation",
+      "component": "app/components/thread-view.tsx",
+      "file": "/visual-assets/illustrations/thread-select.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "accounts-empty",
+      "label_fr": "Entreprise à ajouter",
+      "usage_fr": "Comptes — aucune entreprise sélectionnée",
+      "component": "app/components/account-workspace.tsx",
+      "file": "/visual-assets/illustrations/accounts-empty.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "search-empty",
+      "label_fr": "Aucun résultat de recherche",
+      "usage_fr": "Comptes et recherches — aucun résultat",
+      "component": "app/components/account-workspace.tsx",
+      "file": "/visual-assets/illustrations/search-empty.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "pipeline-empty",
+      "label_fr": "Pipeline à remplir",
+      "usage_fr": "Pipeline — aucune opportunité",
+      "component": "app/components/pipeline-view.tsx",
+      "file": "/visual-assets/illustrations/pipeline-empty.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "projects-empty",
+      "label_fr": "Projet à créer",
+      "usage_fr": "Projets — aucun projet",
+      "component": "app/components/work-views.tsx",
+      "file": "/visual-assets/illustrations/projects-empty.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "tasks-clear",
+      "label_fr": "Toutes les tâches à jour",
+      "usage_fr": "Aujourd’hui et tâches — tout est à jour",
+      "component": "app/components/today-view.tsx",
+      "file": "/visual-assets/illustrations/tasks-clear.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "strategy-empty",
+      "label_fr": "Plan de prospection à préparer",
+      "usage_fr": "Stratégie et séquences — aucun plan",
+      "component": "app/components/outreach-strategy-panel.tsx",
+      "file": "/visual-assets/illustrations/strategy-empty.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "access-denied",
+      "label_fr": "Accès privé",
+      "usage_fr": "Connexion — accès non autorisé",
+      "component": "app/components/access-screen.tsx",
+      "file": "/visual-assets/illustrations/access-denied.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    },
+    {
+      "id": "connection-error",
+      "label_fr": "Connexion à rétablir",
+      "usage_fr": "État serveur ou transport dégradé",
+      "component": "app/components/crm-app.tsx",
+      "file": "/visual-assets/illustrations/connection-error.svg",
+      "viewBox": "0 0 320 220",
+      "background": "transparent",
+      "palette": [
+        "#F4F0E7",
+        "#171714",
+        "#2846B8"
+      ]
+    }
+  ]
+}

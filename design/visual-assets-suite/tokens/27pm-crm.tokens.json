@@ -1,0 +1,43 @@
+{
+  "name": "27PM CRM",
+  "version": "1.0.0",
+  "colors": {
+    "ivory": "#F4F0E7",
+    "raised": "#FBF8F1",
+    "carbon": "#171714",
+    "cobalt": "#2846B8",
+    "cobaltDeep": "#1D3697",
+    "muted": "#65625B",
+    "danger": "#B3312F",
+    "successText": "#225C3A",
+    "successSurface": "#E3F1E8",
+    "warningText": "#8A4D18",
+    "warningSurface": "#FFF4E7"
+  },
+  "typography": {
+    "editorial": {
+      "family": "Newsreader Variable",
+      "weight": 450
+    },
+    "interface": {
+      "family": "Instrument Sans Variable",
+      "weight": 400
+    },
+    "wordmark": {
+      "family": "Instrument Sans Variable",
+      "weight": 720,
+      "tracking": "-0.035em"
+    }
+  },
+  "geometry": {
+    "iconViewBox": "0 0 24 24",
+    "iconStroke": 1.7,
+    "radiusMaxPx": 4,
+    "minTouchTargetPx": 44
+  },
+  "source": {
+    "crmCommit": "04f5c233244def06ee9c8847af5fbf5c7c607de4",
+    "brandCommit": "003bad433ad4915d9afbfe068fd414d57deda944"
+  },
+  "status": "extension proposée; non déployée"
+}
