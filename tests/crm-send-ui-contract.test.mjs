@@ -89,6 +89,18 @@ test("the reply path freezes the full request identity, not only its body", asyn
     source,
     /conversationId: conversation\.id,[\s\S]*from: conversation\.mailboxAddress,[\s\S]*to: conversation\.contactEmail,[\s\S]*subject: conversation\.subject,[\s\S]*body: value,[\s\S]*complianceConfirmed: true/u,
   );
+  assert.match(
+    source,
+    /operationalReply \? \{ operationalReplyConfirmed: true \} : \{\}/u,
+  );
+  assert.match(
+    source,
+    /Confirmer que cette réponse administrative unique a été sollicitée dans le dernier message entrant et que le destinataire n’a demandé aucun blocage\?/u,
+  );
+  assert.match(
+    source,
+    /payload\.operationalReplyConfirmed === true[\s\S]*operationalReplyConfirmed: true/u,
+  );
   assert.match(source, /replyPayload\(frozenDraft\.payload\)/u);
 });
 

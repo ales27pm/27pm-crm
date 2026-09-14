@@ -181,6 +181,78 @@ test("repairs an accepted send after a partial CRM write and remains idempotent"
   assert.deepEqual(database.prepare("PRAGMA foreign_key_check").all(), []);
 });
 
+test("records an operations reply as administrative without creating a deal", async (t) => {
+  const database = await migratedDatabase();
+  t.after(() => database.close());
+  database.prepare(`INSERT INTO contacts
+    (id, email, display_name)
+    VALUES ('contact-operations', 'isabel@example.com', 'Isabel')`).run();
+  database.prepare(`INSERT INTO conversations
+    (id, mailbox_id, contact_id, subject, normalized_subject, thread_key,
+     last_message_at)
+    VALUES ('conversation-operations', 'mailbox_admin', 'contact-operations',
+      'Besoin d''aide avec Cakemail?', 'besoin d''aide avec cakemail?',
+      'operations:isabel', '2026-09-14T22:19:08.000Z')`).run();
+  database.prepare(`INSERT INTO send_commands
+    (id, transport_provider, idempotency_key, request_hash, mailbox_id,
+     conversation_id, status, contact_id, provider_message_id,
+     external_message_id, response_status)
+    VALUES ('command-operations', 'mailgun', 'operations-key',
+      'operations-hash', 'mailbox_admin', 'conversation-operations', 'sent',
+      'contact-operations', 'provider-operations', 'operations@27pm.org', 200)`).run();
+
+  const db = d1Adapter(database, { failFirstBatch: false, batchCalls: 0 });
+  const conversationId = await recordAcceptedOutboundMessage(db, {
+    commandId: "command-operations",
+    contactId: "contact-operations",
+    provider: "mailgun",
+    providerMessageId: "provider-operations",
+    externalMessageId: "operations@27pm.org",
+    mailbox: {
+      id: "mailbox_admin",
+      address: "admin@27pm.org",
+      purpose: "operations",
+    },
+    recipient: "ISABEL@example.com",
+    subject: "Besoin d'aide avec Cakemail?",
+    text: "Merci pour votre message.",
+    html: "<p>Merci pour votre message.</p>",
+    actorEmail: "operator@27pm.org",
+    conversationId: "conversation-operations",
+    occurredAt: "2026-09-14T23:30:00.000Z",
+  });
+
+  assert.equal(conversationId, "conversation-operations");
+  assert.deepEqual(
+    plain(database.prepare(`SELECT traffic_type AS trafficType,
+      tags_json AS tagsJson, recipients_json AS recipientsJson
+      FROM messages
+      WHERE transport_provider='mailgun' AND provider_message_id='provider-operations'`).get()),
+    {
+      trafficType: "administrative",
+      tagsJson: '["source-crm","traffic-administrative"]',
+      recipientsJson: '["isabel@example.com"]',
+    },
+  );
+  assert.equal(database.prepare(
+    "SELECT COUNT(*) AS count FROM deals WHERE conversation_id='conversation-operations'",
+  ).get().count, 0);
+  assert.deepEqual(
+    JSON.parse(database.prepare(
+      "SELECT details_json AS detailsJson FROM audit_entries WHERE action='message.sent'",
+    ).get().detailsJson),
+    {
+      mailboxId: "mailbox_admin",
+      trafficType: "administrative",
+      tags: ["source-crm", "traffic-administrative"],
+      provider: "mailgun",
+      providerMessageId: "provider-operations",
+      externalMessageId: "operations@27pm.org",
+    },
+  );
+  assert.deepEqual(database.prepare("PRAGMA foreign_key_check").all(), []);
+});
+
 async function migratedDatabase() {
   const database = new DatabaseSync(":memory:");
   database.exec("PRAGMA foreign_keys = ON");

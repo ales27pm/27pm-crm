@@ -11,6 +11,7 @@ import {
 } from "@/lib/frozen-send-draft";
 import type { SendAttemptPayload } from "@/lib/send-attempt-registry";
 import type { SendUiResult } from "@/lib/send-ui-result";
+import { mailboxForAddress } from "@/lib/mailboxes";
 import type { Conversation, CrmMessage } from "../crm-types";
 import {
   executeFrozenSend,
@@ -38,6 +39,7 @@ type ReplyPayload = {
   subject: string;
   body: string;
   complianceConfirmed: true;
+  operationalReplyConfirmed?: true;
 };
 
 type ThreadConversationProps = {
@@ -150,6 +152,7 @@ export function ThreadView({
       return;
     }
 
+    const operationalReply = mailboxForAddress(conversation.mailboxAddress)?.purpose === "operations";
     const payload = frozenDraft
       ? replyPayload(frozenDraft.payload)
       : replyPayload({
@@ -159,6 +162,7 @@ export function ThreadView({
           subject: conversation.subject,
           body: value,
           complianceConfirmed: true,
+          ...(operationalReply ? { operationalReplyConfirmed: true } : {}),
         });
     if (!payload) {
       setStatus(FROZEN_DRAFT_UNAVAILABLE_MESSAGE);
@@ -166,7 +170,9 @@ export function ThreadView({
     }
     if (
       !window.confirm(
-        "Confirmer la qualification, le fondement LCAP et les preuves à jour pour ce destinataire unique?",
+        operationalReply
+          ? "Confirmer que cette réponse administrative unique a été sollicitée dans le dernier message entrant et que le destinataire n’a demandé aucun blocage?"
+          : "Confirmer la qualification, le fondement LCAP et les preuves à jour pour ce destinataire unique?",
       )
     ) {
       setStatus("Envoi annulé.");
@@ -366,6 +372,9 @@ function replyPayload(payload: SendAttemptPayload): ReplyPayload | null {
         subject: payload.subject,
         body: payload.body,
         complianceConfirmed: true,
+        ...(payload.operationalReplyConfirmed === true
+          ? { operationalReplyConfirmed: true }
+          : {}),
       }
     : null;
 }

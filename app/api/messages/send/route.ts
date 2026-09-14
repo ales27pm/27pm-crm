@@ -19,6 +19,14 @@ import {
 } from "@/lib/mailgun";
 import { extractEmailAddress, parseAddressList } from "@/lib/mailboxes";
 import {
+  advanceOperationalReplyAuthorization,
+  loadOperationalReplyEvidence,
+  operationalReplyApprovalDigest,
+  operationalReplyApprovalMatches,
+  type OperationalReplyEvidence,
+} from "@/lib/operational-reply";
+import { operationalReplyContent } from "@/lib/operational-reply-content";
+import {
   createOutboundExternalMessageId,
   outboundTransmittedContent,
   sendOutboundMessage,
@@ -30,6 +38,7 @@ import {
 } from "@/lib/outbound-message-snapshot";
 import { reconcileOutboundEventsBestEffort } from "@/lib/outbound-event-reconciliation";
 import {
+  requireMailgunOperationalConfig,
   requireOutboundOperationalConfig,
   type OutboundProvider,
   type OutboundTransportConfig,
@@ -45,6 +54,7 @@ import { appendComplianceFooter, createUnsubscribeToken, validUnsubscribeSecret 
 export const dynamic = "force-dynamic";
 
 const CRM_PROSPECTING_TAGS = ["source-crm", "traffic-prospecting"] as const;
+const CRM_ADMINISTRATIVE_TAGS = ["source-crm", "traffic-administrative"] as const;
 
 type SendCommandRow = {
   commandId: string;
@@ -77,6 +87,12 @@ export async function POST(request: Request) {
   const command = parseSendCommand(payload);
   if (!command) return jsonError(400, "message_invalid");
   if (payload.complianceConfirmed !== true) return jsonError(409, "operator_compliance_confirmation_required");
+  if (
+    command.mailbox.purpose === "operations" &&
+    payload.operationalReplyConfirmed !== true
+  ) {
+    return jsonError(409, "operational_reply_confirmation_required");
+  }
   const requestHash = await requestFingerprint({
     mailboxId: command.mailbox.id,
     to: command.to,
@@ -102,7 +118,9 @@ export async function POST(request: Request) {
 
   let transport: OutboundTransportConfig;
   try {
-    transport = requireOutboundOperationalConfig();
+    transport = command.mailbox.purpose === "operations"
+      ? requireMailgunOperationalConfig()
+      : requireOutboundOperationalConfig();
   } catch {
     return jsonError(503, "transport_configuration_invalid");
   }
@@ -111,10 +129,18 @@ export async function POST(request: Request) {
   let conversation: {
     id: string;
     mailboxId: string;
+    contactId: string | null;
     contactEmail: string | null;
     externalMessageId: string | null;
   } | null = null;
   let contact: ContactCompliance | null = null;
+  let configuration: ComplianceConfiguration | null = null;
+  let operationalReply: OperationalReplyEvidence | null = null;
+  let operationalReplyDigest: string | null = null;
+  let authorizationSnapshot: object | null = null;
+  let authorizationContactId: string | null = null;
+  let authorizationContactVersion: number | null = null;
+  let authorizationConfigurationVersion: number | null = null;
   let providerDispatchStarted = false;
   let providerAccepted = false;
   let providerMessageId: string | null = null;
@@ -126,7 +152,8 @@ export async function POST(request: Request) {
     if (command.conversationId) {
       conversation = await db
         .prepare(
-          `SELECT c.id, c.mailbox_id AS mailboxId, contact.email AS contactEmail,
+          `SELECT c.id, c.mailbox_id AS mailboxId, c.contact_id AS contactId,
+                  contact.email AS contactEmail,
                   (SELECT m.external_message_id FROM messages m
                     WHERE m.conversation_id = c.id AND m.external_message_id IS NOT NULL
                     ORDER BY m.occurred_at DESC LIMIT 1) AS externalMessageId
@@ -149,17 +176,60 @@ export async function POST(request: Request) {
       }
     }
 
-    // Every operator-composed CRM message is treated as prospecting. Choosing
-    // another mailbox must never bypass a category suppression.
-    const suppressionCategory = "prospecting";
-    contact = await loadContactCompliance(db, "email", command.to[0], suppressionCategory);
-    if (!contact) return jsonError(409, "recipient_not_qualified");
-    const unsubscribeSecret = runtimeString("CRM_UNSUBSCRIBE_SIGNING_KEY");
-    const configuration = await loadComplianceConfiguration(db);
-    configuration.unsubscribeSigningKeyConfigured = validUnsubscribeSecret(unsubscribeSecret);
-    const complianceDecision = canEmail(contact, configuration);
-    if (!complianceDecision.allowed) return jsonError(409, complianceDecision.reasons[0] ?? "recipient_not_qualified", complianceDecision.reasons.join(","));
-    const authorizationSnapshot = { decision: complianceDecision, evidence: complianceEvidenceSnapshot(contact, configuration) };
+    if (command.mailbox.purpose === "operations") {
+      operationalReply = await loadOperationalReplyEvidence(db, {
+        conversationId: command.conversationId!,
+        conversationSubject: command.subject,
+        mailboxId: command.mailbox.id,
+        mailboxAddress: command.mailbox.address,
+        recipient: command.to[0],
+      });
+      if (!operationalReply) return jsonError(409, "operational_reply_not_allowed");
+      operationalReplyDigest = await operationalReplyApprovalDigest({
+        conversationId: operationalReply.conversationId,
+        conversationSubject: operationalReply.conversationSubject,
+        mailboxId: operationalReply.mailboxId,
+        mailboxAddress: operationalReply.mailboxAddress,
+        recipient: operationalReply.recipient,
+        inboundMessageId: operationalReply.inboundMessageId,
+        inboundExternalMessageId: operationalReply.inboundExternalMessageId,
+        text: command.text!,
+      });
+      if (!operationalReplyApprovalMatches(
+        operationalReplyDigest,
+        runtimeString("CRM_OPERATIONAL_REPLY_APPROVAL_SHA256"),
+      )) {
+        return jsonError(409, "operational_reply_not_allowed");
+      }
+      conversation!.externalMessageId = operationalReply.inboundExternalMessageId;
+      authorizationContactId = operationalReply.contactId;
+      authorizationContactVersion = operationalReply.contactComplianceVersion;
+      authorizationSnapshot = {
+        decision: {
+          allowed: true,
+          kind: "solicited_operational_reply",
+          evaluatedAt: new Date().toISOString(),
+        },
+        approvalDigest: operationalReplyDigest,
+        operator: { email: auth.operator.email },
+        evidence: { operationalReply },
+      };
+    } else {
+      // Every sales message remains prospecting. Choosing another sales mailbox
+      // must never bypass a category suppression.
+      const suppressionCategory = "prospecting";
+      contact = await loadContactCompliance(db, "email", command.to[0], suppressionCategory);
+      if (!contact) return jsonError(409, "recipient_not_qualified");
+      const unsubscribeSecret = runtimeString("CRM_UNSUBSCRIBE_SIGNING_KEY");
+      configuration = await loadComplianceConfiguration(db);
+      configuration.unsubscribeSigningKeyConfigured = validUnsubscribeSecret(unsubscribeSecret);
+      const complianceDecision = canEmail(contact, configuration);
+      if (!complianceDecision.allowed) return jsonError(409, complianceDecision.reasons[0] ?? "recipient_not_qualified", complianceDecision.reasons.join(","));
+      authorizationContactId = contact.contactId;
+      authorizationContactVersion = contact.complianceVersion;
+      authorizationConfigurationVersion = configuration.version;
+      authorizationSnapshot = { decision: complianceDecision, evidence: complianceEvidenceSnapshot(contact, configuration) };
+    }
 
     const inserted = await db
       .prepare(
@@ -176,9 +246,9 @@ export async function POST(request: Request) {
         requestHash,
         command.mailbox.id,
         command.conversationId,
-        contact.contactId,
-        contact.complianceVersion,
-        configuration.version,
+        authorizationContactId,
+        authorizationContactVersion,
+        authorizationConfigurationVersion,
         new Date().toISOString(),
         JSON.stringify(authorizationSnapshot),
       )
@@ -195,23 +265,67 @@ export async function POST(request: Request) {
       );
     }
 
-    const authorized = await advanceSendAuthorization(db, commandId, contact, configuration, "pending", "authorized", authorizationSnapshot, auth.operator.email, suppressionCategory);
+    const authorized = operationalReply
+      ? await advanceOperationalReplyAuthorization(
+          db,
+          commandId,
+          operationalReply,
+          operationalReplyDigest!,
+          auth.operator.email,
+          "pending",
+          "authorized",
+        )
+      : await advanceSendAuthorization(
+          db,
+          commandId,
+          contact!,
+          configuration!,
+          "pending",
+          "authorized",
+          authorizationSnapshot,
+          auth.operator.email,
+          "prospecting",
+        );
     if (!authorized) {
       await cancelSendCommand(db, commandId, "compliance_state_changed");
       return jsonError(409, "compliance_state_changed");
     }
-    let compliantContent;
-    try {
-      compliantContent = await compliantOutboundContent(
-        command,
-        contact,
-        configuration,
-      );
-    } catch {
-      await cancelSendCommand(db, commandId, "unsubscribe_origin_invalid");
-      return jsonError(503, "unsubscribe_origin_invalid");
+    let outboundContent;
+    if (operationalReply) {
+      outboundContent = operationalReplyContent(command.text!);
+    } else {
+      try {
+        outboundContent = await compliantOutboundContent(
+          command,
+          contact!,
+          configuration!,
+        );
+      } catch {
+        await cancelSendCommand(db, commandId, "unsubscribe_origin_invalid");
+        return jsonError(503, "unsubscribe_origin_invalid");
+      }
     }
-    const dispatching = await advanceSendAuthorization(db, commandId, contact, configuration, "authorized", "dispatching", authorizationSnapshot, auth.operator.email, suppressionCategory);
+    const dispatching = operationalReply
+      ? await advanceOperationalReplyAuthorization(
+          db,
+          commandId,
+          operationalReply,
+          operationalReplyDigest!,
+          auth.operator.email,
+          "authorized",
+          "dispatching",
+        )
+      : await advanceSendAuthorization(
+          db,
+          commandId,
+          contact!,
+          configuration!,
+          "authorized",
+          "dispatching",
+          authorizationSnapshot,
+          auth.operator.email,
+          "prospecting",
+        );
     if (!dispatching) {
       await cancelSendCommand(db, commandId, "compliance_state_changed");
       return jsonError(409, "compliance_state_changed");
@@ -222,7 +336,7 @@ export async function POST(request: Request) {
       command.mailbox.address,
     );
     const transmittedContent = outboundTransmittedContent(
-      compliantContent,
+      outboundContent,
       transport,
     );
     const occurredAt = new Date().toISOString();
@@ -230,7 +344,7 @@ export async function POST(request: Request) {
       version: 1,
       requestHash,
       provider: transportProvider,
-      contactId: contact.contactId,
+      contactId: authorizationContactId!,
       mailbox: {
         id: command.mailbox.id,
         address: command.mailbox.address,
@@ -264,10 +378,9 @@ export async function POST(request: Request) {
       throw new Error("outbound_snapshot_persistence_failed");
     }
 
-    const audienceViolation = cakemailAudiencePolicyViolation(
-      transport,
-      contact,
-    );
+    const audienceViolation = contact
+      ? cakemailAudiencePolicyViolation(transport, contact)
+      : null;
     if (audienceViolation) {
       await cancelSendCommand(db, commandId, audienceViolation);
       return jsonError(409, audienceViolation);
@@ -279,15 +392,17 @@ export async function POST(request: Request) {
         fromName: command.mailbox.displayName,
         to: command.to,
         subject: command.subject,
-        text: compliantContent.text,
-        html: compliantContent.html,
+        text: outboundContent.text,
+        html: outboundContent.html,
         inReplyTo: conversation?.externalMessageId,
         references: conversation?.externalMessageId
           ? [conversation.externalMessageId]
           : undefined,
         replyTo: command.mailbox.address,
-        unsubscribeUrl: compliantContent.unsubscribeUrl,
-        tags: CRM_PROSPECTING_TAGS,
+        unsubscribeUrl: outboundContent.unsubscribeUrl,
+        tags: command.mailbox.purpose === "operations"
+          ? CRM_ADMINISTRATIVE_TAGS
+          : CRM_PROSPECTING_TAGS,
       },
       transport,
       {
@@ -327,7 +442,7 @@ export async function POST(request: Request) {
 
     recordedConversationId = await recordAcceptedOutboundMessage(db, {
       commandId,
-      contactId: contact.contactId,
+      contactId: authorizationContactId!,
       provider: transportProvider,
       providerMessageId,
       externalMessageId,
@@ -568,7 +683,7 @@ async function cancelSendCommand(db: ReturnType<typeof crmDatabase>, commandId: 
 }
 
 function parseSendCommand(payload: Record<string, unknown>) {
-  const mailbox = salesMailbox(payload);
+  const mailbox = knownMailbox(payload);
   if (!mailbox) return null;
   const recipient = singleSendRecipient(payload.to);
   if (!recipient) return null;
@@ -576,13 +691,16 @@ function parseSendCommand(payload: Record<string, unknown>) {
   const content = sendContentFromPayload(payload);
   const conversationId = validConversationId(content.conversationId);
   if (!validSendContent(payload, content, conversationId)) return null;
+  if (
+    mailbox.purpose === "operations" &&
+    (!conversationId || !content.text || content.html !== null)
+  ) return null;
 
   return { mailbox, to: [recipient], ...content, conversationId };
 }
 
-function salesMailbox(payload: Record<string, unknown>) {
+function knownMailbox(payload: Record<string, unknown>) {
   const { mailbox } = sendMailboxFromPayload(payload);
-  if (!mailbox || mailbox.purpose !== "sales") return null;
   return mailbox;
 }
 

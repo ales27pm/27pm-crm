@@ -13,6 +13,9 @@ et les pages de la CAI sur les [changements de la Loi
 25](https://www.cai.gouv.qc.ca/protection-renseignements-personnels/sujets-et-domaines-dinteret/principaux-changements-loi-25)
 et les [incidents de
 confidentialité](https://www.cai.gouv.qc.ca/protection-renseignements-personnels/information-entreprises-privees/incidents-confidentialite-mesures-securite-entreprises).
+La réponse administrative sollicitée s’appuie séparément sur l’[article 3(b)
+du règlement fédéral](https://laws-lois.justice.gc.ca/fra/reglements/DORS-2013-221/section-3.html)
+et la [fiche d’information du CRTC](https://crtc.gc.ca/fra/com500/info.htm).
 
 ## Matrice d’écart et résultat
 
@@ -22,7 +25,7 @@ confidentialité](https://www.cai.gouv.qc.ca/protection-renseignements-personnel
 | Publication visible | « trouvé en ligne » pouvait être ambigu | Publication par le destinataire ou autorisée, absence de restriction et pertinence précise exigées | Bloqué si un des trois éléments manque; une liste tierce ne suffit pas |
 | Exemption B2B | Organisations seules | Relation entre organisations et pertinence du message exigées séparément | La qualification juridique de la relation demeure à valider |
 | Courriel | Contrôles répartis | `canEmail` serveur unique, revalidation transactionnelle avant autorisation et avant transport, un destinataire, confirmation opérateur, pied de page serveur | Les transferts hors Québec restent bloqués sans EFVP, contrat, validation et preuve |
-| Désabonnement et suppression | Blocage au contact | Route publique à jeton opaque authentifié, suppression globale ou catégorie `prospecting`, preuve hachée, annulation des tâches/commandes, gardes de réimport et journal immuable | Tous les courriels composés dans ce CRM sont classés `prospecting`, quelle que soit la boîte; aucun choix de boîte ne contourne la suppression |
+| Désabonnement et suppression | Blocage au contact | Route publique à jeton opaque authentifié, suppression globale ou catégorie `prospecting`, preuve hachée, annulation des tâches/commandes, gardes de réimport et journal immuable | Les envois des boîtes de vente sont `prospecting`. Une réponse sollicitée depuis la boîte d’opérations est `administrative`, mais toute suppression courriel, même limitée à une catégorie, la bloque intentionnellement |
 | Appels | Statut LNNTE seulement | `canCall` exige non-appel interne, vérification LNNTE récente, inscription de 27PM, numéro d’affaires, identité/numéro affiché, fuseau et heures | Aucun appel n’est lancé par le CRM; inscription et preuves réelles doivent être fournies |
 | Données personnelles | Pas de classe explicite | Coordonnée de travail séparée de `other_personal`; cette dernière bloque l’approche; avertissements sur les champs libres | La minimisation et les durées de conservation finales requièrent une politique interne |
 | Automatisation et fournisseur hors Québec | Aucun verrou explicite | Blocage par défaut sans validation juridique et référence d’EFVP/contrat; qualification entièrement automatisée bloquée | Les cases ne doivent être activées qu’après validation documentée |
@@ -31,12 +34,27 @@ confidentialité](https://www.cai.gouv.qc.ca/protection-renseignements-personnel
 
 ## Décision serveur
 
-`lib/compliance.ts` est l’unique moteur d’autorisation. Il retourne une liste de
-motifs lisibles et bloque par défaut. Les anciennes fonctions partielles ont
-été retirées. La création d’un rappel de contact et son passage à « fait »
-revalident le canal; l’envoi revalide encore l’état et les versions juste avant
-le transport. Une demande de consentement ne contourne pas le moteur : le
-fondement `none` reste bloqué.
+`lib/compliance.ts` est le moteur d’autorisation des approches commerciales. Il
+retourne une liste de motifs lisibles et bloque par défaut. Les anciennes
+fonctions partielles ont été retirées. La création d’un rappel de contact et son
+passage à « fait » revalident le canal; l’envoi revalide encore l’état et les
+versions juste avant le transport. Une demande de consentement ne contourne pas
+le moteur : le fondement `none` reste bloqué. Le chemin administratif borné
+ci-dessous utilise son propre verrou, sans modifier les règles commerciales.
+
+La boîte d’opérations permet uniquement une réponse en texte brut lorsque le
+message le plus récent de la conversation est une communication entrante reçue
+par Mailgun, avec l’objet inchangé. L’adresse du contact, le champ Reply-To,
+le statut actif de la boîte, l’état du message, la récence, les suppressions et
+l’absence d’une réponse antérieure au même message sont vérifiés au chargement,
+puis atomiquement avant l’autorisation et avant le transport. Le snapshot
+d’autorisation conserve l’opérateur et le message entrant précis. Ce chemin
+reste limité à Mailgun, est marqué `administrative`, ne crée pas d’occasion
+commerciale et n’ajoute ni pied de page marketing ni en-têtes List-Unsubscribe.
+Un digest SHA-256 secret configuré hors bande doit aussi correspondre exactement
+à la conversation, au message entrant, à l’identifiant et l’adresse de la boîte,
+au destinataire, à l’objet et au texte approuvés. Il ne constitue pas une voie
+de composition générale et n’assouplit aucun contrôle des boîtes de vente.
 
 Les migrations existantes sont conservées. `0006_compliance_hardening.sql`
 reconstruit uniquement `send_commands`, ajoute les champs contact sans

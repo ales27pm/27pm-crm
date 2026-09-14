@@ -108,12 +108,40 @@ test("public Mailgun webhooks reject oversized bodies before parsing", async () 
 
 test("outbound email and contact tasks enforce qualification guards", async () => {
   const send = await readFile(new URL("../app/api/messages/send/route.ts", import.meta.url), "utf8");
+  const operationalReply = await readFile(new URL("../lib/operational-reply.ts", import.meta.url), "utf8");
   const tasks = await readFile(new URL("../app/api/tasks/route.ts", import.meta.url), "utf8");
   assert.match(send, /canEmail\(contact, configuration\)/u);
   assert.match(send, /advanceSendAuthorization/u);
   assert.match(send, /complianceEvidenceSnapshot/u);
   assert.match(send, /const suppressionCategory = "prospecting"/u);
-  assert.match(send, /mailbox\.purpose !== "sales"/u);
+  assert.match(send, /loadOperationalReplyEvidence/u);
+  assert.match(send, /advanceOperationalReplyAuthorization/u);
+  assert.match(send, /operational_reply_confirmation_required/u);
+  assert.match(send, /requireMailgunOperationalConfig/u);
+  assert.match(send, /operationalReplyApprovalDigest/u);
+  assert.match(send, /operationalReplyApprovalMatches/u);
+  assert.match(send, /runtimeString\("CRM_OPERATIONAL_REPLY_APPROVAL_SHA256"\)/u);
+  assert.match(send, /kind: "solicited_operational_reply"/u);
+  assert.match(send, /approvalDigest: operationalReplyDigest/u);
+  assert.match(
+    send,
+    /operationalReply,[\s\S]*operationalReplyDigest!,[\s\S]*auth\.operator\.email,[\s\S]*"pending",[\s\S]*"authorized"/u,
+  );
+  assert.match(
+    send,
+    /mailbox\.purpose === "operations"[\s\S]*\(!conversationId \|\| !content\.text \|\| content\.html !== null\)/u,
+  );
+  assert.match(operationalReply, /mailbox\.purpose='operations'/u);
+  assert.match(operationalReply, /inbound\.direction='inbound'/u);
+  assert.match(operationalReply, /inbound\.status='received'/u);
+  assert.match(operationalReply, /inbound\.transport_provider='mailgun'/u);
+  assert.match(operationalReply, /FROM contact_suppressions suppression/u);
+  assert.match(operationalReply, /operator_confirmed_at IS NOT NULL/u);
+  assert.match(
+    operationalReply,
+    /json_extract\(compliance_snapshot_json, '\$\.approvalDigest'\)=\?/u,
+  );
+  assert.doesNotMatch(send, /mailbox\.purpose !== "sales"/u);
   assert.match(send, /cancelSendCommand/u);
   assert.match(send, /operator_compliance_confirmation_required/u);
   assert.match(send, /appendComplianceFooter/u);
