@@ -73,8 +73,11 @@ Before an authorized deployment:
 3. deploy the exact reviewed checkpoint through Sites so its packaged
    migrations apply to the correct binding;
 4. verify `GET /api/health`, operator denial/allowlist behavior, the five
-   accounts, six fail-closed research contacts, and `PRAGMA foreign_key_check` through the
-   approved D1 console;
+   accounts, and all six research contacts; require every email channel either
+   to be denied by the current server compliance decision or to have current,
+   complete, server-validated evidence for the permitted contact, require each
+   contact-step state to match that decision, and run `PRAGMA foreign_key_check`
+   through the approved D1 console;
 5. call the operator-only `GET /api/admin/database-health` and require HTTP 200,
    `status=ok`, `migration0014=true`, `quickCheck=["ok"]`, zero foreign-key
    violations, and the expected pre-deployment message/event row counts;
@@ -125,8 +128,14 @@ source database, UTC timestamp, object count, checksum and exact restore
 command. A truncated SQL display or an untested download is not a restorable
 backup. After migration, run `PRAGMA
 foreign_key_check`, confirm the five cohort accounts remain ordered, confirm
-the six research contacts retain their provenance and fail-closed state, and
-confirm all 30 planning steps exist without a message or send command.
+all six research contacts retain their provenance, and require each email
+channel either to be denied by the current server compliance decision or, when
+allowed, to have current, complete, server-validated evidence. Confirm all 30
+planning steps exist. For the 15 `requires_contact` email steps, confirm each is
+blocked unless its selected channel is currently allowed; verify the 15
+non-contact (`research`, `review`, and `nurture`) steps against their own cadence
+and state invariants, and confirm no unauthorized message, send command or
+compliance bypass exists.
 
 ## Public intake contract
 
