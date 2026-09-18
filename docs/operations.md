@@ -36,6 +36,7 @@ them. Never commit a production value to `.env.example`.
 | `MAILGUN_API_BASE` | No | `https://api.mailgun.net` for US or `https://api.eu.mailgun.net` for EU. |
 | `MAILGUN_DOMAIN` | No | Must remain exactly `27pm.org`. |
 | `CRM_CANARY_RECIPIENT` | Yes | Optional exact controlled mailbox accepted by the Mailgun canary route; configuration never authorizes a send. |
+| `CRM_OPERATIONAL_REPLY_APPROVAL_SHA256` | Yes | Single-use SHA-256 approval for one exact solicited operations reply. Generate it out of band, deploy it only for the reviewed reply, then remove or rotate it after the attempt. |
 | `CRM_PUBLIC_ORIGIN` | No | Stable production HTTPS origin, normally `https://crm.27pm.org`. |
 | `CRM_UNSUBSCRIBE_SIGNING_KEY` | Yes | Dedicated secret (at least 32 random bytes) for opaque AES-GCM authenticated unsubscribe tokens. No production fallback exists. |
 | `CRM_WEBHOOK_MAX_AGE_SECONDS` | No | Maximum accepted webhook age; the current operational default is 900 seconds. |
@@ -58,6 +59,53 @@ account/list/content/sender/audience binding are configured. Unknown Cakemail
 outcomes are listed and evidence-resolved through the operator-only
 `/api/admin/cakemail-send-resolution` endpoint described in `docs/cakemail.md`;
 that endpoint never retries provider delivery.
+
+### One exact operations reply
+
+An operations-mailbox reply requires a second, out-of-band approval bound to
+the exact conversation, latest inbound Mailgun message, mailbox, recipient,
+subject, and plain-text body. The local generator is read-only: it does not
+contact Sites, D1, Mailgun, or the recipient, and it never sends a message.
+
+1. Verify in the CRM that the inbound message is the latest message and that it
+   explicitly solicits the administrative reply. Review the exact reply text
+   and obtain approval for that one recipient and message.
+2. Copy the authoritative identifiers and exact reviewed text into a private
+   JSON file outside the repository. It must contain exactly these fields:
+
+   ```json
+   {
+     "conversationId": "conversation-example",
+     "conversationSubject": "Exact subject",
+     "mailboxId": "mailbox_admin",
+     "mailboxAddress": "admin@27pm.org",
+     "recipient": "recipient@example.com",
+     "inboundMessageId": "message-example",
+     "inboundExternalMessageId": "provider-message@example.com",
+     "text": "Exact approved plain-text reply"
+   }
+   ```
+
+3. Restrict the file to its owner and generate the approval preview:
+
+   ```sh
+   chmod 600 /absolute/private/path/operational-reply.json
+   npm run operational-reply:approval -- --input=/absolute/private/path/operational-reply.json
+   ```
+
+4. Compare every returned scope field and `textSha256` with the reviewed file.
+   Store only the returned `approvalSha256` as the Sites secret
+   `CRM_OPERATIONAL_REPLY_APPROVAL_SHA256`, then deploy that exact reviewed
+   checkpoint. Generating or configuring the digest is not send authorization;
+   the exact external message still needs immediate operator approval.
+5. Send at most that exact reply through the CRM with a fresh idempotency key.
+   Remove or rotate the runtime secret immediately after the terminal attempt,
+   and delete the private input file. Never commit the input, digest, or reply
+   text.
+
+Any changed field produces a different digest and fails closed. A stale inbound
+message, suppression, prior reply, mismatched recipient, non-Mailgun inbound,
+HTML body, or missing digest also remains blocked by the server.
 
 ## Migrations CRM 0004 à 0014
 

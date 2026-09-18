@@ -15,8 +15,9 @@ Mailgun remains the default outbound transport and the sole inbound transport
 authorized by the public DNS. The CRM receives signed Mailgun HTTP callbacks
 and normally sends through a domain-scoped sending key. A gated Cakemail REST
 adapter may replace only the outbound leg; it never changes Mailgun MX, routes,
-or inbound storage. GitHub Pages continues to host the public 27PM site and
-stores no CRM data.
+or inbound storage. Vercel hosts the separately deployed public 27PM site,
+whose Turnstile form posts the bounded intake contract to the CRM. The public
+site stores no CRM data.
 
 ## Primary workflow
 
@@ -31,7 +32,9 @@ stores no CRM data.
 ## Security invariants
 
 - CRM pages and operator API routes require dispatch-owned ChatGPT sign-in and
-  an explicit server-side email allowlist.
+  an explicit server-side email allowlist. Browser mutation routes additionally
+  require positive same-origin evidence and reject missing or cross-origin
+  browser signals.
 - Provider webhook endpoints remain public but require their provider-specific
   HMAC-SHA256 signatures and deduplicate or reject replayed callback identities
   according to each provider contract.

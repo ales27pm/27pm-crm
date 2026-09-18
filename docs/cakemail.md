@@ -68,8 +68,9 @@ CAKEMAIL_DKIM_ALIGNMENT_CONFIRMED=true
 ```
 
 Store `CAKEMAIL_PAT` and webhook secrets only as Sites runtime secrets. Request
-the PAT with only `emailapi:send` and restrict it to the 27PM account. Cakemail
-1.25.3 currently expands that request to the exact effective metadata scopes
+the PAT with only `emailapi:send` and restrict it to the 27PM account. The live
+Cakemail OpenAPI reported version 1.25.5 on 18 September 2026; Cakemail currently
+expands that request to the exact effective metadata scopes
 `emailapi:read` and `emailapi:send`; the preflight rejects every other scope.
 Provider mutations, including webhook provisioning, must use a separate,
 task-specific credential that is never deployed to the runtime.

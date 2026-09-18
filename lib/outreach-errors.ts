@@ -2,6 +2,7 @@ const OUTREACH_ERROR_LABELS: Readonly<Record<string, string>> = {
   authentication_required: "Votre session a expiré. Reconnectez-vous avant de continuer.",
   operator_forbidden: "Votre compte n’est pas autorisé à modifier ce CRM.",
   allowlist_unconfigured: "La liste des opérateurs autorisés n’est pas configurée.",
+  cross_origin_request_forbidden: "Cette modification doit être effectuée directement depuis le CRM.",
   account_not_found: "L’entreprise demandée n’existe plus ou n’est pas accessible.",
   request_body_invalid: "La demande envoyée au CRM n’est pas valide.",
   contact_organization_invalid: "L’entreprise liée au contact n’est pas valide.",

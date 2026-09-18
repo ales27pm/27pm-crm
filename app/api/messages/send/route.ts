@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import {
   advanceSendAuthorization,
@@ -50,6 +50,7 @@ import {
 } from "@/lib/send-payload";
 import { requireRuntimeString, runtimeString } from "@/lib/runtime";
 import { appendComplianceFooter, createUnsubscribeToken, validUnsubscribeSecret } from "@/lib/unsubscribe";
+import { isWellFormedUnicode } from "@/lib/unicode";
 
 export const dynamic = "force-dynamic";
 
@@ -72,7 +73,7 @@ type SendCommandRow = {
 type ParsedSendCommand = NonNullable<ReturnType<typeof parseSendCommand>>;
 
 export async function POST(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
 
   const payload = await readJsonObject(request);
@@ -736,7 +737,11 @@ function validSendContent(
 }
 
 function validSubject(subject: string): boolean {
-  return subject.length > 0 && subject.length <= 500;
+  return (
+    subject.length > 0 &&
+    subject.length <= 500 &&
+    isWellFormedUnicode(subject)
+  );
 }
 
 function validBody(text: string | null, html: string | null): boolean {
@@ -750,7 +755,10 @@ function hasBodyContent(text: string | null, html: string | null): boolean {
 }
 
 function bodyWithinLimit(value: string | null): boolean {
-  return value === null || value.length <= 2_000_000;
+  return (
+    value === null ||
+    (value.length <= 2_000_000 && isWellFormedUnicode(value))
+  );
 }
 
 async function compliantOutboundContent(

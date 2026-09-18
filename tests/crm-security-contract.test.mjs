@@ -1,34 +1,242 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import test from "node:test";
+import ts from "typescript";
 
-const privateRoutes = [
-  "../app/api/accounts/import/route.ts",
-  "../app/api/contacts/route.ts",
-  "../app/api/contacts/[id]/route.ts",
-  "../app/api/compliance/route.ts",
-  "../app/api/intake/[id]/route.ts",
-  "../app/api/interactions/route.ts",
-  "../app/api/organizations/route.ts",
-  "../app/api/organizations/[id]/route.ts",
-  "../app/api/prospects/route.ts",
-  "../app/api/privacy-requests/route.ts",
-  "../app/api/privacy-requests/[id]/route.ts",
-  "../app/api/admin/mailgun-canary/route.ts",
-  "../app/api/admin/cakemail-send-resolution/route.ts",
+import { isSameOriginBrowserRequest } from "../lib/http.ts";
+
+const unsafeRouteInventory = [
+  { route: "accounts/import/route.ts", method: "POST", boundary: "operator" },
+  { route: "admin/cakemail-send-resolution/route.ts", method: "POST", boundary: "operator" },
+  { route: "admin/mailgun-canary/route.ts", method: "POST", boundary: "operator" },
+  { route: "admin/mailgun-handoff/route.ts", method: "POST", boundary: "operator" },
+  { route: "compliance/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "contacts/[id]/route.ts", method: "DELETE", boundary: "operator" },
+  { route: "contacts/[id]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "contacts/route.ts", method: "POST", boundary: "operator" },
+  { route: "conversations/[id]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "deals/[id]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "intake/[id]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "interactions/route.ts", method: "POST", boundary: "operator" },
+  { route: "messages/send/route.ts", method: "POST", boundary: "operator" },
+  { route: "organizations/[id]/route.ts", method: "DELETE", boundary: "operator" },
+  { route: "organizations/[id]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "organizations/route.ts", method: "POST", boundary: "operator" },
+  { route: "privacy-requests/[id]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "privacy-requests/route.ts", method: "POST", boundary: "operator" },
+  { route: "strategies/[strategyId]/route.ts", method: "PUT", boundary: "operator" },
+  { route: "strategies/[strategyId]/steps/[stepId]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "tasks/[id]/route.ts", method: "PATCH", boundary: "operator" },
+  { route: "tasks/route.ts", method: "POST", boundary: "operator" },
+  {
+    route: "admin/mailgun-handoff/consume/route.ts",
+    method: "POST",
+    boundary: "consumer",
+    guard: /verifyMailgunHandoffConsumerToken\(token\)/u,
+  },
+  {
+    route: "public/intake/route.ts",
+    method: "POST",
+    boundary: "public",
+    guard: /allowedOrigin\(request\)[\s\S]*verifyTurnstile/u,
+  },
+  {
+    route: "public/unsubscribe/route.ts",
+    method: "POST",
+    boundary: "public",
+    guard: /verifyUnsubscribeToken/u,
+  },
+  {
+    route: "webhooks/cakemail/events/route.ts",
+    method: "POST",
+    boundary: "webhook",
+    guard: /verifyCakemailWebhookSignature/u,
+  },
+  {
+    route: "webhooks/mailgun/events/route.ts",
+    method: "POST",
+    boundary: "webhook",
+    guard: /verifyMailgunSignature/u,
+  },
+  {
+    route: "webhooks/mailgun/inbound/route.ts",
+    method: "POST",
+    boundary: "webhook",
+    guard: /verifyMailgunSignature/u,
+  },
+  {
+    route: "prospects/route.ts",
+    method: "POST",
+    boundary: "retired-operator",
+    guard: /requireOperatorRequest\(request\)[\s\S]*return jsonError\(\s*410,/u,
+  },
 ];
 
-test("every new administrative CRM route fails closed through operator auth", async () => {
-  for (const route of privateRoutes) {
-    const source = await readFile(new URL(route, import.meta.url), "utf8");
+test("classifies every unsafe API method at its actual trust boundary", async () => {
+  const actual = [];
+  const routeNames = (await readdir(new URL("../app/api/", import.meta.url), {
+    recursive: true,
+  })).filter((name) => name.endsWith("route.ts"));
+  for (const route of routeNames) {
+    const source = await readFile(new URL(`../app/api/${route}`, import.meta.url), "utf8");
+    for (const { method } of exportedApiMethods(source, route)) {
+      actual.push(`${route}:${method}`);
+    }
+  }
+
+  assert.deepEqual(
+    actual.sort(),
+    unsafeRouteInventory.map(({ route, method }) => `${route}:${method}`).sort(),
+  );
+});
+
+test("every operator mutation enforces same-origin auth inside its method", async () => {
+  for (const { route, method, boundary } of unsafeRouteInventory) {
+    if (boundary !== "operator") continue;
+    const source = await readFile(new URL(`../app/api/${route}`, import.meta.url), "utf8");
+    const exported = exportedApiMethod(source, method, route);
+    const methodSource = exported.source;
     assert.match(
-      source,
-      /require(?:SameOriginOperatorJson|SameOriginOperator|Operator)Request\(\s*request/u,
-      route,
+      methodSource,
+      /requireSameOriginOperator(?:Json)?Request\(\s*request/u,
+      `${method} app/api/${route}`,
     );
-    assert.match(source, /if \(auth\.response\) return auth\.response/u, route);
+    assert.match(
+      methodSource,
+      /if \(auth\.response\) return auth\.response/u,
+      `${method} app/api/${route}`,
+    );
+    assert.doesNotMatch(
+      methodSource,
+      /requireOperatorRequest\(\s*request/u,
+      `${method} app/api/${route}`,
+    );
+    assert.match(
+      exported.statements[0] ?? "",
+      /^const auth = (?:await )?requireSameOriginOperator(?:Json)?Request\(\s*request/u,
+      `${method} app/api/${route} must authenticate before side effects`,
+    );
+    assert.match(
+      exported.statements[1] ?? "",
+      /^if \(auth\.response\) return auth\.response/u,
+      `${method} app/api/${route} must return before side effects`,
+    );
   }
 });
+
+test("non-operator unsafe methods retain their dedicated boundary", async () => {
+  for (const { route, method, boundary, guard } of unsafeRouteInventory) {
+    if (boundary === "operator") continue;
+    const source = await readFile(new URL(`../app/api/${route}`, import.meta.url), "utf8");
+    const methodSource = exportedApiMethod(source, method, route).source;
+    assert.match(methodSource, guard, `${method} app/api/${route} (${boundary})`);
+    if (boundary !== "retired-operator") {
+      assert.doesNotMatch(
+        methodSource,
+        /require(?:SameOriginOperatorJson|SameOriginOperator|Operator)Request\(/u,
+        `${method} app/api/${route} (${boundary})`,
+      );
+    }
+  }
+});
+
+test("same-origin browser checks require positive same-origin evidence", () => {
+  const request = (headers = {}) => new Request("https://crm.27pm.org/api/tasks", {
+    method: "POST",
+    headers,
+  });
+
+  assert.equal(isSameOriginBrowserRequest(request()), false);
+  assert.equal(isSameOriginBrowserRequest(request({ origin: "https://crm.27pm.org" })), true);
+  assert.equal(isSameOriginBrowserRequest(request({ "sec-fetch-site": "same-origin" })), true);
+  assert.equal(isSameOriginBrowserRequest(request({
+    origin: "https://crm.27pm.org",
+    "sec-fetch-site": "same-origin",
+  })), true);
+  for (const fetchSite of ["cross-site", "same-site", "none"]) {
+    assert.equal(
+      isSameOriginBrowserRequest(request({ "sec-fetch-site": fetchSite })),
+      false,
+      fetchSite,
+    );
+  }
+  for (const origin of ["https://27pm.org", "https://crm.27pm.org:444", "null", "not a url"]) {
+    assert.equal(isSameOriginBrowserRequest(request({ origin })), false, origin);
+  }
+});
+
+function exportedApiMethod(source, method, route) {
+  const matches = exportedApiMethods(source, route).filter(
+    (candidate) => candidate.method === method,
+  );
+  assert.equal(matches.length, 1, `${route}:${method}`);
+  return matches[0];
+}
+
+function exportedApiMethods(source, route) {
+  const sourceFile = ts.createSourceFile(
+    route,
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  );
+  const methods = [];
+  const record = (method, node, body) => {
+    if (!/^(?:POST|PUT|PATCH|DELETE)$/u.test(method)) return;
+    methods.push({
+      method,
+      source: node.getText(sourceFile),
+      statements: body
+        ? [...body.statements].map((statement) => statement.getText(sourceFile))
+        : [],
+    });
+  };
+
+  for (const statement of sourceFile.statements) {
+    if (
+      ts.isFunctionDeclaration(statement) &&
+      exported(statement) &&
+      statement.name
+    ) {
+      record(statement.name.text, statement, statement.body);
+      continue;
+    }
+    if (ts.isVariableStatement(statement) && exported(statement)) {
+      for (const declaration of statement.declarationList.declarations) {
+        if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue;
+        const initializer = declaration.initializer;
+        const body =
+          (ts.isArrowFunction(initializer) || ts.isFunctionExpression(initializer)) &&
+          ts.isBlock(initializer.body)
+            ? initializer.body
+            : undefined;
+        record(declaration.name.text, statement, body);
+      }
+      continue;
+    }
+    if (ts.isExportDeclaration(statement)) {
+      if (!statement.exportClause) {
+        methods.push({ method: "*", source: statement.getText(sourceFile), statements: [] });
+        continue;
+      }
+      if (ts.isNamedExports(statement.exportClause)) {
+        for (const element of statement.exportClause.elements) {
+          record(element.name.text, statement, undefined);
+        }
+      }
+    }
+  }
+  return methods;
+}
+
+function exported(node) {
+  return Boolean(
+    ts.getModifiers(node)?.some(
+      (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
+    ),
+  );
+}
 
 test("Cakemail unknown outcomes require bounded same-origin evidence and never redispatch", async () => {
   const source = await readFile(
@@ -121,6 +329,7 @@ test("outbound email and contact tasks enforce qualification guards", async () =
   assert.match(send, /operationalReplyApprovalDigest/u);
   assert.match(send, /operationalReplyApprovalMatches/u);
   assert.match(send, /runtimeString\("CRM_OPERATIONAL_REPLY_APPROVAL_SHA256"\)/u);
+  assert.match(send, /isWellFormedUnicode/u);
   assert.match(send, /kind: "solicited_operational_reply"/u);
   assert.match(send, /approvalDigest: operationalReplyDigest/u);
   assert.match(

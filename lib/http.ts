@@ -28,7 +28,7 @@ export function isSameOriginBrowserRequest(request: Request): boolean {
   if (fetchSite && fetchSite !== "same-origin") return false;
 
   const origin = request.headers.get("origin");
-  if (!origin) return true;
+  if (!origin) return fetchSite === "same-origin";
   try {
     return new URL(origin).origin === new URL(request.url).origin;
   } catch {

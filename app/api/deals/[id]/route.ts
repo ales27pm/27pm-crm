@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import {
   jsonError,
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const { id } = await context.params;
   if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) {

@@ -21,8 +21,9 @@ pipeline et suivis. L’application gère trois identités distinctes :
   de politique, de préservation des en-têtes et d’alignement DKIM strict ne
   sont pas confirmées.
 
-Le site public `27pm.org` et son hébergement GitHub Pages restent entièrement
-séparés du CRM.
+Le site public `27pm.org` est déployé séparément sur Vercel. Son formulaire
+Turnstile transmet le contrat d’admission à l’API publique du CRM, mais le site
+public ne stocke ni données CRM ni secrets opérateur.
 
 ## CRM de prospection
 
@@ -49,7 +50,9 @@ Node.js `>=22.13.0` est requis.
 ```sh
 npm run dev
 npm run lint
+npm run typecheck
 npm run test:unit
+npm run check
 npm run db:generate
 npm run mailgun:audit -- --help
 ```

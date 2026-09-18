@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { classifyAccountImportResult } from "@/lib/account-import";
 import { parseAccountInput } from "@/lib/crm-accounts";
 import { crmDatabase } from "@/lib/d1";
@@ -7,7 +7,7 @@ import { jsonError, optionalTrimmedString, readJsonObject } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const payload = await readJsonObject(request);
   if (!payload) return jsonError(400, "request_body_invalid");

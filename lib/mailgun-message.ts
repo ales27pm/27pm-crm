@@ -1,4 +1,5 @@
 import { normalizeEmailAddress } from "./mailboxes";
+import { isWellFormedUnicode } from "./unicode";
 
 export type OutboundMailgunMessage = {
   fromAddress: string;
@@ -30,6 +31,18 @@ export function buildMailgunForm(message: OutboundMailgunMessage): FormData {
     replyTo !== fromAddress
   ) {
     throw new Error("Mailgun Reply-To address is invalid.");
+  }
+  if (
+    !isWellFormedUnicode(message.fromName) ||
+    !isWellFormedUnicode(message.subject) ||
+    (message.text !== null &&
+      message.text !== undefined &&
+      !isWellFormedUnicode(message.text)) ||
+    (message.html !== null &&
+      message.html !== undefined &&
+      !isWellFormedUnicode(message.html))
+  ) {
+    throw new Error("Mailgun message content is invalid.");
   }
   const form = new FormData();
   form.set("from", `${message.fromName} <${message.fromAddress}>`);

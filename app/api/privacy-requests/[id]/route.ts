@@ -1,11 +1,11 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import { jsonError, optionalTrimmedString, readJsonObject } from "@/lib/http";
 
 const STATUSES = ["received", "identity_pending", "in_progress", "completed", "refused"] as const;
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const { id } = await context.params;
   if (!/^[A-Za-z0-9_-]{1,128}$/u.test(id)) return jsonError(400, "privacy_request_id_invalid");

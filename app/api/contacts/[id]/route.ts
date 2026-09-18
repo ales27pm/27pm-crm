@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { deleteContact, entityId, parseContactInput, updateContact } from "@/lib/crm-accounts";
 import { crmDatabase, isSuppressedChannelError, isUniqueConstraintError } from "@/lib/d1";
 import { jsonError, readJsonObject } from "@/lib/http";
@@ -6,7 +6,7 @@ import { jsonError, readJsonObject } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const id = entityId((await context.params).id);
   if (!id) return jsonError(400, "contact_id_invalid");
@@ -28,7 +28,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const id = entityId((await context.params).id);
   if (!id) return jsonError(400, "contact_id_invalid");

@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import {
   createInteraction,
   parseInteractionInput,
@@ -9,7 +9,7 @@ import { jsonError, readJsonObject } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
 
   const payload = await readJsonObject(request);

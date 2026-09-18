@@ -124,6 +124,33 @@ test("requires Reply-To to match the normalized sender mailbox", () => {
   }
 });
 
+test("rejects malformed Unicode before FormData can replace it", () => {
+  const baseMessage = {
+    fromAddress: "alexis@27pm.org",
+    fromName: "Alexis Boulet",
+    to: ["client@example.com"],
+    subject: "Bonjour",
+    text: "Bonjour",
+    replyTo: "alexis@27pm.org",
+  };
+
+  for (const message of [
+    { ...baseMessage, fromName: "Alexis \ud800" },
+    { ...baseMessage, subject: "Bonjour \udc00" },
+    { ...baseMessage, text: "Bonjour \ud800" },
+    { ...baseMessage, html: "<p>Bonjour \udc00</p>" },
+  ]) {
+    assert.throws(
+      () => buildMailgunForm(message),
+      /message content is invalid/u,
+    );
+  }
+
+  const text = "Bonjour 👋";
+  const form = buildMailgunForm({ ...baseMessage, text });
+  assert.equal(form.get("text"), text);
+});
+
 test("allows an administrative canary without marketing unsubscribe headers", () => {
   const form = buildMailgunForm({
     fromAddress: "alexis@27pm.org",

@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import { canCall, canEmail, complianceEvidenceSnapshot, loadComplianceConfiguration, loadContactCompliance, type ComplianceDecision, type ContactCompliance } from "@/lib/compliance";
 import { runtimeString } from "@/lib/runtime";
@@ -13,7 +13,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
 
   const payload = await readJsonObject(request);

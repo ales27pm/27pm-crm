@@ -44,17 +44,19 @@ LCAP. L’opérateur doit revoir la source et la décision au moment de l’acti
 
 ## Formulaire public
 
-`POST /api/public/intake` est un contrat d’intégration prêt côté CRM. Il exige
+`POST /api/public/intake` est le contrat d’intégration du CRM. Il exige
 une origine exacte, Turnstile, une clé d’idempotence, une limite de débit et un
 consentement à la politique de confidentialité. Une demande reste
 `pending_review`; elle ne crée jamais automatiquement un contact actionnable.
 
-Le dépôt du site public `27pm.org` n’est pas ce dépôt. Son formulaire actuel
-n’a donc pas été modifié ni déclaré connecté. Pour l’intégrer, configurer les
-trois variables décrites dans `.env.example`, ajouter Turnstile au formulaire,
-envoyer le contrat JSON documenté dans `docs/operations.md`, puis déployer et
-tester les deux surfaces. Sans ces opérations, l’API retourne
-`intake_not_configured` ou `origin_forbidden`.
+Le dépôt du site public `27pm.org` n’est pas ce dépôt. Sa version Vercel actuelle
+contient le formulaire Turnstile et transmet ce contrat à
+`https://crm.27pm.org/api/public/intake`; l’origine canonique
+`https://27pm.org` passe aussi le prévol CORS de production. Cette vérification
+ne remplace pas une soumission réelle : aucun formulaire public n’a été soumis
+pendant la présente validation et la présence continue des secrets Turnstile et
+du sel de hachage doit rester contrôlée. Sans ces valeurs, l’API retourne
+`intake_not_configured`; une autre origine retourne `origin_forbidden`.
 
 ## Authentification et opérateurs
 

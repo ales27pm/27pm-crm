@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import { jsonError, readJsonObject, validIsoTimestamp } from "@/lib/http";
 import { evaluateOutreachChannel } from "@/lib/outreach-readiness";
@@ -22,7 +22,7 @@ type CurrentStep = {
 };
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const { strategyId, stepId } = await context.params;
   if (!validId(strategyId) || !validId(stepId)) return jsonError(400, "outreach_step_id_invalid");

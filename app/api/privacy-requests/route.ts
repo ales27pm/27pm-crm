@@ -1,4 +1,7 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import {
+  requireOperatorRequest,
+  requireSameOriginOperatorRequest,
+} from "@/lib/api-auth";
 import { crmDatabase } from "@/lib/d1";
 import { jsonError, optionalTrimmedString, readJsonObject, validIsoTimestamp } from "@/lib/http";
 
@@ -19,7 +22,7 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const payload = await readJsonObject(request);
   if (!payload) return jsonError(400, "request_body_invalid");

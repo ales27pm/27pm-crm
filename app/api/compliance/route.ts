@@ -1,4 +1,7 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import {
+  requireOperatorRequest,
+  requireSameOriginOperatorRequest,
+} from "@/lib/api-auth";
 import { loadComplianceConfiguration } from "@/lib/compliance";
 import { crmDatabase } from "@/lib/d1";
 import { jsonError, optionalTrimmedString, readJsonObject, validIsoTimestamp } from "@/lib/http";
@@ -16,7 +19,7 @@ export async function GET(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const payload = await readJsonObject(request);
   if (!payload) return jsonError(400, "request_body_invalid");

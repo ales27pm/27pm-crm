@@ -100,6 +100,7 @@ test("translates every error emitted by outreach routes and readiness", async ()
     "authentication_required",
     "operator_forbidden",
     "allowlist_unconfigured",
+    "cross_origin_request_forbidden",
     "email_address_missing",
     "phone_address_missing",
     "contact_id_invalid",
@@ -231,7 +232,7 @@ test("strategy routes are operator-only planning surfaces and never send a messa
     readFile(new URL("../app/api/dashboard/route.ts", import.meta.url), "utf8"),
   ]);
   for (const source of [strategyRoute, stepRoute]) {
-    assert.match(source, /requireOperatorRequest/u);
+    assert.match(source, /requireSameOriginOperatorRequest/u);
     assert.doesNotMatch(source, /messages\/send|send_commands|mailgun/iu);
   }
   assert.match(stepRoute, /evaluateOutreachChannel/u);

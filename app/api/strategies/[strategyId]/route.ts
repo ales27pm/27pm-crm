@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { entityId } from "@/lib/crm-accounts";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import {
@@ -24,7 +24,7 @@ type ExistingStrategy = {
 };
 
 export async function PUT(request: Request, context: RouteContext) {
-  const auth = requireOperatorRequest(request);
+  const auth = requireSameOriginOperatorRequest(request);
   if (auth.response) return auth.response;
   const { strategyId: rawOrganizationId } = await context.params;
   const organizationId = entityId(rawOrganizationId);

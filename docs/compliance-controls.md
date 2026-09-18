@@ -54,7 +54,12 @@ commerciale et n’ajoute ni pied de page marketing ni en-têtes List-Unsubscrib
 Un digest SHA-256 secret configuré hors bande doit aussi correspondre exactement
 à la conversation, au message entrant, à l’identifiant et l’adresse de la boîte,
 au destinataire, à l’objet et au texte approuvés. Il ne constitue pas une voie
-de composition générale et n’assouplit aucun contrôle des boîtes de vente.
+de composition générale et n’assouplit aucun contrôle des boîtes de vente. La
+commande locale `npm run operational-reply:approval -- --input=<fichier-json>`
+calcule ce digest depuis un fichier privé strict et n’effectue aucun envoi. La
+procédure complète, y compris la comparaison de l’empreinte du texte et la
+rotation immédiate du secret après la tentative, figure dans
+`docs/operations.md`.
 
 Les migrations existantes sont conservées. `0006_compliance_hardening.sql`
 reconstruit uniquement `send_commands`, ajoute les champs contact sans
