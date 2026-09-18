@@ -74,7 +74,7 @@ test("compose and reply durably reserve the exact draft before the API call", as
     );
     assert.match(
       source,
-      /(?:disabled=\{!(?:view\.)?draftReady[^}]*sending|fieldsDisabled)/u,
+      /(?:disabled=\{[\s\S]{0,260}!(?:view\.)?draftReady[\s\S]{0,260}(?:view\.)?sending|fieldsDisabled)/u,
     );
   }
 });
@@ -95,13 +95,67 @@ test("the reply path freezes the full request identity, not only its body", asyn
   );
   assert.match(
     source,
-    /Confirmer que cette réponse administrative unique a été sollicitée dans le dernier message entrant et que le destinataire n’a demandé aucun blocage\?/u,
+    /setReplyConfirmation\(\{[\s\S]*draftSlot,[\s\S]*payload,[\s\S]*localRepair:[\s\S]*operationalReply,/u,
   );
+  assert.doesNotMatch(source, /window\.confirm/u);
   assert.match(
     source,
     /payload\.operationalReplyConfirmed === true[\s\S]*operationalReplyConfirmed: true/u,
   );
   assert.match(source, /replyPayload\(frozenDraft\.payload\)/u);
+});
+
+test("thread replies require an accessible in-app review before dispatch", async () => {
+  const source = await readFile(
+    new URL("../app/components/thread-view.tsx", import.meta.url),
+    "utf8",
+  );
+
+  const submit = source.indexOf("async function submit()");
+  const review = source.indexOf("setReplyConfirmation({", submit);
+  const cancel = source.indexOf("function cancelReply", review);
+  const confirmation = source.indexOf("function confirmReply", cancel);
+  const guard = source.indexOf(
+    "if (!confirmation || sendingRef.current) return;",
+    confirmation,
+  );
+  const slotGuard = source.indexOf(
+    "confirmation.draftSlot !== draftSlot",
+    guard,
+  );
+  const dispatch = source.indexOf(
+    "void dispatchReply(confirmation.draftSlot, confirmation.payload)",
+    slotGuard,
+  );
+  const lock = source.indexOf("sendingRef.current = true", dispatch);
+  const freeze = source.indexOf("executeFrozenSend({", dispatch);
+
+  assert.ok(submit >= 0);
+  assert.ok(review >= 0);
+  assert.ok(cancel > review);
+  assert.ok(confirmation > review);
+  assert.ok(guard > confirmation);
+  assert.ok(slotGuard > guard);
+  assert.ok(dispatch > confirmation);
+  assert.ok(lock > dispatch);
+  assert.ok(freeze > dispatch);
+  assert.doesNotMatch(source.slice(review, cancel), /dispatchReply|executeFrozenSend/u);
+  assert.doesNotMatch(source.slice(cancel, confirmation), /dispatchReply|executeFrozenSend/u);
+  assert.match(source, /<dialog[\s\S]*aria-modal="true"[\s\S]*aria-labelledby="reply-confirmation-title"[\s\S]*aria-describedby="reply-confirmation-description"/u);
+  assert.match(source, /dialog\.showModal\(\)/u);
+  assert.match(source, /onCancel=\{\(event\) => \{[\s\S]*event\.preventDefault\(\);[\s\S]*actions\.cancel\(\)/u);
+  assert.match(source, /cancelButtonRef\.current\?\.focus\(\)/u);
+  assert.match(source, /<dt>De<\/dt><dd>\{view\.confirmation\.payload\.from\}<\/dd>/u);
+  assert.match(source, /<dt>À<\/dt><dd>\{view\.confirmation\.payload\.to\}<\/dd>/u);
+  assert.match(source, /<dt>Objet<\/dt><dd>\{view\.confirmation\.payload\.subject\}<\/dd>/u);
+  assert.match(source, /<pre>\{view\.confirmation\.payload\.body\}<\/pre>/u);
+  assert.match(source, /ce destinataire unique est qualifié[\s\S]*fondement LCAP/u);
+  assert.match(source, /dernier message entrant sollicite cette réponse administrative unique/u);
+  assert.match(source, /Confirmer et envoyer/u);
+  assert.match(
+    source,
+    /disabled=\{[\s\S]{0,260}view\.replyConfirmation !== null/u,
+  );
 });
 
 test("compose and reply clear drafts only after a typed accepted result", async () => {

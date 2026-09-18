@@ -1170,6 +1170,113 @@ h3 {
   font-size: 0.7rem;
 }
 
+.reply-confirmation {
+  width: min(46rem, calc(100vw - 2rem));
+  max-height: calc(100svh - 2rem);
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--ivory);
+  color: var(--ink);
+}
+
+.reply-confirmation::backdrop {
+  background: rgb(23 23 20 / 48%);
+}
+
+.reply-confirmation form {
+  display: grid;
+  max-height: calc(100svh - 2rem);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+
+.reply-confirmation header {
+  padding: 1.1rem 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.reply-confirmation .eyebrow {
+  color: var(--blue);
+  font-size: 0.68rem;
+  font-weight: 720;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+}
+
+.reply-confirmation h2 {
+  margin-top: 0.25rem;
+  font-size: clamp(1.6rem, 3vw, 2.2rem);
+}
+
+.reply-confirmation-content {
+  min-height: 0;
+  overflow-y: auto;
+  padding: 1.25rem;
+}
+
+#reply-confirmation-description {
+  max-width: 64ch;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+
+.reply-confirmation-details {
+  margin-top: 1.1rem;
+  border-top: 1px solid var(--line);
+}
+
+.reply-confirmation-details > div {
+  display: grid;
+  min-height: 2.75rem;
+  align-items: center;
+  gap: 0.9rem;
+  grid-template-columns: 4.25rem minmax(0, 1fr);
+  border-bottom: 1px solid var(--line);
+}
+
+.reply-confirmation-details dt {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 650;
+}
+
+.reply-confirmation-details dd {
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.reply-confirmation-message {
+  margin-top: 1.2rem;
+}
+
+.reply-confirmation-message h3 {
+  font-size: 0.82rem;
+}
+
+.reply-confirmation-message pre {
+  max-height: 18rem;
+  margin-top: 0.55rem;
+  overflow: auto;
+  padding: 0.9rem;
+  border: 1px solid var(--line);
+  background: var(--ivory-raised);
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.reply-confirmation footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-top: 1px solid var(--line);
+}
+
 .context-rail {
   position: relative;
   min-width: 0;
@@ -4051,6 +4158,23 @@ h3 {
 
   .reply-composer textarea {
     min-height: 5.7rem;
+  }
+
+  .reply-confirmation {
+    width: calc(100vw - 1rem);
+    max-height: calc(100svh - 1rem);
+  }
+
+  .reply-confirmation form {
+    max-height: calc(100svh - 1rem);
+  }
+
+  .reply-confirmation footer {
+    flex-direction: column-reverse;
+  }
+
+  .reply-confirmation footer button {
+    width: 100%;
   }
 
   .context-rail[data-mobile-sheet] {

@@ -42,6 +42,13 @@ type ReplyPayload = {
   operationalReplyConfirmed?: true;
 };
 
+type ReplyConfirmationState = {
+  draftSlot: string;
+  payload: ReplyPayload;
+  localRepair: boolean;
+  operationalReply: boolean;
+};
+
 type ThreadConversationProps = {
   view: {
     body: string;
@@ -49,17 +56,21 @@ type ThreadConversationProps = {
     conversation: Conversation;
     draftReady: boolean;
     frozenDraft: FrozenSendDraft | null;
+    replyConfirmation: ReplyConfirmationState | null;
     sendEnabled: boolean;
     sending: boolean;
     status: string;
   };
   actions: {
     back: () => void;
+    cancelReply: () => void;
+    confirmReply: () => void;
     openContext: () => void;
     setBody: (body: string) => void;
     submit: () => void;
   };
   contextTriggerRef: Ref<HTMLButtonElement>;
+  sendButtonRef: RefObject<HTMLButtonElement | null>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 };
 
@@ -70,10 +81,12 @@ type ReplyComposerProps = Pick<ThreadConversationProps, "actions"> & {
     | "conversation"
     | "draftReady"
     | "frozenDraft"
+    | "replyConfirmation"
     | "sendEnabled"
     | "sending"
     | "status"
   >;
+  sendButtonRef: RefObject<HTMLButtonElement | null>;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
 };
 
@@ -91,6 +104,11 @@ export function ThreadView({
   const [sending, setSending] = useState(false);
   const [readyDraftSlot, setReadyDraftSlot] = useState<string | null>(null);
   const [frozenDraft, setFrozenDraft] = useState<FrozenSendDraft | null>(null);
+  const [replyConfirmation, setReplyConfirmation] =
+    useState<ReplyConfirmationState | null>(null);
+  const sendingRef = useRef(false);
+  const confirmationReturnFocusRef = useRef<HTMLElement | null>(null);
+  const sendButtonRef = useRef<HTMLButtonElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const draftSlot = conversation
     ? replyFrozenDraftSlot(conversation.id)
@@ -143,7 +161,13 @@ export function ThreadView({
   }
 
   async function submit() {
-    if (!conversation || !draftSlot || !draftReady || sending) return;
+    if (
+      !conversation ||
+      !draftSlot ||
+      !draftReady ||
+      sendingRef.current ||
+      replyConfirmation
+    ) return;
     if (frozenDraft?.outcome === "outcome_unknown") return;
     const value = body.trim();
     if (!value) return;
@@ -168,22 +192,75 @@ export function ThreadView({
       setStatus(FROZEN_DRAFT_UNAVAILABLE_MESSAGE);
       return;
     }
-    if (
-      !window.confirm(
-        operationalReply
-          ? "Confirmer que cette réponse administrative unique a été sollicitée dans le dernier message entrant et que le destinataire n’a demandé aucun blocage?"
-          : "Confirmer la qualification, le fondement LCAP et les preuves à jour pour ce destinataire unique?",
-      )
-    ) {
-      setStatus("Envoi annulé.");
+
+    confirmationReturnFocusRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : sendButtonRef.current;
+    setReplyConfirmation({
+      draftSlot,
+      payload,
+      localRepair: frozenDraft?.outcome === "local_repair",
+      operationalReply,
+    });
+    setStatus("Vérifiez le destinataire et le message exact avant de confirmer.");
+  }
+
+  function cancelReply() {
+    closeReplyConfirmation("Envoi annulé.");
+  }
+
+  function closeReplyConfirmation(message: string) {
+    setReplyConfirmation(null);
+    setStatus(message);
+    const returnFocus = confirmationReturnFocusRef.current;
+    confirmationReturnFocusRef.current = null;
+    window.requestAnimationFrame(() => {
+      if (returnFocus?.isConnected) returnFocus.focus();
+      else sendButtonRef.current?.focus();
+    });
+  }
+
+  function confirmReply() {
+    const confirmation = replyConfirmation;
+    if (!confirmation || sendingRef.current) return;
+    if (confirmation.draftSlot !== draftSlot) {
+      closeReplyConfirmation(
+        "La conversation a changé pendant la vérification; rien n’a été transmis. Actualisez le CRM avant de réessayer.",
+      );
       return;
     }
+    if (
+      !confirmation.localRepair &&
+      (
+        !sendEnabled ||
+        !conversation ||
+        confirmation.payload.conversationId !== conversation.id ||
+        confirmation.payload.from !== conversation.mailboxAddress ||
+        confirmation.payload.to !== conversation.contactEmail ||
+        confirmation.payload.subject !== conversation.subject ||
+        confirmation.payload.body !== body.trim()
+      )
+    ) {
+      closeReplyConfirmation(
+        "La conversation ou le transport a changé pendant la vérification; rien n’a été transmis. Actualisez le CRM avant de réessayer.",
+      );
+      return;
+    }
+    setReplyConfirmation(null);
+    confirmationReturnFocusRef.current = null;
+    void dispatchReply(confirmation.draftSlot, confirmation.payload);
+  }
 
+  async function dispatchReply(slot: string, payload: ReplyPayload) {
+    if (sendingRef.current) return;
+
+    sendingRef.current = true;
     setSending(true);
     setStatus("Envoi en cours…");
     try {
       const execution = await executeFrozenSend({
-        slot: draftSlot,
+        slot,
         payload,
         send: onSend,
         onReserved: setFrozenDraft,
@@ -194,6 +271,7 @@ export function ThreadView({
         setBody("");
       }
     } finally {
+      sendingRef.current = false;
       setSending(false);
     }
   }
@@ -205,17 +283,21 @@ export function ThreadView({
       conversation,
       draftReady,
       frozenDraft,
+      replyConfirmation,
       sendEnabled,
       sending,
       status,
     }}
     actions={{
       back: onBack,
+      cancelReply,
+      confirmReply,
       openContext: onOpenContext,
       setBody,
       submit: () => void submit(),
     }}
     contextTriggerRef={contextTriggerRef}
+    sendButtonRef={sendButtonRef}
     textareaRef={textareaRef}
   />;
 }
@@ -224,6 +306,7 @@ function ThreadConversation({
   view,
   actions,
   contextTriggerRef,
+  sendButtonRef,
   textareaRef,
 }: ThreadConversationProps) {
   return (
@@ -260,7 +343,24 @@ function ThreadConversation({
       </header>
 
       <MessageStream conversation={view.conversation} />
-      <ReplyComposer view={view} actions={actions} textareaRef={textareaRef} />
+      <ReplyComposer
+        view={view}
+        actions={actions}
+        sendButtonRef={sendButtonRef}
+        textareaRef={textareaRef}
+      />
+      {view.replyConfirmation ? (
+        <ReplyConfirmation
+          view={{
+            confirmation: view.replyConfirmation,
+            sending: view.sending,
+          }}
+          actions={{
+            cancel: actions.cancelReply,
+            confirm: actions.confirmReply,
+          }}
+        />
+      ) : null}
     </section>
   );
 }
@@ -293,7 +393,12 @@ function MessageStream({ conversation }: { conversation: Conversation }) {
   </div>;
 }
 
-function ReplyComposer({ view, actions, textareaRef }: ReplyComposerProps) {
+function ReplyComposer({
+  view,
+  actions,
+  sendButtonRef,
+  textareaRef,
+}: ReplyComposerProps) {
   return (
     <form
         className="reply-composer"
@@ -310,7 +415,12 @@ function ReplyComposer({ view, actions, textareaRef }: ReplyComposerProps) {
         <textarea
           id="reply-body"
           ref={textareaRef}
-          disabled={!view.draftReady || view.frozenDraft !== null || view.sending}
+          disabled={
+            !view.draftReady ||
+            view.frozenDraft !== null ||
+            view.replyConfirmation !== null ||
+            view.sending
+          }
           value={view.body}
           onChange={(event) => actions.setBody(event.target.value)}
           onKeyDown={(event) => {
@@ -325,12 +435,14 @@ function ReplyComposer({ view, actions, textareaRef }: ReplyComposerProps) {
         <div className="composer-toolbar">
           <span className="composer-hint">⌘↵ pour envoyer</span>
           <button
+            ref={sendButtonRef}
             className="send-button"
             type="submit"
             disabled={
               !view.sendEnabled ||
               !view.draftReady ||
               !view.body.trim() ||
+              view.replyConfirmation !== null ||
               view.sending ||
               view.frozenDraft?.outcome === "outcome_unknown"
             }
@@ -346,6 +458,105 @@ function ReplyComposer({ view, actions, textareaRef }: ReplyComposerProps) {
           {view.status}
         </p>
       </form>
+  );
+}
+
+function ReplyConfirmation({
+  view,
+  actions,
+}: {
+  view: {
+    confirmation: ReplyConfirmationState;
+    sending: boolean;
+  };
+  actions: {
+    cancel: () => void;
+    confirm: () => void;
+  };
+}) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  const cancelButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    if (!dialog.open) dialog.showModal();
+    const frame = window.requestAnimationFrame(() => {
+      cancelButtonRef.current?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (dialog.open) dialog.close();
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialogRef}
+      className="reply-confirmation"
+      aria-modal="true"
+      aria-labelledby="reply-confirmation-title"
+      aria-describedby="reply-confirmation-description"
+      onCancel={(event) => {
+        event.preventDefault();
+        actions.cancel();
+      }}
+    >
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          actions.confirm();
+        }}
+      >
+        <header>
+          <p className="eyebrow">Étape 2 sur 2</p>
+          <h2 id="reply-confirmation-title">
+            {view.confirmation.localRepair
+              ? "Réparer l’enregistrement CRM"
+              : view.confirmation.operationalReply
+                ? "Confirmer la réponse administrative"
+                : "Confirmer la réponse"}
+          </h2>
+        </header>
+        <div className="reply-confirmation-content">
+          <p id="reply-confirmation-description">
+            {view.confirmation.localRepair
+              ? "Le transport a déjà accepté ce courriel. Cette action répare uniquement son enregistrement local avec le brouillon exact; elle ne le renvoie pas."
+              : view.confirmation.operationalReply
+                ? "Vérifiez cette réponse exacte. En confirmant, vous attestez que le dernier message entrant sollicite cette réponse administrative unique et que le destinataire n’a demandé aucun blocage."
+                : "Vérifiez cette réponse exacte. En confirmant, vous attestez que ce destinataire unique est qualifié et que le fondement LCAP ainsi que les preuves sont à jour."}
+          </p>
+          <dl className="reply-confirmation-details">
+            <div><dt>De</dt><dd>{view.confirmation.payload.from}</dd></div>
+            <div><dt>À</dt><dd>{view.confirmation.payload.to}</dd></div>
+            <div><dt>Objet</dt><dd>{view.confirmation.payload.subject}</dd></div>
+          </dl>
+          <section
+            className="reply-confirmation-message"
+            aria-labelledby="reply-confirmation-message-title"
+          >
+            <h3 id="reply-confirmation-message-title">Message exact</h3>
+            <pre>{view.confirmation.payload.body}</pre>
+          </section>
+        </div>
+        <footer>
+          <button
+            ref={cancelButtonRef}
+            className="secondary-action"
+            type="button"
+            disabled={view.sending}
+            onClick={actions.cancel}
+          >
+            Annuler
+          </button>
+          <button className="primary-action" disabled={view.sending} type="submit">
+            {view.confirmation.localRepair
+              ? "Confirmer la réparation"
+              : "Confirmer et envoyer"}
+          </button>
+        </footer>
+      </form>
+    </dialog>
   );
 }
 
