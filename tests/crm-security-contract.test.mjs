@@ -267,13 +267,20 @@ test("Cakemail unknown outcomes require bounded same-origin evidence and never r
   );
 });
 
-test("the Mailgun canary is operator-only and pinned to one configured recipient", async () => {
+test("the Mailgun canary is operator-only and pinned to configured controlled seeds", async () => {
   const source = await readFile(new URL("../app/api/admin/mailgun-canary/route.ts", import.meta.url), "utf8");
   assert.match(source, /CRM_CANARY_RECIPIENT/u);
-  assert.match(source, /recipient !== configuredRecipient/u);
+  assert.match(source, /CRM_CANARY_OUTLOOK_RECIPIENT/u);
+  assert.match(source, /CRM_CANARY_OUTLOOK_APPROVAL_SHA256/u);
+  assert.match(source, /resolveDeliverabilityCanaryRecipient\(/u);
+  assert.match(source, /reserveDeliverabilityCanary\(/u);
+  assert.ok(source.indexOf("reserveDeliverabilityCanary(db") < source.indexOf("sendMailgunMessage("));
+  assert.match(source, /payload\.to/u);
+  assert.match(source, /if \(!resolved\)/u);
   assert.match(source, /confirmed !== true/u);
   assert.match(source, /requireSameOriginOperatorJsonRequest\(/u);
   assert.match(source, /DELIVERABILITY_CANARY_SENDER/u);
+  assert.match(source, /recipient,/u);
   assert.doesNotMatch(source, /loadContactCompliance|canEmail|appendComplianceFooter/u);
 });
 

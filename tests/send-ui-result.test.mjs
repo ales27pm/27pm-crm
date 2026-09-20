@@ -38,6 +38,14 @@ test("uses the separate canary success contract without a CRM recording field", 
     "accepted",
   );
   assert.equal(classifyCanarySendHttpResponse(202, {}), "outcome_unknown");
+  assert.equal(
+    classifyCanarySendHttpResponse(409, { error: "canary_recipient_invalid" }),
+    "definitive_failure",
+  );
+  assert.equal(classifyCanarySendHttpResponse(409, { error: "canary_approval_mismatch" }), "definitive_failure");
+  assert.equal(classifyCanarySendHttpResponse(409, { error: "canary_already_attempted" }), "definitive_failure");
+  assert.equal(classifyCanarySendHttpResponse(503, { error: "canary_reservation_unconfirmed" }), "definitive_failure");
+  assert.equal(classifyCanarySendHttpResponse(503, { error: "canary_configuration_invalid" }), "definitive_failure");
 });
 
 test("classifies definitive and unknown failures for both response contracts", () => {

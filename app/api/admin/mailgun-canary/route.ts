@@ -1,4 +1,5 @@
 import { requireSameOriginOperatorJsonRequest } from "@/lib/api-auth";
+import { crmDatabase } from "@/lib/d1";
 import {
   privateJsonError,
   privateNoStoreHeaders,
@@ -6,13 +7,19 @@ import {
 import { sendMailgunMessage } from "@/lib/mailgun-client";
 import { mailgunConfig } from "@/lib/mailgun-runtime";
 import { classifyMailgunFailure } from "@/lib/mailgun-send-outcome";
-import { normalizeEmailAddress } from "@/lib/mailboxes";
-import { requireRuntimeString } from "@/lib/runtime";
+import { requireRuntimeString, runtimeString } from "@/lib/runtime";
 import {
   DELIVERABILITY_CANARY_RECIPIENT,
   DELIVERABILITY_CANARY_SENDER,
-  DELIVERABILITY_CANARY_SUBJECT,
+  deliverabilityCanaryApprovalDigest,
+  deliverabilityCanaryTransmittedText,
+  parseDeliverabilityCanaryContent,
+  resolveDeliverabilityCanaryRecipient,
 } from "@/lib/deliverability-canary";
+import {
+  recordDeliverabilityCanaryResult,
+  reserveDeliverabilityCanary,
+} from "@/lib/deliverability-canary-ledger";
 
 export const dynamic = "force-dynamic";
 
@@ -26,78 +33,120 @@ export async function POST(request: Request) {
   if (payload.confirmed !== true) {
     return privateJsonError(409, "operator_confirmation_required");
   }
-  const content = parseCanaryContent(payload);
+  const content = parseDeliverabilityCanaryContent(payload);
   if (!content) return privateJsonError(400, "canary_content_invalid");
+
+  let recipient: string;
+  let approvalDigest: string;
+  let config: ReturnType<typeof mailgunConfig>;
+  try {
+    const configuredRecipient = requireRuntimeString("CRM_CANARY_RECIPIENT");
+    const resolved = resolveDeliverabilityCanaryRecipient(
+      payload.to,
+      configuredRecipient,
+      runtimeString("CRM_CANARY_OUTLOOK_RECIPIENT"),
+    );
+    if (!resolved) {
+      return privateJsonError(409, "canary_recipient_invalid");
+    }
+    recipient = resolved;
+    approvalDigest = await deliverabilityCanaryApprovalDigest({
+      recipient,
+      subject: content.subject,
+      text: content.text,
+    });
+    if (recipient !== DELIVERABILITY_CANARY_RECIPIENT) {
+      const configuredApproval = runtimeString("CRM_CANARY_OUTLOOK_APPROVAL_SHA256");
+      if (!configuredApproval ||
+        !/^[a-f0-9]{64}$/u.test(configuredApproval) ||
+        configuredApproval !== approvalDigest) {
+        return privateJsonError(409, "canary_approval_mismatch");
+      }
+    }
+    config = mailgunConfig();
+  } catch {
+    return privateJsonError(503, "canary_configuration_invalid");
+  }
 
   const canaryId = crypto.randomUUID();
   const sentAt = new Date().toISOString();
-  let dispatchStarted = false;
-
+  let db: ReturnType<typeof crmDatabase>;
   try {
-    const configuredRecipient = requireRuntimeString("CRM_CANARY_RECIPIENT");
-    const recipient = normalizeEmailAddress(configuredRecipient);
-    if (
-      !recipient ||
-      recipient !== configuredRecipient ||
-      recipient !== DELIVERABILITY_CANARY_RECIPIENT
-    ) {
-      return privateJsonError(503, "canary_recipient_invalid");
-    }
+    db = crmDatabase();
+    const reserved = await reserveDeliverabilityCanary(db, {
+      approvalDigest,
+      canaryId,
+      operator: auth.operator.email,
+      recipient,
+      subject: content.subject,
+      sentAt,
+    });
+    if (!reserved) return privateJsonError(409, "canary_already_attempted");
+  } catch {
+    // A lost D1 acknowledgement may have committed the reservation. Never
+    // dispatch or retry automatically when that boundary is uncertain.
+    return privateJsonError(503, "canary_reservation_unconfirmed");
+  }
 
-    const result = await sendMailgunMessage(
+  let dispatchStarted = false;
+  let result: Awaited<ReturnType<typeof sendMailgunMessage>>;
+  try {
+    result = await sendMailgunMessage(
       {
         fromAddress: DELIVERABILITY_CANARY_SENDER,
         fromName: "Alexis Boulet — 27PM",
         to: [recipient],
         subject: content.subject,
-        text: [
-          content.text,
-          "",
-          "— Test administratif de délivrabilité 27PM —",
-          `Identifiant : ${canaryId}`,
-          `Envoyé à : ${sentAt}`,
-          "",
-          "Aucune action n’est requise.",
-        ].join("\n"),
+        text: deliverabilityCanaryTransmittedText(content.text, canaryId, sentAt),
         replyTo: DELIVERABILITY_CANARY_SENDER,
       },
-      mailgunConfig(),
+      config,
       { onDispatchStart: () => { dispatchStarted = true; } },
     );
-
-    console.info("mailgun_canary_accepted", {
-      canaryId,
-      providerMessageId: result.id,
-      operator: auth.operator.email,
-    });
-    return Response.json(
-      {
-        accepted: true,
-        canaryId,
-        providerMessageId: result.id,
-        subject: content.subject,
-      },
-      { status: 202, headers: privateNoStoreHeaders() },
-    );
   } catch (cause: unknown) {
-    if (classifyMailgunFailure(dispatchStarted, cause) === "outcome_unknown") {
+    const failure = classifyMailgunFailure(dispatchStarted, cause);
+    try {
+      await recordDeliverabilityCanaryResult(db, {
+        approvalDigest,
+        canaryId,
+        operator: auth.operator.email,
+        result: failure === "outcome_unknown" ? "unconfirmed" : "failed",
+      });
+    } catch {
+      console.error("mailgun_canary_result_record_failed", { canaryId });
+    }
+    if (failure === "outcome_unknown") {
       return privateJsonError(503, "canary_send_unconfirmed");
     }
     return privateJsonError(502, "canary_send_failed");
   }
-}
 
-function parseCanaryContent(payload: Record<string, unknown>) {
-  const subject =
-    typeof payload.subject === "string"
-      ? payload.subject.replace(/[\r\n]+/gu, " ").trim()
-      : DELIVERABILITY_CANARY_SUBJECT;
-  const text =
-    typeof payload.text === "string"
-      ? payload.text.trim()
-      : "Test administratif de délivrabilité 27PM.";
-  if (!subject || subject.length > 500 || !text || text.length > 20_000) {
-    return null;
+  try {
+    await recordDeliverabilityCanaryResult(db, {
+      approvalDigest,
+      canaryId,
+      operator: auth.operator.email,
+      result: "accepted",
+      providerMessageId: result.id,
+    });
+  } catch {
+    // Mailgun acceptance is known even when the local result event fails.
+    // The immutable reservation still prevents a second provider dispatch.
+    console.error("mailgun_canary_result_record_failed", { canaryId });
   }
-  return { subject, text };
+  console.info("mailgun_canary_accepted", {
+    canaryId,
+    providerMessageId: result.id,
+    operator: auth.operator.email,
+  });
+  return Response.json(
+    {
+      accepted: true,
+      canaryId,
+      providerMessageId: result.id,
+      recipient,
+      subject: content.subject,
+    },
+    { status: 202, headers: privateNoStoreHeaders() },
+  );
 }

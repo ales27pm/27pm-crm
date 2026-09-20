@@ -36,6 +36,8 @@ them. Never commit a production value to `.env.example`.
 | `MAILGUN_API_BASE` | No | `https://api.mailgun.net` for US or `https://api.eu.mailgun.net` for EU. |
 | `MAILGUN_DOMAIN` | No | Must remain exactly `27pm.org`. |
 | `CRM_CANARY_RECIPIENT` | Yes | Optional exact controlled mailbox accepted by the Mailgun canary route; configuration never authorizes a send. |
+| `CRM_CANARY_OUTLOOK_RECIPIENT` | Yes | Optional single canonical `@outlook.com` mailbox controlled by the operator. Set its exact address privately for an approved placement test; never commit it. Configuration never authorizes a send. |
+| `CRM_CANARY_OUTLOOK_APPROVAL_SHA256` | Yes | Digest binding the Outlook recipient, sender, subject and approved base text before the disclosed identifier/time suffix; generate from a reviewed private input, deploy for one test, then remove it. It is not send authorization. |
 | `CRM_OPERATIONAL_REPLY_APPROVAL_SHA256` | Yes | Single-use SHA-256 approval for one exact solicited operations reply. Generate it out of band, deploy it only for the reviewed reply, then remove or rotate it after the attempt. |
 | `CRM_PUBLIC_ORIGIN` | No | Stable production HTTPS origin, normally `https://crm.27pm.org`. |
 | `CRM_UNSUBSCRIBE_SIGNING_KEY` | Yes | Dedicated secret (at least 32 random bytes) for opaque AES-GCM authenticated unsubscribe tokens. No production fallback exists. |
@@ -59,6 +61,39 @@ account/list/content/sender/audience binding are configured. Unknown Cakemail
 outcomes are listed and evidence-resolved through the operator-only
 `/api/admin/cakemail-send-resolution` endpoint described in `docs/cakemail.md`;
 that endpoint never retries provider delivery.
+
+### One exact Outlook placement test
+
+Only use a newly controlled, untrained `@outlook.com` mailbox. Verify the
+address with the operator, then review the exact sender
+(`alexis@27pm.org`), recipient, subject and plain-text body. A screenshot of
+the mailbox is not approval to send. Do not use a prospect address here.
+The CRM appends only `Identifiant : <canaryId>` and `Envoyé à : <ISO timestamp>`
+after a blank line; include that disclosed dynamic suffix in the review.
+
+1. Put exactly `recipient`, `subject` and `text` in a private JSON file outside
+   the repository. Keep it owner-only (`chmod 600`) and run
+   `npm run mailgun-canary:approval -- --input=/absolute/private/path/canary.json`.
+   The local generator does not contact Mailgun or Sites. Compare its scope and
+   text hash with the reviewed message.
+2. Set `CRM_CANARY_OUTLOOK_RECIPIENT` to the exact canonical address and
+   `CRM_CANARY_OUTLOOK_APPROVAL_SHA256` to the generated digest in Sites Secrets.
+   Review the checkpoint and deploy only with separate authorization. Delete
+   the private input after verification; never commit the address or digest.
+3. Obtain immediate approval for the one exact external message. Use the CRM's
+   explicit controlled-canary mode from `alexis@27pm.org`; the server checks
+   the pinned recipient and content digest. It reserves the exact attempt
+   atomically in immutable D1 `audit_entries` before calling Mailgun. An
+   identical replay, parallel request, or uncertain outcome never redispatches.
+   A new subject or body requires a new approval digest and checkpoint.
+4. Verify provider acceptance separately from actual Inbox/Junk placement in
+   the new Outlook account and collect the headers if available. Remove the
+   Outlook approval secret after the test; do not infer placement from HTTP 202.
+
+The canary reservation and result events are append-only. If D1 acknowledgement
+is uncertain, the route will not contact Mailgun. If provider acceptance is
+uncertain, inspect the private audit and Mailgun evidence before considering a
+new, separately approved test. Never erase the reservation to force a retry.
 
 ### One exact operations reply
 

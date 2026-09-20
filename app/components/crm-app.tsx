@@ -446,10 +446,20 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         "Configurez le transport de courriel avant l’envoi.",
       );
     }
+    const requestsControlledCanary = payload.controlledCanary === true;
+    const canaryRecipient =
+      typeof payload.to === "string" ? payload.to.trim().toLowerCase() : null;
     const isDeliverabilityCanary =
       payload.from === DELIVERABILITY_CANARY_SENDER &&
-      typeof payload.to === "string" &&
-      payload.to.trim().toLowerCase() === DELIVERABILITY_CANARY_RECIPIENT;
+      canaryRecipient !== null &&
+      (requestsControlledCanary ||
+        canaryRecipient === DELIVERABILITY_CANARY_RECIPIENT);
+    if (requestsControlledCanary && !isDeliverabilityCanary) {
+      return sendUiResult(
+        "definitive_failure",
+        "Le test administratif doit partir de alexis@27pm.org.",
+      );
+    }
     if (isDeliverabilityCanary) {
       try {
         const response = await fetch("/api/admin/mailgun-canary", {
@@ -457,6 +467,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
             confirmed: payload.complianceConfirmed,
+            to: payload.to,
             subject: payload.subject,
             text: payload.body,
           }),
@@ -464,8 +475,16 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         const result = (await response.json().catch(() => ({}))) as {
           accepted?: unknown;
           error?: unknown;
+          recipient?: unknown;
         };
         const outcome = classifyCanarySendHttpResponse(response.status, result);
+        if (
+          outcome === "accepted" &&
+          result.recipient !== canaryRecipient
+        ) {
+          setSyncMessage(UNKNOWN_SEND_MESSAGE);
+          return sendUiResult("outcome_unknown", UNKNOWN_SEND_MESSAGE);
+        }
         const message =
           outcome === "accepted"
             ? "Test de délivrabilité accepté par Mailgun."

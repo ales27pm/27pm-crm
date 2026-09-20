@@ -24,7 +24,7 @@ type ComposeDialogProps = {
   mailboxes: Mailbox[];
   sendEnabled: boolean;
   onClose: () => void;
-  onSend: (payload: { from: string; to: string; subject: string; body: string; complianceConfirmed: boolean }) => Promise<SendUiResult>;
+  onSend: (payload: { from: string; to: string; subject: string; body: string; complianceConfirmed: boolean; controlledCanary: boolean }) => Promise<SendUiResult>;
 };
 
 type ComposePayload = {
@@ -33,6 +33,7 @@ type ComposePayload = {
   subject: string;
   body: string;
   complianceConfirmed: true;
+  controlledCanary: boolean;
 };
 
 type ComposeFields = Omit<ComposePayload, "complianceConfirmed"> & {
@@ -65,6 +66,7 @@ type ComposeDialogViewProps = {
   actions: {
     close: () => void;
     setCompliance: (confirmed: boolean) => void;
+    setControlledCanary: (controlled: boolean) => void;
     setText: (field: "from" | "to" | "subject" | "body", value: string) => void;
     submit: () => void;
   };
@@ -82,6 +84,7 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
     subject: "",
     body: "",
     complianceConfirmed: false,
+    controlledCanary: false,
   });
   const [status, setStatus] = useState("");
   const [sending, setSending] = useState(false);
@@ -89,7 +92,7 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
     ready: false,
     frozen: null,
   });
-  const { from, to, subject, body, complianceConfirmed } = fields;
+  const { from, to, subject, body, complianceConfirmed, controlledCanary } = fields;
   const { ready: draftReady, frozen: frozenDraft } = draftState;
   const presentation = composePresentation(fields, draftState, sending);
 
@@ -131,7 +134,7 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
     }
     const payload = frozenDraft
       ? composePayload(frozenDraft.payload)
-      : composePayload({ from, to, subject, body, complianceConfirmed });
+      : composePayload({ from, to, subject, body, complianceConfirmed, controlledCanary });
     if (!payload) {
       setStatus(
         presentation.isDeliverabilityCanary
@@ -160,6 +163,7 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
           subject: "",
           body: "",
           complianceConfirmed: false,
+          controlledCanary: false,
         }));
         setStatus("");
         onClose();
@@ -178,9 +182,19 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
         ...current,
         complianceConfirmed: confirmed,
       })),
+      setControlledCanary: (controlled) => setFields((current) => ({
+        ...current,
+        controlledCanary: controlled,
+        complianceConfirmed: false,
+      })),
       setText: (field, value) => setFields((current) => ({
         ...current,
         [field]: value,
+        ...(current[field] !== value ? { complianceConfirmed: false } : {}),
+        ...(field === "from" && value !== DELIVERABILITY_CANARY_SENDER
+          ? { controlledCanary: false }
+          : {}),
+        ...(field === "to" ? { controlledCanary: false } : {}),
       })),
       submit: () => void submit(),
     }}
@@ -209,6 +223,7 @@ function ComposeDialogView({ view, actions }: ComposeDialogViewProps) {
         <header><h2>{presentation.title}</h2><button type="button" onClick={actions.close} aria-label="Fermer"><Icon name="close" /></button></header>
         <label><span>De</span><select disabled={presentation.fieldsDisabled} value={fields.from} onChange={(event) => actions.setText("from", event.target.value)}>{mailboxes.map((mailbox) => <option key={mailbox.address}>{mailbox.address}</option>)}</select></label>
         <label><span>À</span><input disabled={presentation.fieldsDisabled} type="email" required value={fields.to} onChange={(event) => actions.setText("to", event.target.value)} /></label>
+        {fields.from === DELIVERABILITY_CANARY_SENDER && <label className="check-label"><input disabled={presentation.fieldsDisabled} type="checkbox" checked={fields.controlledCanary} onChange={(event) => actions.setControlledCanary(event.target.checked)} /> Cette adresse est une boîte témoin que je contrôle; envoyer un test administratif, sans dossier prospect.</label>}
         <label><span>Objet</span><input disabled={presentation.fieldsDisabled} required value={fields.subject} onChange={(event) => actions.setText("subject", event.target.value)} /></label>
         <textarea disabled={presentation.fieldsDisabled} aria-label="Message" required rows={12} value={fields.body} onChange={(event) => actions.setText("body", event.target.value)} placeholder="Écrivez votre message…" />
         <label className="check-label"><input disabled={presentation.fieldsDisabled} type="checkbox" checked={fields.complianceConfirmed} onChange={(event) => actions.setCompliance(event.target.checked)} /> {presentation.confirmationLabel}</label>
@@ -230,7 +245,8 @@ function composePresentation(
 ): ComposePresentation {
   const isDeliverabilityCanary =
     fields.from === DELIVERABILITY_CANARY_SENDER &&
-    fields.to.trim().toLowerCase() === DELIVERABILITY_CANARY_RECIPIENT;
+    (fields.to.trim().toLowerCase() === DELIVERABILITY_CANARY_RECIPIENT ||
+      fields.controlledCanary);
   const locallyAccepted = draftState.frozen?.outcome === "local_repair";
   const unknownFrozen = draftState.frozen?.outcome === "outcome_unknown";
   let submitLabel = "Envoyer";
@@ -239,7 +255,7 @@ function composePresentation(
   if (sending) submitLabel = "Envoi…";
   return {
     confirmationLabel: isDeliverabilityCanary
-      ? "Je confirme qu’il s’agit d’un test interne envoyé uniquement à votre boîte Gmail 27PM."
+      ? "Je confirme un seul test interne vers la boîte témoin indiquée, sans envoi à un prospect."
       : "Je confirme qu’il s’agit d’un seul destinataire qualifié, que le fondement et les preuves sont à jour et que le message concerne précisément ses fonctions.",
     fieldsDisabled: [!draftState.ready, draftState.frozen !== null, sending].includes(true),
     isDeliverabilityCanary,
@@ -262,6 +278,7 @@ function composePayload(payload: SendAttemptPayload): ComposePayload | null {
         subject: payload.subject,
         body: payload.body,
         complianceConfirmed: true,
+        controlledCanary: payload.controlledCanary === true,
       }
     : null;
 }

@@ -144,6 +144,9 @@ export function shouldRetainSendAttempt(
           errorCode === "mailgun_send_failed" ||
           errorCode === "canary_send_failed" ||
           errorCode === "send_command_failed")) ||
+      (responseStatus === 503 &&
+        (errorCode === "canary_configuration_invalid" ||
+          errorCode === "canary_reservation_unconfirmed")) ||
       (responseStatus === 503 && errorCode === "unsubscribe_origin_invalid")
     );
   }

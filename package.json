@@ -17,6 +17,7 @@
     "check": "npm run lint && npm run typecheck && npm run test:unit && npm run build",
     "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate",
     "operational-reply:approval": "node --import tsx scripts/build-operational-reply-approval.mjs",
+    "mailgun-canary:approval": "node --import tsx scripts/build-mailgun-canary-approval.mjs",
     "cakemail:preflight": "node --import tsx scripts/preflight-cakemail-activation.mjs",
     "cakemail:canary-payload": "node --import tsx scripts/build-cakemail-canary-payload.mjs",
     "cakemail:canary": "node --import tsx scripts/build-cakemail-canary-payload.mjs --send",
