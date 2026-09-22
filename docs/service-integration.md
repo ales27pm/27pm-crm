@@ -1,0 +1,31 @@
+# monGARS service integration v1
+
+The integration is disabled until configured. This change does not install credentials, apply a live migration, authorize outreach, or establish deployment compatibility with the current production release.
+
+## Deployment contract
+
+Apply additive migration `0011_service_integration.sql` before enabling the route. Set server-side secret `CRM_INTEGRATION_TOKEN` to a cryptographically random value of at least 32 characters; store its counterpart only in the calling server's secret store, never the iPhone app. Configure `CRM_INTEGRATION_SUBJECT` (1–64 ASCII letters/digits/underscore/hyphen, e.g. `mongars`) and comma-delimited `CRM_INTEGRATION_SCOPES`. Each resource accepts separate `:read` and `:write` scopes. Resources are `organizations`, `contacts`, `deals`, `tasks`, `documents`. There are no wildcard permissions. A rotated token retains its subject's replay history; changing the subject creates a new idempotency namespace.
+
+`POST /api/integrations/v1/commands`, `Authorization: Bearer <secret>`, `Content-Type: application/json`.
+
+Body: `{ "operation": "<resource>.<search|read|create|update>", "id": "optional-entity-id", "query": "optional search", "limit": 20, "data": {} }`.
+
+`read` and `update` require `id`. Search performs literal case-insensitive substring matching, uses stable ID ordering and limits 1–50; default 20. Search is intentionally bounded, not an export API. All responses are private/no-store. `read` returns `{item}`, search `{items}`. Mutations require `Idempotency-Key` with 8–128 letters/digits/dot/underscore/colon/hyphen. They return `{operationId, resource, persisted:true, item}` after committing and rereading a persisted receipt (create 201, update 200). A matching retry returns the original immutable snapshot, HTTP 200 and `Idempotency-Replayed: true`; it does not claim the object has remained unchanged. Use read for current state. Reusing a key with different command content yields 409. Keys are scoped to the configured subject and kept durably, without automatic expiry.
+
+Authentication is independent of operator sessions and does not accept `oai-authenticated-user-email`. No public-intake route is used. The hosting gateway must forward this route and Authorization to the Worker without requiring an interactive operator login. That deployment property must be verified against the selected production host before enabling the connector; it is not established by these local tests.
+
+## Write payloads
+
+- **organizations**: existing `parseAccountInput` contract. Required `name`, `sourceLabel`; optional `website`, `sourceUrl`, `sourceDate`, `score`, `priority`, `budgetMinCents`, `budgetMaxCents`, `ownerEmail`, `doNotContact`, `nextFollowUpAt`, `nextStep`, `notes`. Updates are full form replacements, not partial patches. Existing account creation also creates its companion conversation and initial deal, and an internal task if `nextStep` is present. Existing suppression propagation remains active.
+- **contacts**: existing `parseContactInput` contract, including source/provenance/evidence and privacy classification. Required `organizationId`, `name`, `email`, `role`, `sourceLabel`, `sourceUrl`, `sourceDate`, `provenanceType`, `evidenceRef`, `lawfulBasis`, `roleRelevance`, `roleRelevanceDetail`, `personalDataCategory`, `qualificationMode`, `dnclStatus`, `emailStatus`, `validated:true`. Conditional proof/expiry requirements for non-`none` lawful bases and phone numbers remain enforced. Optional existing parser fields remain supported. Updates are full validated replacements; suppressed identities cannot be unlocked. This API does not supply consent or evidence automatically.
+- **deals**: create requires `organizationId`; optional `contactId`, `stage`, `projectType`, `nextAction`, `nextActionAt`, `note`, `estimatedValueCents`. Creates its own conversation using the existing business mailbox. Partial updates accept those fields. Contact must belong to the organization. Stages: `new`, `qualified`, `discovery`, `proposal`, `won`, `lost`, `archived`; cents 0–1,000,000,000 or null.
+- **tasks**: create requires `title` and `dealId` or `conversationId`; when both provided they must match. Optional `dueAt`, `status` (`open`, `done`, `cancelled`). Updates are partial. Only internal tasks are readable/writable; this route forces `contactAction=0`, `contactChannel=internal`. It cannot create or modify email/phone actions.
+- **documents**: create requires `dealId`, `title`, `content` (Markdown, max 20,000 characters). Partial updates accept those fields. Always `mediaType=text/markdown`, `status=prepared`. Quotes can be stored as prepared Markdown linked to a deal, never sent, invoiced or marked accepted through this route. No remote URL fetching or file upload occurs.
+
+## Persistence and failure semantics
+
+The same D1 atomic batch includes reservation, preflight state guards, existing business-service writes, audit and readback snapshot. Unique-key collisions roll back the losing transaction and return its winner's persisted response. Business-service preflight reads are rechecked inside the batch; changing or suppressing an entity before commit aborts the write. Original business audit is retained; an integration audit identifies the subject and operation ID. Read/search access is also audited without recording the query text.
+
+Status codes: 400 malformed/unsupported command, 401 bad service credential, 403 missing resource scope, 404 missing or non-visible entity, 409 key mismatch/concurrent-state/constraint conflict, 413 request over 65,536 bytes, 503 missing configuration/storage or failed integration. Validation errors preserve existing domain codes. A 503 is not proof of rollback: retry the identical command and idempotency key to recover an ambiguous committed receipt. Never auto-generate a replacement key after a network error.
+
+Rollout: local tests → staging migration and scope-restricted credential → end-to-end synthetic company/contact/deal/internal task/document test → verify audit and replay → production enablement. Disable by removing the credential; additive data remains. No outbound send capability, delete capability, calendar capability, or new billing system is exposed.

@@ -78,6 +78,13 @@
       "when": 1788147848030,
       "tag": "0010_outreach_planning",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1790035200000,
+      "tag": "0011_service_integration",
+      "breakpoints": true
     }
   ]
 }
