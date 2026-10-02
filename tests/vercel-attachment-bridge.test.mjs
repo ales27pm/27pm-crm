@@ -16,8 +16,9 @@ test("Vercel never proxies attachment bytes and the Worker owns the direct path"
   assert.doesNotMatch(proxy, /downloads\/attachments/u);
   assert.match(worker, /handleAttachmentDownloadRequest/u);
   assert.ok(
-    worker.indexOf("handleAttachmentDownloadRequest") < worker.indexOf("handler.fetch"),
-    "the direct download must be handled before Vinext",
+    worker.indexOf("const attachmentDownload = await handleAttachmentDownloadRequest") <
+      worker.indexOf("const preparedRequest = await prepareInternalApiRequest"),
+    "the bounded direct download handler must run before the generic edge body reader",
   );
   assert.doesNotMatch(legacyRoute, /getPrivateObjectBucket|\.get\(/u);
   assert.match(legacyRoute, /attachment_download_ticket_required/u);
@@ -25,6 +26,10 @@ test("Vercel never proxies attachment bytes and the Worker owns the direct path"
   assert.match(ticketRoute, /CRM_ATTACHMENT_DOWNLOAD_SIGNING_KEY/u);
   assert.match(ticketRoute, /CRM_ATTACHMENT_DOWNLOAD_ORIGIN/u);
   assert.doesNotMatch(ticketRoute, /CRM_MOBILE_TOKEN_SIGNING_KEY/u);
+  assert.match(ticketRoute, /downloadAction: downloadAction\.toString\(\)/u);
+  assert.match(ticketRoute, /ticket: ticket\.token/u);
+  assert.match(ticketRoute, /method: "POST"/u);
+  assert.doesNotMatch(ticketRoute, /searchParams|\?ticket=/u);
 });
 
 test("attachment bearer secrets stay on the Worker side of the Vercel split", async () => {
@@ -47,7 +52,7 @@ test("attachment bearer secrets stay on the Worker side of the Vercel split", as
   );
 });
 
-test("the Web thread lazily lists attachments and immediately follows a clean ticket", async () => {
+test("the Web thread lazily lists attachments and posts a clean ticket directly to the Worker", async () => {
   const [listRoute, threadView, types] = await Promise.all([
     read("app/api/attachments/route.ts"),
     read("app/components/thread-view.tsx"),
@@ -67,7 +72,28 @@ test("the Web thread lazily lists attachments and immediately follows a clean ti
     threadView,
     /fetch\(\s*`\/api\/attachments\/\$\{encodeURIComponent\(attachment\.id\)\}\/download-ticket`/u,
   );
-  assert.match(threadView, /method: "POST"/u);
-  assert.match(threadView, /anchor\.referrerPolicy = "no-referrer"/u);
-  assert.doesNotMatch(threadView, /localStorage|sessionStorage/u);
+  assert.match(threadView, /payload\.method !== "POST"/u);
+  assert.match(threadView, /ad2\\\./u);
+  assert.match(threadView, /typeof payload\.ticket !== "string"/u);
+  assert.match(threadView, /url\.protocol !== "https:"/u);
+  assert.match(threadView, /url\.username/u);
+  assert.match(threadView, /url\.password/u);
+  assert.match(threadView, /url\.search/u);
+  assert.match(threadView, /url\.hash/u);
+  assert.match(threadView, /document\.createElement\("form"\)/u);
+  assert.match(threadView, /form\.method = "POST"/u);
+  assert.match(threadView, /form\.enctype = "application\/x-www-form-urlencoded"/u);
+  assert.match(threadView, /form\.autocomplete = "off"/u);
+  assert.match(threadView, /form\.target = "_self"/u);
+  assert.match(threadView, /form\.action = ticket\.downloadAction/u);
+  assert.match(threadView, /document\.createElement\("input"\)/u);
+  assert.match(threadView, /input\.type = "hidden"/u);
+  assert.match(threadView, /input\.name = "ticket"/u);
+  assert.match(threadView, /input\.value = ticket\.ticket/u);
+  assert.match(threadView, /form\.submit\(\)/u);
+  assert.match(threadView, /window\.setTimeout\(\(\) => form\.remove\(\), 0\)/u);
+  assert.doesNotMatch(
+    threadView,
+    /document\.createElement\("a"\)|anchor\.|URL\.createObjectURL|\.blob\(|fetch\(\s*ticket\.downloadAction|\?ticket=|localStorage|sessionStorage/u,
+  );
 });

@@ -2,7 +2,7 @@ export const ATTACHMENT_DOWNLOAD_MAX_TTL_SECONDS = 60;
 export const ATTACHMENT_DOWNLOAD_DEFAULT_TTL_SECONDS = 45;
 export const ATTACHMENT_DOWNLOAD_AUDIENCE = "27pm-attachment-download";
 
-const TOKEN_PREFIX = "ad1";
+const TOKEN_PREFIX = "ad2";
 const CLOCK_SKEW_SECONDS = 5;
 const MAX_TOKEN_LENGTH = 4096;
 const MAX_PAYLOAD_BYTES = 2048;
@@ -12,10 +12,10 @@ const SHA256_HEX = /^[0-9a-f]{64}$/u;
 const SAFE_TOKEN_TEXT = /^[\x21-\x7e]{1,512}$/u;
 
 type EncodedAttachmentDownloadClaims = {
-  v: 1;
+  v: 2;
   aud: typeof ATTACHMENT_DOWNLOAD_AUDIENCE;
   ori: string;
-  mth: "GET";
+  mth: "POST";
   pth: string;
   aid: string;
   obj: string;
@@ -25,10 +25,10 @@ type EncodedAttachmentDownloadClaims = {
 };
 
 export type AttachmentDownloadClaims = {
-  version: 1;
+  version: 2;
   audience: typeof ATTACHMENT_DOWNLOAD_AUDIENCE;
   origin: string;
-  method: "GET";
+  method: "POST";
   pathname: string;
   attachmentId: string;
   objectDigest: string;
@@ -126,10 +126,10 @@ export async function createAttachmentDownloadTicket(
   }
 
   const encoded: EncodedAttachmentDownloadClaims = {
-    v: 1,
+    v: 2,
     aud: ATTACHMENT_DOWNLOAD_AUDIENCE,
     ori: origin,
-    mth: "GET",
+    mth: "POST",
     pth: input.pathname,
     aid: input.attachmentId,
     obj: input.objectDigest,
@@ -318,10 +318,10 @@ function validEncodedClaims(
       "aid,aud,exp,iat,mth,nonce,obj,ori,pth,v"
   ) return false;
   return (
-    claims.v === 1 &&
+    claims.v === 2 &&
     claims.aud === ATTACHMENT_DOWNLOAD_AUDIENCE &&
     canonicalAttachmentDownloadOrigin(claims.ori) === claims.ori &&
-    claims.mth === "GET" &&
+    claims.mth === "POST" &&
     typeof claims.aid === "string" &&
     validAttachmentId(claims.aid) &&
     claims.pth === attachmentDownloadPath(claims.aid) &&

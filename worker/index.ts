@@ -40,13 +40,6 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    const preparedRequest = await prepareInternalApiRequest(request, env, ctx);
-    if (preparedRequest instanceof Response) {
-      return withSecurityHeaders(preparedRequest);
-    }
-    request = preparedRequest;
-    const url = new URL(request.url);
-
     const attachmentDownload = await handleAttachmentDownloadRequest(
       request,
       env,
@@ -54,6 +47,13 @@ const worker = {
       ctx,
     );
     if (attachmentDownload) return withSecurityHeaders(attachmentDownload);
+
+    const preparedRequest = await prepareInternalApiRequest(request, env, ctx);
+    if (preparedRequest instanceof Response) {
+      return withSecurityHeaders(preparedRequest);
+    }
+    request = preparedRequest;
+    const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

@@ -95,10 +95,14 @@ export async function POST(request: Request, context: RouteContext) {
       return privateJsonError(503, "attachment_download_audit_unavailable");
     }
 
-    const downloadUrl = new URL(pathname, downloadOrigin);
-    downloadUrl.searchParams.set("ticket", ticket.token);
+    const downloadAction = new URL(pathname, downloadOrigin);
     return Response.json(
-      { downloadUrl: downloadUrl.toString(), expiresAt },
+      {
+        downloadAction: downloadAction.toString(),
+        ticket: ticket.token,
+        method: "POST",
+        expiresAt,
+      },
       { headers: privateNoStoreHeaders() },
     );
   } catch {

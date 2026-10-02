@@ -1,4 +1,5 @@
 import { attachmentDownloadDecision } from "./attachments";
+import { boundedRequest } from "./bounded-request";
 import { pruneExpiredInternalApiNonces } from "./internal-api-nonce-store";
 import {
   attachmentDownloadPath,
@@ -54,6 +55,8 @@ type AttachmentDownloadExecutionContext = {
 };
 
 const DOWNLOAD_PATH = /^\/downloads\/attachments\/([A-Za-z0-9_-]{1,128})$/u;
+const MAXIMUM_TICKET_BODY_BYTES = 8 * 1_024;
+const FORM_CONTENT_TYPE = "application/x-www-form-urlencoded";
 
 export async function handleAttachmentDownloadRequest(
   request: Request,
@@ -77,26 +80,62 @@ export async function handleAttachmentDownloadRequest(
   if (url.origin !== configuredOrigin) {
     return downloadError(403, "attachment_download_origin_forbidden");
   }
-  if (request.method !== "GET") {
+  if (url.search) {
+    return downloadError(400, "attachment_download_query_forbidden");
+  }
+  if (request.method !== "POST") {
     return downloadError(405, "attachment_download_method_not_allowed", {
-      allow: "GET",
+      allow: "POST",
     });
   }
   if (request.headers.has("range")) {
     return downloadError(400, "attachment_range_not_supported");
   }
-  const query = [...url.searchParams.entries()];
-  if (
-    query.length !== 1 ||
-    query[0]?.[0] !== "ticket" ||
-    !query[0][1]
-  ) return downloadError(401, "attachment_download_invalid");
+  if (request.headers.has("content-encoding")) {
+    return downloadError(415, "attachment_download_content_encoding_invalid");
+  }
+  const contentType = request.headers.get("content-type")
+    ?.split(";", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  if (contentType !== FORM_CONTENT_TYPE) {
+    return downloadError(415, "attachment_download_content_type_invalid");
+  }
+  const contentLength = request.headers.get("content-length");
+  if (contentLength !== null) {
+    if (!/^(?:0|[1-9][0-9]*)$/u.test(contentLength)) {
+      return downloadError(400, "attachment_download_content_length_invalid");
+    }
+    const declaredBytes = Number(contentLength);
+    if (
+      !Number.isSafeInteger(declaredBytes) ||
+      declaredBytes > MAXIMUM_TICKET_BODY_BYTES
+    ) {
+      return downloadError(413, "attachment_download_request_too_large");
+    }
+  }
+  const bounded = await boundedRequest(request, MAXIMUM_TICKET_BODY_BYTES);
+  if (!bounded) {
+    return downloadError(413, "attachment_download_request_too_large");
+  }
+  let ticketToken: string;
+  try {
+    const fields = [...new URLSearchParams(await bounded.text()).entries()];
+    if (
+      fields.length !== 1 ||
+      fields[0]?.[0] !== "ticket" ||
+      !fields[0][1]
+    ) return downloadError(401, "attachment_download_invalid");
+    ticketToken = fields[0][1];
+  } catch {
+    return downloadError(400, "attachment_download_request_invalid");
+  }
 
   const attachmentId = match[1];
   const pathname = attachmentDownloadPath(attachmentId);
   const claims = await verifyAttachmentDownloadTicket(
     environment.CRM_ATTACHMENT_DOWNLOAD_SIGNING_KEY,
-    query[0][1],
+    ticketToken,
     { attachmentId, origin: configuredOrigin, pathname },
     now,
   );

@@ -58,12 +58,12 @@ test("attachment tickets bind a one-time claim to the exact Worker object", asyn
     NOW,
   );
 
-  assert.match(issued.token, /^ad1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/u);
+  assert.match(issued.token, /^ad2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/u);
   assert.deepEqual(issued.claims, {
-    version: 1,
+    version: 2,
     audience: "27pm-attachment-download",
     origin: ORIGIN,
-    method: "GET",
+    method: "POST",
     pathname: PATHNAME,
     attachmentId: ATTACHMENT_ID,
     objectDigest,
@@ -90,10 +90,10 @@ test("attachment tickets bind a one-time claim to the exact Worker object", asyn
   );
   const decoded = JSON.parse(Buffer.from(payload, "base64url").toString());
   assert.deepEqual(decoded, {
-    v: 1,
+    v: 2,
     aud: "27pm-attachment-download",
     ori: ORIGIN,
-    mth: "GET",
+    mth: "POST",
     pth: PATHNAME,
     aid: ATTACHMENT_ID,
     obj: objectDigest,
@@ -113,6 +113,7 @@ test("ticket verification rejects tampering, replay-boundary mismatches, and bad
   for (const [secret, token, expected, now] of [
     [OTHER_SECRET, ticket.token, expectedContext(), NOW],
     [SECRET, tampered, expectedContext(), NOW],
+    [SECRET, ticket.token.replace(/^ad2/u, "ad1"), expectedContext(), NOW],
     [SECRET, `${ticket.token}.extra`, expectedContext(), NOW],
     [SECRET, ticket.token, { ...expectedContext(), attachmentId: "att_other" }, NOW],
     [SECRET, ticket.token, { ...expectedContext(), origin: "https://other.example" }, NOW],
@@ -202,6 +203,17 @@ test("direct Worker download is streamed once with a conditional R2 read", async
   const environment = fakeEnvironment(state);
   const request = downloadRequest(ticket.token);
 
+  assert.equal(request.method, "POST");
+  assert.equal(new URL(request.url).search, "");
+  assert.equal(
+    request.headers.get("content-type"),
+    "application/x-www-form-urlencoded",
+  );
+  assert.equal(
+    await request.clone().text(),
+    `ticket=${encodeURIComponent(ticket.token)}`,
+  );
+
   const response = await handleAttachmentDownloadRequest(request, environment, NOW);
   assert.ok(response);
   assert.equal(response.status, 200);
@@ -234,18 +246,133 @@ test("two concurrent uses have exactly one winner", async () => {
   assert.equal(state.nonces.size, 1);
 });
 
-test("invalid tickets, Range, and extra query fields fail before D1 or R2", async () => {
+test("invalid transport or form input fails before D1 or R2", async () => {
   const ticket = await issueTicket();
-  for (const request of [
-    downloadRequest(`${ticket.token}x`),
-    downloadRequest(ticket.token, { range: "bytes=0-1" }),
-    new Request(`${ORIGIN}${PATHNAME}?ticket=${encodeURIComponent(ticket.token)}&debug=1`),
-    new Request(`${ORIGIN}${PATHNAME}?ticket=${encodeURIComponent(ticket.token)}&ticket=again`),
-    new Request(`${ORIGIN}${PATHNAME}?ticket=${encodeURIComponent(ticket.token)}`, { method: "HEAD" }),
-  ]) {
+  const cases = [
+    {
+      name: "invalid ticket",
+      request: downloadRequest(`${ticket.token}x`),
+      status: 401,
+      error: "attachment_download_invalid",
+    },
+    {
+      name: "GET",
+      request: new Request(`${ORIGIN}${PATHNAME}`),
+      status: 405,
+      error: "attachment_download_method_not_allowed",
+      allow: "POST",
+    },
+    {
+      name: "HEAD",
+      request: new Request(`${ORIGIN}${PATHNAME}`, { method: "HEAD" }),
+      status: 405,
+      error: "attachment_download_method_not_allowed",
+      allow: "POST",
+    },
+    {
+      name: "Range",
+      request: downloadRequest(ticket.token, {
+        headers: { range: "bytes=0-1" },
+      }),
+      status: 400,
+      error: "attachment_range_not_supported",
+    },
+    {
+      name: "query string",
+      request: downloadRequest(ticket.token, { search: "?debug=1" }),
+      status: 400,
+      error: "attachment_download_query_forbidden",
+    },
+    {
+      name: "legacy URL bearer",
+      request: new Request(
+        `${ORIGIN}${PATHNAME}?ticket=${encodeURIComponent(ticket.token)}`,
+      ),
+      status: 400,
+      error: "attachment_download_query_forbidden",
+    },
+    {
+      name: "missing MIME",
+      request: downloadRequest(ticket.token, {
+        headers: { "content-type": "" },
+      }),
+      status: 415,
+      error: "attachment_download_content_type_invalid",
+    },
+    {
+      name: "wrong MIME",
+      request: downloadRequest(ticket.token, {
+        headers: { "content-type": "application/json" },
+      }),
+      status: 415,
+      error: "attachment_download_content_type_invalid",
+    },
+    {
+      name: "encoded body",
+      request: downloadRequest(ticket.token, {
+        headers: { "content-encoding": "gzip" },
+      }),
+      status: 415,
+      error: "attachment_download_content_encoding_invalid",
+    },
+    {
+      name: "invalid Content-Length",
+      request: downloadRequest(ticket.token, {
+        headers: { "content-length": "8.5" },
+      }),
+      status: 400,
+      error: "attachment_download_content_length_invalid",
+    },
+    {
+      name: "oversized declared Content-Length",
+      request: downloadRequest(ticket.token, {
+        headers: { "content-length": "8193" },
+      }),
+      status: 413,
+      error: "attachment_download_request_too_large",
+    },
+    {
+      name: "oversized body",
+      request: downloadRequest(ticket.token, { body: "x".repeat(8193) }),
+      status: 413,
+      error: "attachment_download_request_too_large",
+    },
+    {
+      name: "duplicate ticket field",
+      request: downloadRequest(ticket.token, {
+        body: `ticket=${encodeURIComponent(ticket.token)}&ticket=again`,
+      }),
+      status: 401,
+      error: "attachment_download_invalid",
+    },
+    {
+      name: "extra form field",
+      request: downloadRequest(ticket.token, {
+        body: `ticket=${encodeURIComponent(ticket.token)}&debug=1`,
+      }),
+      status: 401,
+      error: "attachment_download_invalid",
+    },
+    {
+      name: "empty ticket field",
+      request: downloadRequest(ticket.token, { body: "ticket=" }),
+      status: 401,
+      error: "attachment_download_invalid",
+    },
+    {
+      name: "empty form body",
+      request: downloadRequest(ticket.token, { body: "" }),
+      status: 401,
+      error: "attachment_download_invalid",
+    },
+  ];
+
+  for (const { name, request, status, error, allow } of cases) {
     const state = downloadState({ rejectAccess: true });
     const response = await handleAttachmentDownloadRequest(request, fakeEnvironment(state), NOW);
-    assert.notEqual(response.status, 200);
+    assert.equal(response.status, status, name);
+    assert.deepEqual(await response.json(), { error }, name);
+    assert.equal(response.headers.get("allow"), allow ?? null, name);
     assert.equal(state.databaseCalls, 0);
     assert.equal(state.headCalls, 0);
     assert.equal(state.getCalls, 0);
@@ -336,8 +463,16 @@ function validObjectDigest() {
   });
 }
 
-function downloadRequest(token, headers = {}) {
-  return new Request(`${ORIGIN}${PATHNAME}?ticket=${encodeURIComponent(token)}`, { headers });
+function downloadRequest(token, options = {}) {
+  const headers = new Headers(options.headers);
+  if (!headers.has("content-type")) {
+    headers.set("content-type", "application/x-www-form-urlencoded");
+  }
+  return new Request(`${ORIGIN}${PATHNAME}${options.search ?? ""}`, {
+    method: "POST",
+    headers,
+    body: options.body ?? `ticket=${encodeURIComponent(token)}`,
+  });
 }
 
 function downloadState(overrides = {}) {

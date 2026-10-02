@@ -94,13 +94,17 @@ CRM_ATTACHMENT_DOWNLOAD_SIGNING_KEY=<separate random base64url secret, at least 
 
 The origin is the exact dedicated Worker hostname that serves
 `/downloads/attachments/*`; it must not be the Vercel hostname. The signing key
-must not be configured on Vercel. The checked-in Wrangler override enables
-`observability.redact_query_string=true`, because a 45-second download ticket
-is a bearer secret carried in the URL. Before any canary, verify the setting on
-the actually deployed Worker version and confirm that logs and traces omit the
-query string. A local build or Sites archive alone is not that production
-proof. If the platform cannot preserve and prove redaction, do not enable this
-URL-ticket flow; move the ticket into a direct POST body instead.
+must not be configured on Vercel. The ticket endpoint returns a query-free
+Worker `downloadAction` plus an `ad2` bearer bound to `POST`; the browser submits
+the bearer directly as the sole URL-encoded `ticket` field. Never concatenate
+it into a URL, redirect, analytics event, exception, or application log, and do
+not log request bodies on the Worker. The checked-in Wrangler override keeps
+`observability.redact_query_string=true` as defense in depth for unrelated
+queries only. Live Sites logs have exposed query strings despite that generated
+setting, so redaction is not a security boundary and URL bearer tickets remain
+forbidden. Before any canary, verify the actually deployed Worker does not
+capture POST bodies and confirm that neither logs nor traces contain a unique
+test ticket. A local build or Sites archive alone is not that production proof.
 
 Never expose `AUTH_SECRET`, `AUTH_GOOGLE_SECRET`, or
 `CRM_INTERNAL_API_SIGNING_KEY` to client-side variables or commit their values.
@@ -118,8 +122,13 @@ page deliberately does not read it. Apply the same isolation to
    Functions have a smaller request/response body limit than the existing 12 MB
    Mailgun inbound allowance. Private downloads use
    `POST /api/attachments/:id/download-ticket` to obtain a short-lived,
-   one-time Worker URL; `/downloads/attachments/:id` streams R2 bytes directly
-   and never traverses Vercel. The legacy binary API now returns
+   one-time `ad2` ticket and query-free Worker action. The browser then submits
+   exactly one `ticket` field as a URL-encoded direct
+   `POST /downloads/attachments/:id`; the response streams R2 bytes directly
+   and never traverses Vercel or a JavaScript `Blob`. The direct endpoint rejects
+   all query strings, `GET`, `HEAD`, `Range`, encoded bodies, invalid or
+   oversized lengths/bodies, and malformed form fields before D1 or R2. The
+   legacy binary API now returns
    `410 attachment_download_ticket_required`. New inbound files remain
    `unscanned` and fail closed: this transport change does not implement or
    bypass malware scanning. New writes also provide R2's native SHA-256 and a
@@ -143,18 +152,22 @@ page deliberately does not read it. Apply the same isolation to
 3. Apply and verify migrations through `0018`; preserve the current mobile
    token signing key and public origin.
 4. Deploy the backend compatibility change first and verify Sites login, CRUD,
-   mobile authorization/refresh/revocation, webhooks, and attachments. On the
-   deployed Worker, confirm query-string redaction before issuing any real
-   download ticket.
+   mobile authorization/refresh/revocation, webhooks, and attachments. Require
+   the `ad2` POST-body contract and keep the former URL-ticket flow disabled; do
+   not retain dual GET compatibility. On the deployed Worker, prove with a
+   unique canary that neither logs nor traces contain the ticket or request
+   body before issuing any real download ticket.
 5. Create a separate Vercel CRM project. Do not reuse the public `27pm` Web
    project.
 6. Configure secrets and the Google callback, then deploy a Vercel preview.
 7. Verify rejected identity spoofing, rejected cross-origin mutations, nonce
    replay rejection, operator allowlist enforcement, all CRUD flows, the iOS
    authorization callback, and the security headers. Download a clean test
-   object larger than 4.5 MB directly from the Worker, verify its checksum,
-   confirm that missing or mismatched native SHA-256, a replay, and a changed R2
-   object fail, and inspect Worker logs to prove the ticket query is absent.
+   object larger than 4.5 MB with the browser's direct POST form, verify its
+   checksum, confirm that missing or mismatched native SHA-256, a replay, a
+   changed R2 object, every query string, and the retired GET flow fail. Inspect
+   the submitted request URL and Worker logs/traces to prove the URL is
+   query-free and the unique canary ticket and POST body are absent.
 8. Change DNS only after preview evidence passes. Retain Sites and its bindings
    as the rollback target until production verification also passes.
 

@@ -356,20 +356,13 @@ export function ThreadView({
         { method: "POST", headers: { accept: "application/json" } },
       );
       const payload: unknown = await response.json();
-      const downloadUrl = validAttachmentTicketResponse(
+      const ticket = validAttachmentTicketResponse(
         payload,
         attachment.id,
       );
-      if (!response.ok || !downloadUrl) throw new Error("ticket_unavailable");
+      if (!response.ok || !ticket) throw new Error("ticket_unavailable");
 
-      const anchor = document.createElement("a");
-      anchor.href = downloadUrl;
-      anchor.rel = "noreferrer";
-      anchor.referrerPolicy = "no-referrer";
-      anchor.style.display = "none";
-      document.body.append(anchor);
-      anchor.click();
-      anchor.remove();
+      submitAttachmentDownload(ticket);
       outcome = "La demande de téléchargement a été ouverte.";
     } catch {
       // The generic outcome intentionally avoids exposing ticket details.
@@ -822,6 +815,13 @@ type AttachmentListResponse = {
   truncated: boolean;
 };
 
+type AttachmentTicketResponse = {
+  downloadAction: string;
+  ticket: string;
+  method: "POST";
+  expiresAt: string;
+};
+
 async function fetchConversationAttachments(
   conversationId: string,
   signal: AbortSignal,
@@ -876,31 +876,60 @@ function validCrmAttachment(value: unknown): value is CrmAttachment {
 function validAttachmentTicketResponse(
   value: unknown,
   attachmentId: string,
-): string | null {
+): AttachmentTicketResponse | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const payload = value as Record<string, unknown>;
   if (
-    typeof payload.downloadUrl !== "string" ||
-    payload.downloadUrl.length > 8192 ||
+    typeof payload.downloadAction !== "string" ||
+    payload.downloadAction.length > 2048 ||
+    typeof payload.ticket !== "string" ||
+    payload.ticket.length > 4096 ||
+    !/^ad2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/u.test(payload.ticket) ||
+    payload.method !== "POST" ||
     typeof payload.expiresAt !== "string" ||
     Number.isNaN(new Date(payload.expiresAt).valueOf())
   ) return null;
   try {
-    const url = new URL(payload.downloadUrl);
-    const query = [...url.searchParams.entries()];
+    const url = new URL(payload.downloadAction);
     if (
       url.protocol !== "https:" ||
       url.username ||
       url.password ||
+      url.search ||
       url.hash ||
       url.pathname !== `/downloads/attachments/${attachmentId}` ||
-      query.length !== 1 ||
-      query[0]?.[0] !== "ticket" ||
-      !/^ad1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(query[0][1])
+      url.toString() !== payload.downloadAction
     ) return null;
-    return url.toString();
+    return {
+      downloadAction: url.toString(),
+      ticket: payload.ticket,
+      method: "POST",
+      expiresAt: payload.expiresAt,
+    };
   } catch {
     return null;
+  }
+}
+
+function submitAttachmentDownload(ticket: AttachmentTicketResponse): void {
+  const form = document.createElement("form");
+  form.hidden = true;
+  form.method = "POST";
+  form.enctype = "application/x-www-form-urlencoded";
+  form.autocomplete = "off";
+  form.target = "_self";
+  form.action = ticket.downloadAction;
+
+  const input = document.createElement("input");
+  input.type = "hidden";
+  input.name = "ticket";
+  input.value = ticket.ticket;
+  form.append(input);
+  document.body.append(form);
+  try {
+    form.submit();
+  } finally {
+    window.setTimeout(() => form.remove(), 0);
   }
 }
 
