@@ -29,6 +29,18 @@ const unsafeRouteInventory = [
   { route: "tasks/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "tasks/route.ts", method: "POST", boundary: "operator" },
   {
+    route: "admin/d1-export/route.ts",
+    method: "POST",
+    boundary: "predeploy-backup",
+    guard: /authorizePredeployBackupRequest\(request, configuration\)[\s\S]*if \(denied\) return denied/u,
+  },
+  {
+    route: "admin/r2-inventory/route.ts",
+    method: "POST",
+    boundary: "predeploy-backup",
+    guard: /authorizePredeployBackupRequest\(request, configuration\)[\s\S]*if \(denied\) return denied/u,
+  },
+  {
     route: "admin/mailgun-handoff/consume/route.ts",
     method: "POST",
     boundary: "consumer",

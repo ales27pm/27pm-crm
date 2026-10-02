@@ -9,6 +9,17 @@ export interface PrivateObjectBody {
   httpEtag?: string;
 }
 
+export interface PrivateObjectMetadata {
+  key: string;
+  size: number;
+  etag?: string;
+  version?: string;
+  uploaded?: Date | string;
+  checksums?: {
+    sha256?: ArrayBuffer | ArrayBufferView;
+  };
+}
+
 export interface PrivateObjectBucket {
   put(
     key: string,
@@ -19,6 +30,14 @@ export interface PrivateObjectBucket {
     },
   ): Promise<unknown>;
   get(key: string): Promise<PrivateObjectBody | null>;
+  list(options?: {
+    cursor?: string;
+    limit?: number;
+  }): Promise<{
+    objects: PrivateObjectMetadata[];
+    truncated: boolean;
+    cursor?: string;
+  }>;
 }
 
 function bindings(): RuntimeBindings {
