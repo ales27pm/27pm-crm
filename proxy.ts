@@ -1,10 +1,16 @@
 import { auth } from "@/auth";
+import { NextResponse } from "next/server";
 import {
   fetchPreparedVercelApiRequest,
   prepareVercelApiRequest,
+  vercelApiProxyEnabled,
 } from "@/lib/vercel-api-proxy";
 
 export const proxy = auth(async (request) => {
+  if (!vercelApiProxyEnabled(process.env.CRM_WEB_IDENTITY_PROVIDER)) {
+    return NextResponse.next();
+  }
+
   const prepared = await prepareVercelApiRequest(
     request,
     request.auth?.user?.email,

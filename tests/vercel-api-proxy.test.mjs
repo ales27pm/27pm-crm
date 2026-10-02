@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 import {
@@ -13,6 +14,7 @@ import {
 import {
   fetchPreparedVercelApiRequest,
   prepareVercelApiRequest,
+  vercelApiProxyEnabled,
 } from "../lib/vercel-api-proxy.ts";
 
 const SECRET = Buffer.alloc(32, 19).toString("base64url");
@@ -22,6 +24,24 @@ const CONFIGURATION = {
   operatorAllowlist: "owner@example.com",
   signingKey: SECRET,
 };
+
+test("the API proxy is enabled only for the Google Web identity deployment", () => {
+  assert.equal(vercelApiProxyEnabled("google"), true);
+  for (const provider of [undefined, "", "sites", "disabled", "unknown"]) {
+    assert.equal(vercelApiProxyEnabled(provider), false, String(provider));
+  }
+});
+
+test("the runtime bypasses the BFF before preparing an upstream request on Sites", async () => {
+  const source = await readFile(new URL("../proxy.ts", import.meta.url), "utf8");
+  const providerGate = source.indexOf("vercelApiProxyEnabled(");
+  const localPassThrough = source.indexOf("NextResponse.next()", providerGate);
+  const upstreamPreparation = source.indexOf("prepareVercelApiRequest(", providerGate);
+
+  assert.ok(providerGate >= 0);
+  assert.ok(localPassThrough > providerGate);
+  assert.ok(upstreamPreparation > localPassThrough);
+});
 
 test("an authenticated same-origin request is signed for the exact backend request", async () => {
   const body = JSON.stringify({ title: "Relance" });

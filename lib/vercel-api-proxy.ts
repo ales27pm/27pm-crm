@@ -8,7 +8,7 @@ import {
   INTERNAL_API_DEFAULT_AUDIENCE,
 } from "./internal-api-edge";
 import { isSameOriginBrowserRequest } from "./http";
-import { operatorEmailAllowed } from "./web-identity";
+import { operatorEmailAllowed, webIdentityProvider } from "./web-identity";
 
 const STRIPPED_REQUEST_HEADERS = new Set([
   "cf-connecting-ip",
@@ -41,6 +41,10 @@ export type PreparedVercelApiRequest = {
   destination: URL;
   headers: Headers;
 };
+
+export function vercelApiProxyEnabled(provider: string | undefined): boolean {
+  return webIdentityProvider(provider) === "google";
+}
 
 export async function fetchPreparedVercelApiRequest(
   source: Request,

@@ -9,7 +9,10 @@ session state.
 
 - Vercel serves the Next.js pages and Auth.js Google login.
 - `proxy.ts` is the Web backend-for-frontend boundary for `/api/*` except
-  `/api/auth/*`.
+  `/api/auth/*` only when `CRM_WEB_IDENTITY_PROVIDER=google`. The same source
+  can remain deployed on Sites with `CRM_WEB_IDENTITY_PROVIDER=sites`; in that
+  mode the proxy passes API requests through to the local Worker instead of
+  forwarding them back to the dedicated Worker hostname.
 - An authenticated same-origin browser request receives a 30-second HMAC
   assertion bound to operator email, audience, method, pathname, query, body,
   the canonical `content-type` and `idempotency-key` values, expiry, and a
