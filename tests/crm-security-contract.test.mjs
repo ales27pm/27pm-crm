@@ -10,6 +10,7 @@ const unsafeRouteInventory = [
   { route: "admin/cakemail-send-resolution/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-canary/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-handoff/route.ts", method: "POST", boundary: "operator" },
+  { route: "attachments/[id]/download-ticket/route.ts", method: "POST", boundary: "operator" },
   { route: "compliance/route.ts", method: "PATCH", boundary: "operator" },
   { route: "contacts/[id]/route.ts", method: "DELETE", boundary: "operator" },
   { route: "contacts/[id]/route.ts", method: "PATCH", boundary: "operator" },
@@ -19,6 +20,20 @@ const unsafeRouteInventory = [
   { route: "intake/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "interactions/route.ts", method: "POST", boundary: "operator" },
   { route: "messages/send/route.ts", method: "POST", boundary: "operator" },
+  { route: "mobile/authorize/route.ts", method: "POST", boundary: "operator" },
+  { route: "mobile/sessions/route.ts", method: "DELETE", boundary: "operator" },
+  {
+    route: "mobile/logout/route.ts",
+    method: "POST",
+    boundary: "mobile-token",
+    guard: /readMobileAuthJson\(request\)[\s\S]*revokeMobileSession/u,
+  },
+  {
+    route: "mobile/token/route.ts",
+    method: "POST",
+    boundary: "mobile-token",
+    guard: /readMobileAuthJson\(request\)[\s\S]*(?:exchangeMobileAuthorizationCode|rotateMobileRefreshToken)/u,
+  },
   { route: "organizations/[id]/route.ts", method: "DELETE", boundary: "operator" },
   { route: "organizations/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "organizations/route.ts", method: "POST", boundary: "operator" },
@@ -98,7 +113,7 @@ test("every operator mutation enforces same-origin auth inside its method", asyn
     const methodSource = exported.source;
     assert.match(
       methodSource,
-      /requireSameOriginOperator(?:Json)?Request\(\s*request/u,
+      /requireSameOriginOperator(?:OrMobile)?(?:Json)?Request\(\s*request/u,
       `${method} app/api/${route}`,
     );
     assert.match(
@@ -113,7 +128,7 @@ test("every operator mutation enforces same-origin auth inside its method", asyn
     );
     assert.match(
       exported.statements[0] ?? "",
-      /^const auth = (?:await )?requireSameOriginOperator(?:Json)?Request\(\s*request/u,
+      /^const auth = (?:await )?requireSameOriginOperator(?:OrMobile)?(?:Json)?Request\(\s*request/u,
       `${method} app/api/${route} must authenticate before side effects`,
     );
     assert.match(
@@ -163,6 +178,68 @@ test("same-origin browser checks require positive same-origin evidence", () => {
   for (const origin of ["https://27pm.org", "https://crm.27pm.org:444", "null", "not a url"]) {
     assert.equal(isSameOriginBrowserRequest(request({ origin })), false, origin);
   }
+});
+
+test("mobile bearer scope is limited to dashboard and ordinary CRM work", async () => {
+  const mobileWorkRoutes = new Set([
+    "conversations/[id]/route.ts:PATCH",
+    "deals/[id]/route.ts:PATCH",
+    "intake/[id]/route.ts:PATCH",
+    "interactions/route.ts:POST",
+    "strategies/[strategyId]/route.ts:PUT",
+    "strategies/[strategyId]/steps/[stepId]/route.ts:PATCH",
+    "tasks/[id]/route.ts:PATCH",
+    "tasks/route.ts:POST",
+  ]);
+  for (const { route, method, boundary } of unsafeRouteInventory) {
+    if (boundary !== "operator") continue;
+    const source = await readFile(new URL(`../app/api/${route}`, import.meta.url), "utf8");
+    const methodSource = exportedApiMethod(source, method, route).source;
+    const key = `${route}:${method}`;
+    if (mobileWorkRoutes.has(key)) {
+      assert.match(methodSource, /requireSameOriginOperatorOrMobileRequest\(request, "crm:work"\)/u, key);
+    } else {
+      assert.doesNotMatch(methodSource, /OperatorOrMobile/u, key);
+    }
+  }
+  const dashboard = await readFile(new URL("../app/api/dashboard/route.ts", import.meta.url), "utf8");
+  assert.match(dashboard, /requireOperatorOrMobileRequest\(request, "crm:dashboard:read"\)/u);
+  for (const route of [
+    "messages/send/route.ts",
+    "admin/mailgun-canary/route.ts",
+    "admin/mailgun-handoff/route.ts",
+    "admin/cakemail-send-resolution/route.ts",
+    "compliance/route.ts",
+    "privacy-requests/route.ts",
+    "accounts/import/route.ts",
+  ]) {
+    const source = await readFile(new URL(`../app/api/${route}`, import.meta.url), "utf8");
+    assert.doesNotMatch(source, /OperatorOrMobile/u, route);
+  }
+
+  const authSource = await readFile(new URL("../lib/api-auth.ts", import.meta.url), "utf8");
+  assert.match(authSource, /if \(bearer === undefined\) return requireOperatorRequest\(request\)/u);
+  assert.match(authSource, /if \(bearer === undefined\) return requireSameOriginOperatorRequest\(request\)/u);
+  assert.match(authSource, /if \(!bearer\)[\s\S]*mobile_token_invalid/u);
+  assert.match(authSource, /verifyMobileAccessToken/u);
+  assert.match(authSource, /hasMobileScope/u);
+  assert.match(authSource, /activeMobileSession/u);
+  assert.match(authSource, /cross_origin_request_forbidden/u);
+
+  const tokenRoute = await readFile(new URL("../app/api/mobile/token/route.ts", import.meta.url), "utf8");
+  const logoutRoute = await readFile(new URL("../app/api/mobile/logout/route.ts", import.meta.url), "utf8");
+  for (const source of [tokenRoute, logoutRoute]) {
+    assert.match(source, /readMobileAuthJson\(request\)/u);
+    assert.match(source, /privateNoStoreHeaders/u);
+    assert.doesNotMatch(source, /require(?:SameOriginOperator|Operator)Request/u);
+  }
+  const authorizeRoute = await readFile(new URL("../app/api/mobile/authorize/route.ts", import.meta.url), "utf8");
+  const authorizePage = await readFile(new URL("../app/mobile/authorize/page.tsx", import.meta.url), "utf8");
+  for (const source of [authorizeRoute, authorizePage, tokenRoute]) {
+    assert.match(source, /runtimeString\("CRM_IOS_APP_ID"\)/u);
+    assert.match(source, /validMobileIosAppId/u);
+  }
+  assert.match(authorizeRoute, /validMobileRedirectUri\([\s\S]*issuer/u);
 });
 
 function exportedApiMethod(source, method, route) {
@@ -319,6 +396,8 @@ test("public Mailgun webhooks reject oversized bodies before parsing", async () 
   const inboundStorage = await readFile(new URL("../lib/webhook-store.ts", import.meta.url), "utf8");
   assert.match(inboundStorage, /contacts\.validated_at IS NULL/u);
   assert.match(inboundStorage, /ELSE contacts\.display_name/u);
+  assert.match(inboundStorage, /safeAttachmentDisplayName/u);
+  assert.match(inboundStorage, /sha256: digest/u);
 });
 
 test("outbound email and contact tasks enforce qualification guards", async () => {

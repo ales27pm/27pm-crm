@@ -936,3 +936,123 @@ export const credentialHandoffs = sqliteTable(
     ),
   ],
 );
+
+export const mobileAuthorizationGrants = sqliteTable(
+  "mobile_authorization_grants",
+  {
+    id: text("id").primaryKey(),
+    codeHash: text("code_hash").notNull(),
+    operatorEmail: text("operator_email").notNull(),
+    clientId: text("client_id").notNull(),
+    redirectUri: text("redirect_uri").notNull(),
+    codeChallenge: text("code_challenge").notNull(),
+    scopes: text("scopes").notNull(),
+    deviceName: text("device_name"),
+    expiresAt: text("expires_at").notNull(),
+    consumedAt: text("consumed_at"),
+    consumedSessionId: text("consumed_session_id"),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    uniqueIndex("mobile_authorization_grants_code_hash_unique").on(
+      table.codeHash,
+    ),
+    index("mobile_authorization_grants_expiry_idx").on(table.expiresAt),
+    index("mobile_authorization_grants_operator_idx").on(
+      table.operatorEmail,
+      table.createdAt,
+    ),
+    check(
+      "mobile_authorization_grants_code_hash_check",
+      sql`length(${table.codeHash}) = 64 and ${table.codeHash} not glob '*[^0-9a-f]*'`,
+    ),
+    check(
+      "mobile_authorization_grants_challenge_check",
+      sql`length(${table.codeChallenge}) = 43 and ${table.codeChallenge} not glob '*[^A-Za-z0-9_-]*'`,
+    ),
+    check(
+      "mobile_authorization_grants_scope_check",
+      sql`${table.scopes} = 'crm:dashboard:read crm:work'`,
+    ),
+  ],
+);
+
+export const mobileSessions = sqliteTable(
+  "mobile_sessions",
+  {
+    id: text("id").primaryKey(),
+    authorizationGrantId: text("authorization_grant_id")
+      .notNull()
+      .references(() => mobileAuthorizationGrants.id, { onDelete: "restrict" }),
+    operatorEmail: text("operator_email").notNull(),
+    clientId: text("client_id").notNull(),
+    deviceName: text("device_name"),
+    scopes: text("scopes").notNull(),
+    refreshTokenHash: text("refresh_token_hash").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    lastRefreshedAt: text("last_refreshed_at").notNull(),
+    revokedAt: text("revoked_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("mobile_sessions_grant_unique").on(table.authorizationGrantId),
+    uniqueIndex("mobile_sessions_refresh_hash_unique").on(
+      table.refreshTokenHash,
+    ),
+    index("mobile_sessions_operator_idx").on(
+      table.operatorEmail,
+      table.createdAt,
+    ),
+    index("mobile_sessions_expiry_idx").on(table.expiresAt, table.revokedAt),
+    check(
+      "mobile_sessions_refresh_hash_check",
+      sql`length(${table.refreshTokenHash}) = 64 and ${table.refreshTokenHash} not glob '*[^0-9a-f]*'`,
+    ),
+    check(
+      "mobile_sessions_scope_check",
+      sql`${table.scopes} = 'crm:dashboard:read crm:work'`,
+    ),
+  ],
+);
+
+export const mobileRefreshTokens = sqliteTable(
+  "mobile_refresh_tokens",
+  {
+    tokenHash: text("token_hash").primaryKey(),
+    sessionId: text("session_id")
+      .notNull()
+      .references(() => mobileSessions.id, { onDelete: "restrict" }),
+    issuedAt: text("issued_at").notNull(),
+    rotatedAt: text("rotated_at"),
+  },
+  (table) => [
+    index("mobile_refresh_tokens_session_idx").on(
+      table.sessionId,
+      table.issuedAt,
+    ),
+    uniqueIndex("mobile_refresh_tokens_one_current")
+      .on(table.sessionId)
+      .where(sql`${table.rotatedAt} is null`),
+    check(
+      "mobile_refresh_tokens_hash_check",
+      sql`length(${table.tokenHash}) = 64 and ${table.tokenHash} not glob '*[^0-9a-f]*'`,
+    ),
+  ],
+);
+
+export const internalApiNonces = sqliteTable(
+  "internal_api_nonces",
+  {
+    nonce: text("nonce").primaryKey(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("internal_api_nonces_expiry_idx").on(table.expiresAt),
+    check(
+      "internal_api_nonces_format_check",
+      sql`length(${table.nonce}) between 22 and 86 and ${table.nonce} not glob '*[^A-Za-z0-9_-]*'`,
+    ),
+  ],
+);

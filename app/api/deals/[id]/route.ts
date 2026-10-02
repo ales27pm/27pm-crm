@@ -1,4 +1,7 @@
-import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
+import {
+  operatorAuditDetails,
+  requireSameOriginOperatorOrMobileRequest,
+} from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import {
   jsonError,
@@ -12,7 +15,7 @@ export const dynamic = "force-dynamic";
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const auth = requireSameOriginOperatorRequest(request);
+  const auth = await requireSameOriginOperatorOrMobileRequest(request, "crm:work");
   if (auth.response) return auth.response;
   const { id } = await context.params;
   if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) {
@@ -72,7 +75,12 @@ export async function PATCH(request: Request, context: RouteContext) {
           (id, actor_email, action, entity_type, entity_id, details_json)
          VALUES (?, ?, 'deal.updated', 'deal', ?, ?)`,
       )
-      .bind(crypto.randomUUID(), auth.operator.email, id, JSON.stringify(audit))
+      .bind(
+        crypto.randomUUID(),
+        auth.operator.email,
+        id,
+        JSON.stringify(operatorAuditDetails(auth.operator, audit)),
+      )
       .run();
     const deal = await db
       .prepare(

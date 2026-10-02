@@ -1,4 +1,7 @@
-import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
+import {
+  operatorAuditDetails,
+  requireSameOriginOperatorOrMobileRequest,
+} from "@/lib/api-auth";
 import { entityId } from "@/lib/crm-accounts";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import {
@@ -24,7 +27,7 @@ type ExistingStrategy = {
 };
 
 export async function PUT(request: Request, context: RouteContext) {
-  const auth = requireSameOriginOperatorRequest(request);
+  const auth = await requireSameOriginOperatorOrMobileRequest(request, "crm:work");
   if (auth.response) return auth.response;
   const { strategyId: rawOrganizationId } = await context.params;
   const organizationId = entityId(rawOrganizationId);
@@ -179,7 +182,13 @@ export async function PUT(request: Request, context: RouteContext) {
           crypto.randomUUID(), auth.operator.email,
           existing ? "outreach.strategy.updated" : "outreach.strategy.created",
           strategyId,
-          JSON.stringify({ organizationId, contactId, version: nextVersion, status, readiness: readiness.decision }),
+          JSON.stringify(operatorAuditDetails(auth.operator, {
+            organizationId,
+            contactId,
+            version: nextVersion,
+            status,
+            readiness: readiness.decision,
+          })),
           strategyId, nextVersion, operationStamp,
         ),
     ]);

@@ -1,14 +1,29 @@
 import Image from "next/image";
-import { chatGPTSignInPath, chatGPTSignOutPath } from "../chatgpt-auth";
+import {
+  webIdentityProvider,
+  webSignInPath,
+  webSignOutPath,
+} from "../chatgpt-auth";
 import { Illustration } from "./visual-assets";
 
 type AccessScreenProps = {
   state: "signed-out" | "denied";
   email?: string;
+  returnTo?: string;
 };
 
-export function AccessScreen({ state, email }: AccessScreenProps) {
+export function AccessScreen({
+  state,
+  email,
+  returnTo = "/",
+}: AccessScreenProps) {
   const signedOut = state === "signed-out";
+  const identityProvider = webIdentityProvider();
+  const signInLabel =
+    identityProvider === "google"
+      ? "Se connecter avec Google"
+      : "Se connecter avec ChatGPT";
+  const authenticationAvailable = identityProvider !== "disabled";
 
   return (
     <main className="access-screen" data-state={state}>
@@ -31,17 +46,23 @@ export function AccessScreen({ state, email }: AccessScreenProps) {
             ? "La boîte courriel, les contacts, les projets et les suivis de 27PM sont privés."
             : `${email ?? "Ce compte"} n’est pas dans la liste des opérateurs du CRM.`}
         </p>
-        <a
-          className="primary-action"
-          target="_top"
-          href={
-            signedOut
-              ? chatGPTSignInPath("/")
-              : chatGPTSignOutPath("/")
-          }
-        >
-          {signedOut ? "Se connecter avec ChatGPT" : "Changer de compte"}
-        </a>
+        {authenticationAvailable ? (
+          <a
+            className="primary-action"
+            target="_top"
+            href={
+              signedOut
+                ? webSignInPath(returnTo, identityProvider)
+                : webSignOutPath(returnTo, identityProvider)
+            }
+          >
+            {signedOut ? signInLabel : "Changer de compte"}
+          </a>
+        ) : (
+          <span className="primary-action" aria-disabled="true">
+            Connexion indisponible
+          </span>
+        )}
       </section>
       <div className="access-visual" aria-hidden="true">
         {signedOut ? (

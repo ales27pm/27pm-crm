@@ -1,4 +1,4 @@
-import { requireOperatorRequest } from "@/lib/api-auth";
+import { requireOperatorOrMobileRequest } from "@/lib/api-auth";
 import { crmDatabase } from "@/lib/d1";
 import { jsonError } from "@/lib/http";
 import { CRM_MAILBOXES, mailboxForAddress } from "@/lib/mailboxes";
@@ -192,7 +192,7 @@ type OutreachStepRow = {
 type ActivityRow = { id: string; actorEmail: string; action: string; entityType: string; entityId: string; createdAt: string };
 
 export async function GET(request: Request) {
-  const auth = requireOperatorRequest(request);
+  const auth = await requireOperatorOrMobileRequest(request, "crm:dashboard:read");
   if (auth.response) return auth.response;
 
   if (runtimeString("CRM_DEMO_MODE") === "true") {

@@ -1,0 +1,1 @@
+CREATE UNIQUE INDEX `mobile_refresh_tokens_one_current` ON `mobile_refresh_tokens` (`session_id`) WHERE "mobile_refresh_tokens"."rotated_at" is null;

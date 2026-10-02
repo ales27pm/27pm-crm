@@ -12,7 +12,7 @@ import {
 import type { SendAttemptPayload } from "@/lib/send-attempt-registry";
 import type { SendUiResult } from "@/lib/send-ui-result";
 import { mailboxForAddress } from "@/lib/mailboxes";
-import type { Conversation, CrmMessage } from "../crm-types";
+import type { Conversation, CrmAttachment, CrmMessage } from "../crm-types";
 import {
   executeFrozenSend,
   FROZEN_DRAFT_UNAVAILABLE_MESSAGE,
@@ -49,12 +49,27 @@ type ReplyConfirmationState = {
   operationalReply: boolean;
 };
 
+type AttachmentLoadState = {
+  conversationId: string;
+  attachments: CrmAttachment[];
+  status: string;
+};
+
+type AttachmentDownloadState = {
+  conversationId: string;
+  attachmentId: string | null;
+  status: string;
+};
+
 type ThreadConversationProps = {
   view: {
+    attachments: CrmAttachment[];
+    attachmentStatus: string;
     body: string;
     contextOpen: boolean;
     conversation: Conversation;
     draftReady: boolean;
+    downloadingAttachmentId: string | null;
     frozenDraft: FrozenSendDraft | null;
     replyConfirmation: ReplyConfirmationState | null;
     sendEnabled: boolean;
@@ -65,6 +80,7 @@ type ThreadConversationProps = {
     back: () => void;
     cancelReply: () => void;
     confirmReply: () => void;
+    downloadAttachment: (attachment: CrmAttachment) => void;
     openContext: () => void;
     setBody: (body: string) => void;
     submit: () => void;
@@ -101,6 +117,10 @@ export function ThreadView({
 }: ThreadViewProps) {
   const [body, setBody] = useState("");
   const [status, setStatus] = useState("");
+  const [attachmentLoad, setAttachmentLoad] =
+    useState<AttachmentLoadState | null>(null);
+  const [attachmentDownload, setAttachmentDownload] =
+    useState<AttachmentDownloadState | null>(null);
   const [sending, setSending] = useState(false);
   const [readyDraftSlot, setReadyDraftSlot] = useState<string | null>(null);
   const [frozenDraft, setFrozenDraft] = useState<FrozenSendDraft | null>(null);
@@ -114,6 +134,23 @@ export function ThreadView({
     ? replyFrozenDraftSlot(conversation.id)
     : null;
   const draftReady = !draftSlot || readyDraftSlot === draftSlot;
+  const attachmentConversationId = conversation?.id ?? null;
+  const currentAttachmentLoad = attachmentLoad?.conversationId ===
+    attachmentConversationId
+    ? attachmentLoad
+    : null;
+  const currentAttachmentDownload = attachmentDownload?.conversationId ===
+    attachmentConversationId
+    ? attachmentDownload
+    : null;
+  const attachments = currentAttachmentLoad?.attachments ?? [];
+  const attachmentStatus = currentAttachmentDownload?.status ?? (
+    attachmentConversationId
+      ? currentAttachmentLoad?.status ?? "Chargement des pièces jointes…"
+      : ""
+  );
+  const downloadingAttachmentId =
+    currentAttachmentDownload?.attachmentId ?? null;
 
   useEffect(() => {
     let active = true;
@@ -149,6 +186,34 @@ export function ThreadView({
       active = false;
     };
   }, [conversation?.id, draftSlot]);
+
+  useEffect(() => {
+    const conversationId = conversation?.id;
+    const controller = new AbortController();
+    if (!conversationId) {
+      return () => controller.abort();
+    }
+
+    void fetchConversationAttachments(conversationId, controller.signal)
+      .then((result) => {
+        setAttachmentLoad({
+          conversationId,
+          attachments: result.attachments,
+          status: result.truncated
+            ? "Les 200 premières pièces jointes sont affichées."
+            : "",
+        });
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        setAttachmentLoad({
+          conversationId,
+          attachments: [],
+          status: "Les pièces jointes sont indisponibles.",
+        });
+      });
+    return () => controller.abort();
+  }, [conversation?.id]);
 
   if (!conversation) {
     return (
@@ -276,12 +341,57 @@ export function ThreadView({
     }
   }
 
+  async function downloadAttachment(attachment: CrmAttachment) {
+    const conversationId = conversation?.id;
+    if (!conversationId || !attachment.downloadable || downloadingAttachmentId) return;
+    setAttachmentDownload({
+      conversationId,
+      attachmentId: attachment.id,
+      status: "Préparation du téléchargement sécurisé…",
+    });
+    let outcome = "Le téléchargement sécurisé n’a pas pu être préparé. Réessayez.";
+    try {
+      const response = await fetch(
+        `/api/attachments/${encodeURIComponent(attachment.id)}/download-ticket`,
+        { method: "POST", headers: { accept: "application/json" } },
+      );
+      const payload: unknown = await response.json();
+      const downloadUrl = validAttachmentTicketResponse(
+        payload,
+        attachment.id,
+      );
+      if (!response.ok || !downloadUrl) throw new Error("ticket_unavailable");
+
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.rel = "noreferrer";
+      anchor.referrerPolicy = "no-referrer";
+      anchor.style.display = "none";
+      document.body.append(anchor);
+      anchor.click();
+      anchor.remove();
+      outcome = "La demande de téléchargement a été ouverte.";
+    } catch {
+      // The generic outcome intentionally avoids exposing ticket details.
+    } finally {
+      setAttachmentDownload((current) =>
+        current?.conversationId === conversationId &&
+        current.attachmentId === attachment.id
+          ? { conversationId, attachmentId: null, status: outcome }
+          : current,
+      );
+    }
+  }
+
   return <ThreadConversation
     view={{
+      attachments,
+      attachmentStatus,
       body,
       contextOpen,
       conversation,
       draftReady,
+      downloadingAttachmentId,
       frozenDraft,
       replyConfirmation,
       sendEnabled,
@@ -292,6 +402,7 @@ export function ThreadView({
       back: onBack,
       cancelReply,
       confirmReply,
+      downloadAttachment: (attachment) => void downloadAttachment(attachment),
       openContext: onOpenContext,
       setBody,
       submit: () => void submit(),
@@ -342,7 +453,13 @@ function ThreadConversation({
         </div>
       </header>
 
-      <MessageStream conversation={view.conversation} />
+      <MessageStream
+        conversation={view.conversation}
+        attachments={view.attachments}
+        attachmentStatus={view.attachmentStatus}
+        downloadingAttachmentId={view.downloadingAttachmentId}
+        onDownload={actions.downloadAttachment}
+      />
       <ReplyComposer
         view={view}
         actions={actions}
@@ -365,7 +482,19 @@ function ThreadConversation({
   );
 }
 
-function MessageStream({ conversation }: { conversation: Conversation }) {
+function MessageStream({
+  conversation,
+  attachments,
+  attachmentStatus,
+  downloadingAttachmentId,
+  onDownload,
+}: {
+  conversation: Conversation;
+  attachments: CrmAttachment[];
+  attachmentStatus: string;
+  downloadingAttachmentId: string | null;
+  onDownload: (attachment: CrmAttachment) => void;
+}) {
   const initials = contactInitials(conversation.contactName);
   return <div className="message-stream">
     {conversation.messages.map((message) => {
@@ -387,10 +516,59 @@ function MessageStream({ conversation }: { conversation: Conversation }) {
           </header>
           <DeliveryStatus message={message} />
           <p>{message.body}</p>
+          <MessageAttachments
+            attachments={attachments.filter(
+              (attachment) => attachment.messageId === message.id,
+            )}
+            downloadingAttachmentId={downloadingAttachmentId}
+            onDownload={onDownload}
+          />
         </article>
       );
     })}
+    {attachmentStatus ? (
+      <p className="attachment-status" role="status" aria-live="polite">
+        {attachmentStatus}
+      </p>
+    ) : null}
   </div>;
+}
+
+function MessageAttachments({
+  attachments,
+  downloadingAttachmentId,
+  onDownload,
+}: {
+  attachments: CrmAttachment[];
+  downloadingAttachmentId: string | null;
+  onDownload: (attachment: CrmAttachment) => void;
+}) {
+  if (attachments.length === 0) return null;
+  return (
+    <ul className="message-attachments" aria-label="Pièces jointes">
+      {attachments.map((attachment) => {
+        const downloading = downloadingAttachmentId === attachment.id;
+        return (
+          <li key={attachment.id} data-scan-status={attachment.scanStatus}>
+            <Icon name="attachment" aria-hidden="true" />
+            <span>
+              <strong>{attachment.fileName}</strong>
+              <small>
+                {formatFileSize(attachment.sizeBytes)} · {attachmentScanLabel(attachment)}
+              </small>
+            </span>
+            <button
+              type="button"
+              disabled={!attachment.downloadable || downloadingAttachmentId !== null}
+              onClick={() => onDownload(attachment)}
+            >
+              {downloading ? "Préparation…" : "Télécharger"}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
 }
 
 function ReplyComposer({
@@ -637,4 +815,118 @@ function DeliveryStatus({ message }: { message: CrmMessage }) {
       ) : null}
     </div>
   );
+}
+
+type AttachmentListResponse = {
+  attachments: CrmAttachment[];
+  truncated: boolean;
+};
+
+async function fetchConversationAttachments(
+  conversationId: string,
+  signal: AbortSignal,
+): Promise<AttachmentListResponse> {
+  const response = await fetch(
+    `/api/attachments?conversationId=${encodeURIComponent(conversationId)}`,
+    {
+      cache: "no-store",
+      headers: { accept: "application/json" },
+      signal,
+    },
+  );
+  const payload: unknown = await response.json();
+  if (!response.ok || !validAttachmentListResponse(payload)) {
+    throw new Error("attachments_unavailable");
+  }
+  return payload;
+}
+
+function validAttachmentListResponse(
+  value: unknown,
+): value is AttachmentListResponse {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const payload = value as Record<string, unknown>;
+  return typeof payload.truncated === "boolean" &&
+    Array.isArray(payload.attachments) &&
+    payload.attachments.every(validCrmAttachment);
+}
+
+function validCrmAttachment(value: unknown): value is CrmAttachment {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const attachment = value as Record<string, unknown>;
+  const scanStatus = attachment.scanStatus;
+  return (
+    typeof attachment.id === "string" &&
+    /^[A-Za-z0-9_-]{1,128}$/u.test(attachment.id) &&
+    typeof attachment.messageId === "string" &&
+    /^[A-Za-z0-9_-]{1,128}$/u.test(attachment.messageId) &&
+    typeof attachment.fileName === "string" &&
+    attachment.fileName.length > 0 &&
+    attachment.fileName.length <= 1024 &&
+    typeof attachment.sizeBytes === "number" &&
+    Number.isSafeInteger(attachment.sizeBytes) &&
+    attachment.sizeBytes >= 0 &&
+    typeof scanStatus === "string" &&
+    ["unscanned", "clean", "infected", "rejected"].includes(scanStatus) &&
+    typeof attachment.downloadable === "boolean" &&
+    attachment.downloadable === (scanStatus === "clean")
+  );
+}
+
+function validAttachmentTicketResponse(
+  value: unknown,
+  attachmentId: string,
+): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const payload = value as Record<string, unknown>;
+  if (
+    typeof payload.downloadUrl !== "string" ||
+    payload.downloadUrl.length > 8192 ||
+    typeof payload.expiresAt !== "string" ||
+    Number.isNaN(new Date(payload.expiresAt).valueOf())
+  ) return null;
+  try {
+    const url = new URL(payload.downloadUrl);
+    const query = [...url.searchParams.entries()];
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.hash ||
+      url.pathname !== `/downloads/attachments/${attachmentId}` ||
+      query.length !== 1 ||
+      query[0]?.[0] !== "ticket" ||
+      !/^ad1\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/u.test(query[0][1])
+    ) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+function attachmentScanLabel(attachment: CrmAttachment): string {
+  switch (attachment.scanStatus) {
+    case "clean":
+      return "Analysée";
+    case "unscanned":
+      return "Analyse de sécurité requise";
+    case "infected":
+      return "Bloquée par la sécurité";
+    case "rejected":
+      return "Rejetée";
+  }
+}
+
+function formatFileSize(sizeBytes: number): string {
+  if (sizeBytes < 1024) return `${sizeBytes} o`;
+  const units = ["Ko", "Mo", "Go"];
+  let value = sizeBytes / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && value >= 1024; index += 1) {
+    value /= 1024;
+    unit = units[index];
+  }
+  return `${new Intl.NumberFormat("fr-CA", {
+    maximumFractionDigits: value >= 10 ? 0 : 1,
+  }).format(value)} ${unit}`;
 }

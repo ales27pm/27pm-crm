@@ -1,4 +1,4 @@
-import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
+import { requireSameOriginOperatorOrMobileRequest } from "@/lib/api-auth";
 import {
   createInteraction,
   parseInteractionInput,
@@ -9,7 +9,7 @@ import { jsonError, readJsonObject } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = requireSameOriginOperatorRequest(request);
+  const auth = await requireSameOriginOperatorOrMobileRequest(request, "crm:work");
   if (auth.response) return auth.response;
 
   const payload = await readJsonObject(request);
@@ -22,6 +22,7 @@ export async function POST(request: Request) {
       crmDatabase(),
       parsed.value,
       auth.operator.email,
+      auth.operator,
     );
     if (!interaction) return jsonError(404, "deal_not_found");
     return Response.json(

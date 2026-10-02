@@ -4,9 +4,18 @@ import { env } from "cloudflare:workers";
 
 type RuntimeBindings = Record<string, unknown>;
 
-export interface PrivateObjectBody {
-  body: ReadableStream<Uint8Array>;
+export interface PrivateObjectMetadata {
+  key: string;
+  size: number;
+  etag: string;
+  version: string;
   httpEtag?: string;
+  customMetadata?: Record<string, string>;
+  checksums?: { sha256?: ArrayBuffer };
+}
+
+export interface PrivateObjectBody extends PrivateObjectMetadata {
+  body: ReadableStream<Uint8Array>;
 }
 
 export interface PrivateObjectBucket {
@@ -16,9 +25,14 @@ export interface PrivateObjectBucket {
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
+      sha256?: ArrayBuffer | string;
     },
   ): Promise<unknown>;
-  get(key: string): Promise<PrivateObjectBody | null>;
+  head(key: string): Promise<PrivateObjectMetadata | null>;
+  get(
+    key: string,
+    options?: { onlyIf?: { etagMatches?: string } },
+  ): Promise<PrivateObjectBody | PrivateObjectMetadata | null>;
 }
 
 function bindings(): RuntimeBindings {
