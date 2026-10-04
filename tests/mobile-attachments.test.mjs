@@ -1,47 +1,17 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 import {
-  attachmentsConfigured, validAttachmentOwner, uploadMobileAttachment, readAttachmentForm,
+  MOBILE_ATTACHMENT_SCAN_POLICY, attachmentsConfigured, validAttachmentOwner, uploadMobileAttachment, readAttachmentForm,
   listMobileAttachments, downloadMobileAttachment, deleteMobileAttachment,
 } from "../lib/mobile-attachments.ts";
-
-async function fixture() {
-  const sqlite = new DatabaseSync(":memory:");
-  sqlite.exec(`CREATE TABLE organizations (id TEXT PRIMARY KEY, deleted_at TEXT);
-    CREATE TABLE contacts (id TEXT PRIMARY KEY, phone TEXT);
-    CREATE TABLE deals (id TEXT PRIMARY KEY);
-    CREATE TABLE conversations (id TEXT PRIMARY KEY);
-    CREATE TABLE attachments (id TEXT PRIMARY KEY, message_id TEXT NOT NULL);
-    INSERT INTO organizations VALUES ('org-test', NULL);
-    INSERT INTO deals VALUES ('deal-test'); INSERT INTO conversations VALUES ('conversation-test');`);
-  sqlite.exec(await readFile(new URL("../drizzle/0019_milky_maestro.sql", import.meta.url), "utf8"));
-  const db = { prepare(sql) {
-    let values = [];
-    return {
-      bind(...args) { values = args; return this; },
-      async first() { return sqlite.prepare(sql).get(...values) ?? null; },
-      async all() { return { success: true, results: sqlite.prepare(sql).all(...values) }; },
-      async run() { return { success: true, meta: { changes: sqlite.prepare(sql).run(...values).changes } }; },
-    };
-  } };
-  const objects = new Map();
-  const bucket = {
-    async put(key, bytes) { objects.set(key, bytes); },
-    async get(key) { return objects.has(key) ? { body: new Blob([objects.get(key)]).stream() } : null; },
-    async delete(key) { objects.delete(key); },
-  };
-  return { sqlite, db, bucket, objects };
-}
-const file = () => new File(["native attachment"], 'résumé "notes".txt', { type: "text/plain" });
-const errorCode = (status, code) => e => e.status === status && e.code === code;
+import { fixture, file, errorCode } from "./helpers/mobile-attachment-fixture.mjs";
 
 test("capability requires explicit compatible runtime, and is always false on Vercel", () => {
   assert.equal(attachmentsConfigured(null, null, null), false);
   assert.equal(attachmentsConfigured("1", null, null), false);
-  assert.equal(attachmentsConfigured("1", "cloudflare-r2", "1"), false);
-  assert.equal(attachmentsConfigured("1", "cloudflare-r2", null), true);
+  assert.equal(attachmentsConfigured("1", "cloudflare-r2", "1", MOBILE_ATTACHMENT_SCAN_POLICY), false);
+  assert.equal(attachmentsConfigured("1", "cloudflare-r2", null, MOBILE_ATTACHMENT_SCAN_POLICY), true);
   assert.equal(validAttachmentOwner("__proto__", "org-test"), false);
   assert.equal(validAttachmentOwner("banana", "org-test"), false);
   assert.equal(validAttachmentOwner("account", "  "), false);
@@ -57,7 +27,7 @@ test("migration preserves mail attachments and existing contact phone; adds null
 });
 
 test("upload, dedup, list, private byte-identical download, delete and reupload", async () => {
-  const { sqlite, db, bucket, objects } = await fixture();
+  const { sqlite, db, bucket, objects, markClean } = await fixture();
   const id = await uploadMobileAttachment(db, bucket, "account", "org-test", file(), "session-test");
   assert.equal(await uploadMobileAttachment(db, bucket, "account", "org-test", file(), "session-test"), id);
   assert.equal(objects.size, 1);
@@ -68,6 +38,8 @@ test("upload, dedup, list, private byte-identical download, delete and reupload"
   assert.equal(row.created_by, "session-test");
   assert.match(row.sha256, /^[0-9a-f]{64}$/);
   assert.match(row.storage_key, /^mobile\/\d{4}\/\d{2}\/[0-9a-f-]+$/);
+  await assert.rejects(downloadMobileAttachment(db, bucket, id), errorCode(423, "attachment_quarantined"));
+  markClean(id);
   const response = await downloadMobileAttachment(db, bucket, id);
   assert.equal(await response.text(), "native attachment");
   assert.equal(response.headers.get("cache-control"), "private, no-store");
@@ -152,7 +124,6 @@ test("every route applies mobile auth; mutation guard uses work scope", async ()
   assert.match(auth, /authentication_required/);
   assert.match(auth, /write \? "crm:work" : "crm:dashboard:read"/);
 });
-
 
 test("multipart parser bounds declared and streaming envelopes, and reports malformed input", async () => {
   const form = new FormData();

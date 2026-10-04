@@ -1,50 +1,201 @@
-# Native mobile capabilities: source audit and rollout
+# Native mobile capabilities: implementation and release gates
 
-Rebased onto migration branch 730855a3d80df09dc9134bb0d48eace95072add3.
+This extends draft PR #4 on top of `79b06091765b47b4918e9c42a27af8f19b0b706a`.
+It changes source and local tests only. No production migration, deployment,
+secret, environment value, domain, storage resource, or scheduled job is changed.
+The default remains **attachments disabled**. Do not merge as an activation step.
 
-The PR now includes the native Vercel build/proxy/auth migration already present on that branch. Main lacked it. The migration reserves 0018 for internal assertion nonces; native metadata is generated as 0019. Vercel BFF explicitly forces capabilities false after successful upstream authentication and refuses native attachment traffic with 503, even if a Worker advertises true. No live backend or storage deployment is inferred from the source.
+## Architecture and contract
 
-## Differences from the supplied guide
+The client-facing host remains `crm.27pm.org`; no subdomain, literal IP,
+public object URL, or cross-host redirect is added for native attachments.
+The existing implementation is App Router source targeting Workers/D1 (`DB`)
+and private R2 (`BUCKET`), not a writable Next.js filesystem. Web Crypto and
+Web Streams require neither `node:fs` nor a Node-only upload runtime.
 
-- App Router source uses **vinext + Cloudflare Workers**, D1 (`DB`) and private R2 (`BUCKET`), not a local SQLite file/volume. Main lacked `build:vercel`; the rebased PR now preserves the migration branch's native Next build, Cloudflare stub, Auth.js and BFF. Their deployment still requires the existing backend settings and credentials; no infrastructure is provisioned.
-- `contacts.phone` already exists and is serialized by `/api/dashboard`. Do not add it again.
-- `organizations.address` and `city` are new nullable columns, exposed by the dashboard query. Existing organization edit/import flows are not extended here; populating these columns is a separate write-flow task. Demo payload fields remain optional.
-- `attachments` already contains email attachments with mandatory `message_id`; retain it unchanged. Native metadata uses `mobile_attachments`.
-- Authentication uses the existing verified mobile operator session, allowlist and scopes. All these routes require a bearer; reads use `crm:dashboard:read`, mutations `crm:work` and the existing cross-origin guard. These are CRM-wide administrator permissions, not per-account tenancy. If resource tenancy is introduced, owner lookups and attachment operations must be scoped accordingly.
-- Audit identity is the verified `mobileSessionId`. Invalid/absent bearer returns `401 {"error":"authentication_required"}`; insufficient scope remains 403 and authentication service failure 503.
-- Object PUT completes before inserting metadata. A partial unique index handles concurrent deduplication. Losing uploads delete their own object, never the winner's. An uncertain DB failure leaves a possible orphan for reconciliation, rather than deleting bytes that might already be committed.
-- DELETE tombstones before deleting bytes; retry reattempts object deletion even for a tombstone. Missing ID returns 204. Authorized administrators can clean attachments whose owner was deleted. Files of deleted accounts cannot be read or newly uploaded.
-- Downloads stream through the authenticated same-host route with `private, no-store`, `nosniff`, and attachment disposition. No public URL is returned. Attachment disposition differs deliberately from the guide's inline example to avoid inline rendering of untrusted content.
-- MIME allowlist is not malware/content verification; octet-stream is allowed by the supplied contract, so an `.exe` extension alone does **not** guarantee 415. Antivirus/quarantine policy remains unresolved. Empty files return 400, oversized files 413.
-- Multipart envelopes are bounded at 21 MiB before parsing, files at 20 MiB. Duplicate owner/file form fields are rejected.
+Vercel's BFF remains an independent safety boundary: it replaces a successful
+upstream capabilities response with `{"attachments":false}` and returns 503 for
+native attachment routes without forwarding their body. Adding R2 behind a
+Vercel Function does not remove that function's 4.5 MB request limit. Native
+uploads require 20 MiB (20,971,520 bytes), plus the multipart envelope. A verified
+same-public-host Worker route, or an explicitly coordinated client-contract
+change, is still required before activation. No routing change is made here.
 
-## Why activation is blocked on Vercel
+Official platform references:
+- https://vercel.com/docs/functions/limitations#request-body-size
+- https://developers.cloudflare.com/r2/api/workers/workers-api-reference/
 
-Vercel Functions have a 4.5 MB incoming body limit and no persistent writable filesystem:
-https://vercel.com/docs/functions/limitations#request-body-size
-https://vercel.com/docs/functions/runtimes#file-system-support
+The reference `ios-27pm-crm/docs/crm-27pm-org-api-contract.md` could not be
+retrieved through the connected GitHub account. Client behavior described below
+is from the supplied guide, not an independent verification of Swift source.
+In particular, verify handling of quarantine (`423`) before enabling uploads.
 
-R2 or Blob behind a Vercel upload route does not bypass the incoming limit. Direct-to-storage uploads require a client/contract change (currently forbidden by the single-host rule). A compatible upstream upload service under the same public hostname would need its own implementation, routing and E2E validation. This PR does not provision one.
+## Existing endpoints retained
 
-## Safe rollout
+| Method and path | Success | Guard |
+| --- | --- | --- |
+| GET /api/mobile/capabilities | 200, attachments boolean | Device bearer, dashboard-read scope |
+| POST /api/mobile/attachments | 200, id | Device bearer, work scope |
+| GET /api/mobile/attachments?ownerKind=&ownerId= | 200, attachments array | Device bearer, dashboard-read scope |
+| DELETE /api/mobile/attachments/{id} | 204, including missing id | Device bearer, work scope |
+| GET /api/mobile/attachments/{id}/file | 200, authenticated private stream | Device bearer, dashboard-read scope |
 
-1. Back up D1 and private R2. Apply generated migration `0019_milky_maestro.sql` once through the existing D1 migration workflow. Never apply the guide's conflicting `CREATE TABLE attachments`/`ADD phone` statements.
-2. Deploy routes on the existing compatible Workers/D1/R2 stack without changing `crm.27pm.org` routing in this PR. Ensure the R2 bucket has no public access. No `node:fs` or Node-only runtime is required.
-3. Leave `ATTACHMENTS_ENABLED=0` (default). The capabilities endpoint returns false; other attachment endpoints return 503 when disabled. No queued iOS uploads should be drained.
-4. Before activation, resolve the Vercel-vs-Workers deployment architecture, verify 20 MiB multipart over `crm.27pm.org`, authenticated owner access, concurrent dedup, exact download bytes, delete retries, 401/403/error mapping, backup restoration and iOS offline replay. Source review and local tests are not end-to-end evidence.
-5. Only on a validated Workers deployment set `MOBILE_ATTACHMENTS_RUNTIME=cloudflare-r2` and `ATTACHMENTS_ENABLED=1`. The capability additionally checks DB table and bucket methods. It is always false if `VERCEL` is set. These settings assert the operator has validated the upload path; they do not detect proxy limits or prove storage write health.
-6. Monitor errors and disable the flag to stop new operations if necessary. Dashboard address/city SELECTs require the migration first. Do not merge/deploy code first against an unmigrated DB.
+All responses are private/no-store. Mutations retain the existing cross-origin
+guard. Read permission is `crm:dashboard:read`; mutation permission is
+`crm:work`. These are CRM-wide administrator scopes, not tenant-specific ACLs.
+Missing/invalid authentication is 401, denied scope is 403, infrastructure
+failure is 503. Never trigger token rotation for a storage or validation error.
+New metadata records the verified device-session reference, not a supplied
+client identity. No interaction-logging endpoint is introduced.
 
-## Operations still required
+## Migrations and dashboard
 
-- D1 + object backup and restoration testing; soft-deleted file content is only recoverable from a backup.
-- Reconciliation task for orphaned objects older than seven days, failed tombstone deletion and missing objects; no cron is provisioned here.
-- Quotas, volume alerts, retention policy and abuse controls; no alert or billing resource is changed.
-- Malware scanning/content verification policy. File types alone provide no content safety guarantee.
-- Reference iOS contract and Swift decoder verification: the separate `ios-27pm-crm` repository was not inspected. This implementation is based on the supplied guide, not a confirmed copy of the reference contract.
+`0018_married_praxagora` is reserved for `internal_api_nonces`; leave it unchanged.
+`0019_milky_maestro` adds `organizations.address`, `organizations.city`, and
+`mobile_attachments`. Do not recreate the existing email `attachments` table or
+add `contacts.phone` again. The dashboard already exposes these fields in the
+feature branch. Address editing/import and the iOS local-address merge are not
+implemented by this server-side patch.
 
-## Validation
+Run migrations only through the established migration process, once, against an
+identified database with a tested backup. A nullable SQLite ADD COLUMN does not
+justify promising zero locks, zero traffic impact, or safe deployment in arbitrary
+order. The dashboard selects the new columns: migrate before deploying that code.
 
-Ten focused tests cover migration compatibility, feature gating, multipart limits, owner lookup, concurrent deduplication, byte-identical private downloads, deletion retries, storage failures and route auth wiring. Route wiring tests are source checks, not live bearer-session E2E tests.
+The read-only capability probe now checks columns required from 0018/0019,
+contact phone, and the exact partial unique dedup index. It never reads customer
+rows and never applies SQL migrations. This checks structural prerequisites,
+not the migration ledger, backup availability, bucket permissions, or live
+transport/scanner health. A partial or incompatible schema stays unavailable.
 
-Previous main-based checks passed typecheck, lint and vinext build; its full suite had the same 41 failures as main. Those results do not validate the rebased migration. Updated validation: native Next/Vercel build, typecheck and lint pass; focused security/attachment tests 24/24 pass. Full suite 426/467 pass with the same 41 failures as migration baseline (416/457 pass). Live preview status must be checked after publication. Production HTTP and iOS validation remain pending. No migration, environment mutation or deployment is performed by this PR preparation.
+## Upload, integrity and retry behavior
+
+Multipart accepts exactly one `ownerKind`, `ownerId`, and `file`, with no extra
+metadata fields. The entire encoded body is bounded at 21 MiB before parsing;
+the file itself is limited to 20 MiB. Invalid lengths, mismatched declared
+lengths, encoded bodies, duplicate fields and non-multipart input are refused.
+Empty files return 400, oversized files 413, disallowed types 415, missing
+owners 404. No storage key, checksum, scanner verdict or audit identity is
+accepted from the client.
+
+MIME allowlisting is supplemented with executable-name/magic rejection and
+basic format signatures. An executable cannot bypass the prefilter just by
+claiming image/jpeg or application/octet-stream. This is not antivirus scanning
+or a complete format parser. UTF-8 is required for declared text/plain and
+text/csv. Unsupported binary content can remain octet-stream, still quarantined.
+
+R2 PUT receives the native `sha256` option. Only after PUT completes is D1
+metadata inserted. The existing partial unique index arbitrates simultaneous
+identical uploads. A return of the existing id also requires the actual R2
+object to match the database key, length and native checksum. Missing or
+inconsistent storage fails with 503 rather than falsely marking an iOS item
+synced. Custom metadata containing a checksum is not sufficient proof.
+
+An uncertain INSERT result never deletes potentially committed bytes. A losing
+concurrent upload may clean only its own unreferenced key; failed cleanup leaves
+an orphan, not a broken winning attachment. Tombstoning must be confirmed before
+object deletion. Retrying DELETE reattempts deletion even for a tombstone. An
+invalid key cannot cross from the native namespace into email attachment objects.
+
+## Quarantine and scanner producer contract
+
+Every uploaded object starts with server-controlled R2 custom metadata:
+
+```text
+scanStatus=unscanned
+scanPolicy=sha256-bound-r2-v1
+```
+
+An independent trusted scanner must inspect the full current object and, only on
+success, publish:
+
+```text
+scanStatus=clean
+scanPolicy=sha256-bound-r2-v1
+scanSha256=<lowercase SHA-256 of the bytes actually scanned>
+```
+
+No scanner service, scan-complete API, public metadata writer, or manual bypass
+is implemented. Never mark a file clean merely from MIME, extension, database
+metadata, or an upload succeeding. Restrict scanner writes to the private
+bucket. When updating R2 metadata via a full object rewrite, preserve and
+resubmit the native SHA-256; verify it against the bytes scanned. Replaced
+content requires a new scan, and errors/malware remain quarantined.
+
+Download checks the metadata and bytes from the **same R2 GET**, including the
+native SHA-256, length, object key, scan policy and hash-bound clean verdict.
+No verdict, pending/error/infected verdict, or verdict for another hash returns
+`423 {"error":"attachment_quarantined"}`. Missing bytes/native checksum or an
+integrity mismatch returns `503 {"error":"attachment_storage_unavailable"}`.
+Rejected object streams are cancelled before any binary response is returned.
+Successful downloads are attachment-disposition streams with private/no-store,
+nosniff, no-referrer, same-origin resource policy, and a restrictive CSP. No
+public ETag or storage URL is exposed. LIST retains metadata for quarantined
+files without exposing storage keys or scanner internals.
+
+## Activation remains a separate operation
+
+Source defaults:
+
+```text
+ATTACHMENTS_ENABLED=0
+MOBILE_ATTACHMENTS_RUNTIME=
+MOBILE_ATTACHMENTS_SCAN_POLICY=
+```
+
+A compatible Worker requires the explicit runtime `cloudflare-r2` and scan
+policy `sha256-bound-r2-v1` in addition to the enable flag. These are operator
+attestations, **not proof that a scanner, transport or backups work**. Never set
+them to make a test pass. The Vercel guard stays false independently. This patch
+does not set any production flag or drain a device queue.
+
+Before considering activation: identify the Worker and its DB/BUCKET; verify the
+migration ledger and schema; establish/restoration-test D1 plus R2 backups;
+integrate and test the scanner including failures; validate 20 MiB multipart and
+downloads on the one public hostname without redirects; verify real bearer
+401/403 behavior, concurrency, interrupted upload replay, deletion replay,
+quarantine handling and iOS offline/online synchronization. Run those tests on
+isolated fixtures first, with the production capability still disabled.
+
+Do not use a real customer owner id for write tests. Use a disposable account
+and file. Local test mocks are not evidence of production health or iOS behavior.
+
+## Recovery and operations still required
+
+A source snapshot or Vercel rollback is not a D1/R2 backup. Taking an object copy
+first and a later database export is not enough: an upload between them can
+leave the database referencing a missing backed-up object. Coordinate a write
+barrier or an immutable/versioned object inventory covering the DB snapshot;
+retain bytes needed by the backup/soft-delete retention policy. Test complete
+restoration and record hashes, counts, timestamps and the actual restore steps.
+
+No cron, purge, retention period, quota or monitoring configuration is provisioned.
+A future reconciler must conservatively handle uncertain uploads, losing-upload
+orphans, tombstones with failed object deletion and missing active objects.
+Never purge solely because an object is absent from one stale database snapshot.
+Coordinate the grace period and restored snapshots before enabling deletion.
+
+## Validation of this hardening change
+
+The tests execute the unchanged 0018/0019 SQL in disposable in-memory SQLite and
+use a bucket test double modeling native R2 checksums and trusted scan metadata.
+The test-only `markClean` helper is not deployed. Tests cover quarantine,
+integrity tampering, missing objects, concurrent dedup, unknown post-commit
+errors, tombstone failures, schema/index drift, exact size boundaries,
+executable disguises and strict multipart validation. Existing tests retain
+owner isolation, repeat delete/reupload, private headers and route auth wiring.
+Route auth-wiring checks are source assertions, not bearer-session E2E tests.
+
+Local run: 37 targeted tests passed (27 new and 10 retained), no failures or
+skips, with Node 22.16.0 and native TypeScript transformation. Because the
+container cannot fetch the complete repository/dependencies, the unchanged BFF
+module was verified against its Git blob hash and its transport unit test ran
+with unused authentication imports replaced by throwing test doubles. Real
+authentication was not tested. The standard repository command remains
+`node --import tsx --test tests/mobile-attachments*.test.mjs`; this command was
+not used in the offline container. The offline loader is not part of the PR.
+
+A complete package install, full-suite run, native Next/Vercel build and live
+HTTP/iOS verification are separate release gates. Do not reuse validation
+counts from an earlier commit as evidence for this change. No GitHub Actions
+run is requested by this work.

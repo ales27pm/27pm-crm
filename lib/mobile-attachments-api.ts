@@ -3,7 +3,7 @@ import { requireOperatorOrMobileRequest, requireSameOriginOperatorOrMobileReques
 import { crmDatabase } from "./d1";
 import { privateJsonError } from "./http";
 import { mobileBearerToken } from "./mobile-auth";
-import { AttachmentError, attachmentsConfigured } from "./mobile-attachments";
+import { AttachmentError, attachmentsConfigured, mobileAttachmentSchemaReady } from "./mobile-attachments";
 import { getPrivateObjectBucket, runtimeString } from "./runtime";
 
 export async function authorizeMobileAttachments(request: Request, write = false) {
@@ -17,12 +17,14 @@ export async function authorizeMobileAttachments(request: Request, write = false
 }
 export async function mobileAttachmentResources() {
   if (!attachmentsConfigured(runtimeString("ATTACHMENTS_ENABLED"),
-    runtimeString("MOBILE_ATTACHMENTS_RUNTIME"), runtimeString("VERCEL"))) return null;
+    runtimeString("MOBILE_ATTACHMENTS_RUNTIME"), runtimeString("VERCEL"),
+    runtimeString("MOBILE_ATTACHMENTS_SCAN_POLICY"))) return null;
   try {
     const db = crmDatabase();
     const bucket = getPrivateObjectBucket();
-    if (typeof bucket.put !== "function" || typeof bucket.get !== "function" || typeof bucket.delete !== "function") return null;
-    await db.prepare("SELECT id FROM mobile_attachments LIMIT 1").first();
+    if (typeof bucket.put !== "function" || typeof bucket.get !== "function"
+      || typeof bucket.head !== "function" || typeof bucket.delete !== "function") return null;
+    if (!(await mobileAttachmentSchemaReady(db))) return null;
     return { db, bucket };
   } catch { return null; }
 }
