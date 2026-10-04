@@ -14,6 +14,7 @@ const unsafeRouteInventory = [
   { route: "admin/cakemail-send-resolution/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-canary/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-handoff/route.ts", method: "POST", boundary: "operator" },
+  { route: "attachments/[id]/download-ticket/route.ts", method: "POST", boundary: "operator" },
   { route: "compliance/route.ts", method: "PATCH", boundary: "operator" },
   { route: "contacts/[id]/route.ts", method: "DELETE", boundary: "operator" },
   { route: "contacts/[id]/route.ts", method: "PATCH", boundary: "operator" },
@@ -399,6 +400,8 @@ test("public Mailgun webhooks reject oversized bodies before parsing", async () 
   const inboundStorage = await readFile(new URL("../lib/webhook-store.ts", import.meta.url), "utf8");
   assert.match(inboundStorage, /contacts\.validated_at IS NULL/u);
   assert.match(inboundStorage, /ELSE contacts\.display_name/u);
+  assert.match(inboundStorage, /safeAttachmentDisplayName/u);
+  assert.match(inboundStorage, /sha256: digest/u);
 });
 
 test("outbound email and contact tasks enforce qualification guards", async () => {

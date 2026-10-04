@@ -6,6 +6,8 @@ import {
   DATABASE_HEALTH_INDEX_REQUIREMENTS,
   DATABASE_HEALTH_INTEGRITY_QUERIES,
   DATABASE_HEALTH_TABLES,
+  INTERNAL_API_NONCE_HEALTH_TABLE,
+  INTERNAL_API_NONCE_INDEX_REQUIREMENT,
   MOBILE_AUTH_INDEX_REQUIREMENTS,
   MOBILE_AUTH_HEALTH_TABLES,
   normalizeDatabaseIndexPredicate,
@@ -13,6 +15,8 @@ import {
   type DatabaseHealthEvidence,
   type DatabaseHealthTable,
   type DatabaseIndexEvidence,
+  type InternalApiNonceColumnEvidence,
+  type InternalApiNonceIndexEvidence,
   type MobileAuthIndexEvidence,
   type MobileAuthForeignKeyEvidence,
   type MobileAuthHealthTable,
@@ -74,6 +78,15 @@ export async function GET(request: Request) {
       ),
       db.prepare("PRAGMA foreign_key_list('mobile_sessions')"),
       db.prepare("PRAGMA foreign_key_list('mobile_refresh_tokens')"),
+      db.prepare(`PRAGMA table_info('${INTERNAL_API_NONCE_HEALTH_TABLE}')`),
+      db.prepare(`PRAGMA index_list('${INTERNAL_API_NONCE_HEALTH_TABLE}')`),
+      db.prepare(
+        `PRAGMA index_info('${INTERNAL_API_NONCE_INDEX_REQUIREMENT.name}')`,
+      ),
+      db.prepare(
+        `SELECT name, sql FROM sqlite_schema
+         WHERE type = 'table' AND name = '${INTERNAL_API_NONCE_HEALTH_TABLE}'`,
+      ),
       ...DATABASE_HEALTH_INTEGRITY_QUERIES.map(({ sql }) => db.prepare(sql)),
     ]);
     if (results.some((result) => !result.success)) {
@@ -168,6 +181,29 @@ export async function GET(request: Request) {
       ...foreignKeyEvidence("mobile_sessions", next()),
       ...foreignKeyEvidence("mobile_refresh_tokens", next()),
     ];
+    const internalApiNonceColumns = internalApiNonceColumnEvidence(next());
+    const internalApiNonceIndexList = rows(next());
+    const internalApiNonceIndexes: InternalApiNonceIndexEvidence[] = [
+      {
+        name: INTERNAL_API_NONCE_INDEX_REQUIREMENT.name,
+        table: INTERNAL_API_NONCE_HEALTH_TABLE,
+        unique: indexIsUnique(
+          internalApiNonceIndexList,
+          INTERNAL_API_NONCE_INDEX_REQUIREMENT.name,
+        ),
+        partial: indexIsPartial(
+          internalApiNonceIndexList,
+          INTERNAL_API_NONCE_INDEX_REQUIREMENT.name,
+        ),
+        columns: indexColumns(next()),
+      },
+    ];
+    const internalApiNonceTableSql =
+      rows(next()).find(
+        (row) =>
+          row.name === INTERNAL_API_NONCE_HEALTH_TABLE &&
+          typeof row.sql === "string",
+      )?.sql as string | undefined;
     const violations = Object.fromEntries(
       DATABASE_HEALTH_INTEGRITY_QUERIES.map(({ name }) => [
         name,
@@ -191,6 +227,9 @@ export async function GET(request: Request) {
       mobileAuthIndexes,
       mobileAuthTableSql,
       mobileAuthForeignKeys,
+      internalApiNonceColumns,
+      internalApiNonceIndexes,
+      internalApiNonceTableSql: internalApiNonceTableSql ?? "",
     };
     const report = buildDatabaseHealthReport(evidence);
     return Response.json(report, {
@@ -228,6 +267,27 @@ function columnEvidence(
             notNull: row.notnull === 1,
             defaultValue:
               typeof row.dflt_value === "string" ? row.dflt_value : null,
+          },
+        ]
+      : [],
+  );
+}
+
+function internalApiNonceColumnEvidence(
+  result: { results?: D1Row[] } | undefined,
+): InternalApiNonceColumnEvidence[] {
+  return rows(result).flatMap((row) =>
+    typeof row.name === "string" &&
+    typeof row.type === "string" &&
+    typeof row.pk === "number"
+      ? [
+          {
+            name: row.name,
+            type: row.type,
+            notNull: row.notnull === 1,
+            defaultValue:
+              typeof row.dflt_value === "string" ? row.dflt_value : null,
+            primaryKeyPosition: row.pk,
           },
         ]
       : [],

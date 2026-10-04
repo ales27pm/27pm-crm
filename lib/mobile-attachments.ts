@@ -111,7 +111,7 @@ export async function downloadMobileAttachment(db: CrmDatabase, bucket: PrivateO
   if (!row) throw new AttachmentError(404, "not_found");
   await requireAttachmentOwner(db, row.owner_kind, row.owner_id);
   const object = await bucket.get(row.storage_key);
-  if (!object) throw new AttachmentError(503, "attachment_storage_unavailable");
+  if (!object || !("body" in object)) throw new AttachmentError(503, "attachment_storage_unavailable");
   return new Response(object.body, { headers: {
     "content-type": row.content_type, "content-length": String(row.byte_size),
     "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(row.file_name).replace(/[!'()*]/g, c => `%${c.charCodeAt(0).toString(16)}`)}`,

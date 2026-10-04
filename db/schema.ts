@@ -1043,6 +1043,22 @@ export const mobileRefreshTokens = sqliteTable(
   ],
 );
 
+export const internalApiNonces = sqliteTable(
+  "internal_api_nonces",
+  {
+    nonce: text("nonce").primaryKey(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("internal_api_nonces_expiry_idx").on(table.expiresAt),
+    check(
+      "internal_api_nonces_format_check",
+      sql`length(${table.nonce}) between 22 and 86 and ${table.nonce} not glob '*[^A-Za-z0-9_-]*'`,
+    ),
+  ],
+);
+
 // Separate from mail attachments, whose message_id remains mandatory.
 export const mobileAttachments = sqliteTable("mobile_attachments", {
   id: text("id").primaryKey(),

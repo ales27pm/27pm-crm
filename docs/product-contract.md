@@ -55,7 +55,15 @@ site stores no CRM data.
 - Received HTML is stored for audit only and is never rendered unsanitized.
 - Attachment bytes remain private in R2. New attachments are marked
   `unscanned` and cannot be downloaded until a malware-scanning decision is
-  implemented.
+  implemented. A clean attachment requires an operator-only, same-origin ticket
+  request; the `ad2` 45-second HMAC ticket is bound to `POST`, the exact Worker
+  origin/path and object version, and is consumed once in D1. The browser sends
+  that bearer only in a direct URL-encoded POST body, never in a URL, redirect,
+  client log, or persisted browser storage. D1, R2 custom metadata, and R2's
+  native SHA-256 checksum must agree before issuance and again before streaming.
+  The Worker rechecks the scan state and streams the R2 object directly as
+  `application/octet-stream`, so attachment bytes never pass through Vercel.
+  Mobile bearer tokens cannot list attachments or issue tickets.
 - All message, pipeline, task, and audit state is authoritative in D1, not
   browser storage.
 - Duplicate provider callbacks and duplicate send commands are idempotent.
@@ -75,6 +83,20 @@ site stores no CRM data.
 ## Protected HTTP seams
 
 - `GET /api/dashboard` — mailbox, conversation, lead, and task summary.
+- `GET /api/attachments?conversationId=:id` — operator-only attachment
+  metadata for the selected Web conversation; object keys and hashes are never
+  returned.
+- `POST /api/attachments/:id/download-ticket` — operator-only, same-origin
+  issuance of a one-time direct-Worker download ticket for a verified clean
+  object. The private no-store response contains a query-free `downloadAction`,
+  an `ad2` ticket, `method: "POST"`, and its expiry.
+- `POST /downloads/attachments/:id` — exact Worker origin only, with
+  `Content-Type: application/x-www-form-urlencoded` and exactly one non-empty
+  `ticket` field in a body of at most 8192 bytes. It verifies and consumes the
+  POST-bound ticket, rechecks D1/R2 integrity, and streams the object without
+  Vercel. Any query string, `GET`, `HEAD`, `Range`, content encoding, invalid or
+  oversized length/body, duplicate or extra form field, empty ticket, and
+  replay fail before D1 or R2 access.
 - `POST /api/messages/send` — send or reply from an allowed 27PM mailbox.
 - `PATCH /api/conversations/:id` — read/follow-up state.
 - `PATCH /api/deals/:id` — pipeline stage, project type, and next action.

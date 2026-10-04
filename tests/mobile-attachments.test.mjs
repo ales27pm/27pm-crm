@@ -16,7 +16,7 @@ async function fixture() {
     CREATE TABLE attachments (id TEXT PRIMARY KEY, message_id TEXT NOT NULL);
     INSERT INTO organizations VALUES ('org-test', NULL);
     INSERT INTO deals VALUES ('deal-test'); INSERT INTO conversations VALUES ('conversation-test');`);
-  sqlite.exec(await readFile(new URL("../drizzle/0018_woozy_ted_forrester.sql", import.meta.url), "utf8"));
+  sqlite.exec(await readFile(new URL("../drizzle/0019_milky_maestro.sql", import.meta.url), "utf8"));
   const db = { prepare(sql) {
     let values = [];
     return {
@@ -172,4 +172,19 @@ test("multipart parser bounds declared and streaming envelopes, and reports malf
   await assert.rejects(readAttachmentForm(new Request("https://crm.27pm.org", {
     method: "POST", body, duplex: "half", headers: { "content-type": "multipart/form-data; boundary=test" },
   })), errorCode(413, "file_too_large"));
+});
+
+test("Vercel BFF masks positive Worker capabilities and never forwards native uploads", async () => {
+  const { fetchPreparedVercelApiRequest } = await import("../lib/vercel-api-proxy.ts");
+  const prepared = { destination: new URL("https://backend.example/api/mobile/capabilities"), headers: new Headers() };
+  let calls = 0;
+  const fetcher = async () => { calls++; return Response.json({ attachments: true }); };
+  const capability = await fetchPreparedVercelApiRequest(new Request("https://crm.27pm.org/api/mobile/capabilities"), prepared, fetcher);
+  assert.deepEqual(await capability.json(), { attachments: false });
+  const upload = await fetchPreparedVercelApiRequest(new Request("https://crm.27pm.org/api/mobile/attachments", { method: "POST", body: "x" }), prepared, fetcher);
+  assert.equal(upload.status, 503);
+  assert.equal(calls, 1);
+  const denied = await fetchPreparedVercelApiRequest(new Request("https://crm.27pm.org/api/mobile/capabilities"), prepared,
+    async () => Response.json({ error: "authentication_required" }, { status: 401 }));
+  assert.equal(denied.status, 401);
 });

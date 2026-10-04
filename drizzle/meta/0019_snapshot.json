@@ -1,8 +1,8 @@
 {
   "version": "6",
   "dialect": "sqlite",
-  "id": "507771c7-6a18-4c86-bab0-98f72415f4c7",
-  "prevId": "f9054e24-fa34-4d73-99ab-d9899b7e1deb",
+  "id": "00216752-aa88-40d9-b4af-309a48450f50",
+  "prevId": "507771c7-6a18-4c86-bab0-98f72415f4c7",
   "tables": {
     "account_imports": {
       "name": "account_imports",
@@ -2563,6 +2563,129 @@
         }
       }
     },
+    "mobile_attachments": {
+      "name": "mobile_attachments",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_kind": {
+          "name": "owner_kind",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "owner_id": {
+          "name": "owner_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "file_name": {
+          "name": "file_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "content_type": {
+          "name": "content_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "byte_size": {
+          "name": "byte_size",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "sha256": {
+          "name": "sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "storage_key": {
+          "name": "storage_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": "CURRENT_TIMESTAMP"
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "deleted_at": {
+          "name": "deleted_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "mobile_attachments_owner_idx": {
+          "name": "mobile_attachments_owner_idx",
+          "columns": [
+            "owner_kind",
+            "owner_id"
+          ],
+          "isUnique": false
+        },
+        "mobile_attachments_active_dedup_unique": {
+          "name": "mobile_attachments_active_dedup_unique",
+          "columns": [
+            "owner_kind",
+            "owner_id",
+            "sha256"
+          ],
+          "isUnique": true,
+          "where": "\"mobile_attachments\".\"deleted_at\" is null"
+        },
+        "mobile_attachments_storage_unique": {
+          "name": "mobile_attachments_storage_unique",
+          "columns": [
+            "storage_key"
+          ],
+          "isUnique": true
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "mobile_attachments_owner_check": {
+          "name": "mobile_attachments_owner_check",
+          "value": "\"mobile_attachments\".\"owner_kind\" in ('account', 'deal', 'conversation')"
+        },
+        "mobile_attachments_size_check": {
+          "name": "mobile_attachments_size_check",
+          "value": "\"mobile_attachments\".\"byte_size\" > 0 and \"mobile_attachments\".\"byte_size\" <= 20971520"
+        }
+      }
+    },
     "mobile_authorization_grants": {
       "name": "mobile_authorization_grants",
       "columns": {
@@ -2944,6 +3067,20 @@
         },
         "website": {
           "name": "website",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "address": {
+          "name": "address",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "city": {
+          "name": "city",
           "type": "text",
           "primaryKey": false,
           "notNull": false,

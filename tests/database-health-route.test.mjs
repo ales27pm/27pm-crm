@@ -9,6 +9,8 @@ import {
   DATABASE_HEALTH_INDEX_REQUIREMENTS,
   DATABASE_HEALTH_INTEGRITY_QUERIES,
   DATABASE_HEALTH_TABLES,
+  INTERNAL_API_NONCE_HEALTH_TABLE,
+  INTERNAL_API_NONCE_INDEX_REQUIREMENT,
   MOBILE_AUTH_INDEX_REQUIREMENTS,
   normalizeDatabaseIndexPredicate,
 } from "../lib/database-health.ts";
@@ -115,6 +117,78 @@ function healthyEvidence() {
         onDelete: "RESTRICT",
       },
     ],
+    internalApiNonceColumns: [
+      {
+        name: "nonce",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 1,
+      },
+      {
+        name: "expires_at",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: null,
+        primaryKeyPosition: 0,
+      },
+      {
+        name: "created_at",
+        type: "TEXT",
+        notNull: true,
+        defaultValue: "CURRENT_TIMESTAMP",
+        primaryKeyPosition: 0,
+      },
+    ],
+    internalApiNonceIndexes: [
+      {
+        ...INTERNAL_API_NONCE_INDEX_REQUIREMENT,
+        columns: [...INTERNAL_API_NONCE_INDEX_REQUIREMENT.columns],
+      },
+    ],
+    internalApiNonceTableSql: `CREATE TABLE internal_api_nonces (
+      nonce text PRIMARY KEY NOT NULL,
+      expires_at text NOT NULL,
+      created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      CONSTRAINT internal_api_nonces_format_check
+        CHECK(length(nonce) between 22 and 86 and nonce not glob '*[^A-Za-z0-9_-]*'))`,
+  };
+}
+
+function readInternalApiNonceEvidence(database) {
+  const index = database
+    .prepare(`PRAGMA index_list('${INTERNAL_API_NONCE_HEALTH_TABLE}')`)
+    .all()
+    .find(({ name }) => name === INTERNAL_API_NONCE_INDEX_REQUIREMENT.name);
+  return {
+    columns: database
+      .prepare(`PRAGMA table_info('${INTERNAL_API_NONCE_HEALTH_TABLE}')`)
+      .all()
+      .map(({ name, type, notnull, dflt_value, pk }) => ({
+        name,
+        type,
+        notNull: notnull === 1,
+        defaultValue: dflt_value,
+        primaryKeyPosition: pk,
+      })),
+    indexes: [
+      {
+        name: INTERNAL_API_NONCE_INDEX_REQUIREMENT.name,
+        table: INTERNAL_API_NONCE_HEALTH_TABLE,
+        unique: index?.unique === 1,
+        partial: index?.partial === 1,
+        columns: database
+          .prepare(
+            `PRAGMA index_info('${INTERNAL_API_NONCE_INDEX_REQUIREMENT.name}')`,
+          )
+          .all()
+          .sort((left, right) => left.seqno - right.seqno)
+          .map(({ name }) => name),
+      },
+    ],
+    tableSql: database
+      .prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name=?")
+      .get(INTERNAL_API_NONCE_HEALTH_TABLE).sql,
   };
 }
 
@@ -143,6 +217,11 @@ test("database health is operator-only, read-only, and gathers executable schema
   assert.match(source, /DATABASE_HEALTH_FORBIDDEN_INDEXES/u);
   assert.match(source, /MOBILE_AUTH_HEALTH_TABLES/u);
   assert.match(source, /MOBILE_AUTH_INDEX_REQUIREMENTS/u);
+  assert.match(source, /INTERNAL_API_NONCE_HEALTH_TABLE/u);
+  assert.match(source, /INTERNAL_API_NONCE_INDEX_REQUIREMENT/u);
+  assert.match(source, /type: row\.type/u);
+  assert.match(source, /notNull: row\.notnull === 1/u);
+  assert.match(source, /primaryKeyPosition: row\.pk/u);
   assert.match(source, /cache-control": "private, no-store"/u);
   assert.doesNotMatch(source, /\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/iu);
   for (const { sql } of DATABASE_HEALTH_INTEGRITY_QUERIES) {
@@ -154,12 +233,25 @@ test("database health is operator-only, read-only, and gathers executable schema
   }
 });
 
-test("database health accepts complete migration 0014 and mobile auth evidence", () => {
+test("database health accepts complete migrations 0014, 0017, and 0018", () => {
   const report = buildDatabaseHealthReport(healthyEvidence());
   assert.equal(report.status, "ok");
   assert.equal(report.migration0014, true);
   assert.equal(report.migration0017, true);
+  assert.equal(report.migration0018, true);
   assert.equal(report.dataConsistent, true);
+});
+
+test("database health normalizes quoted internal nonce defaults", () => {
+  for (const defaultValue of [
+    "'CURRENT_TIMESTAMP'",
+    '"CURRENT_TIMESTAMP"',
+    "(CURRENT_TIMESTAMP)",
+  ]) {
+    const evidence = healthyEvidence();
+    evidence.internalApiNonceColumns[2].defaultValue = defaultValue;
+    assert.equal(buildDatabaseHealthReport(evidence).migration0018, true);
+  }
 });
 
 test("database health normalizes the generated partial refresh-token predicate", async () => {
@@ -248,6 +340,100 @@ test("database health accepts the exact packaged mobile authentication schema", 
   assert.equal(report.status, "ok");
 });
 
+test("database health accepts the exact packaged internal assertion nonce schema", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  t.after(() => database.close());
+  const migration = await readFile(
+    new URL("../drizzle/0018_married_praxagora.sql", import.meta.url),
+    "utf8",
+  );
+  for (const statement of migration.split("--> statement-breakpoint")) {
+    if (statement.trim()) database.exec(statement);
+  }
+
+  const evidence = healthyEvidence();
+  const internalApiNonceEvidence = readInternalApiNonceEvidence(database);
+  evidence.internalApiNonceColumns = internalApiNonceEvidence.columns;
+  evidence.internalApiNonceIndexes = internalApiNonceEvidence.indexes;
+  evidence.internalApiNonceTableSql = internalApiNonceEvidence.tableSql;
+
+  const report = buildDatabaseHealthReport(evidence);
+  assert.equal(report.migration0018, true);
+  assert.equal(report.status, "ok");
+  assert.deepEqual(evidence.internalApiNonceColumns, [
+    {
+      name: "nonce",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 1,
+    },
+    {
+      name: "expires_at",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    },
+    {
+      name: "created_at",
+      type: "TEXT",
+      notNull: true,
+      defaultValue: "CURRENT_TIMESTAMP",
+      primaryKeyPosition: 0,
+    },
+  ]);
+  assert.equal(evidence.internalApiNonceIndexes[0].unique, false);
+  assert.equal(evidence.internalApiNonceIndexes[0].partial, false);
+
+  const insert = database.prepare(
+    "INSERT INTO internal_api_nonces (nonce, expires_at) VALUES (?, ?)",
+  );
+  const expiry = "2026-10-02T12:00:30.000Z";
+  insert.run("A".repeat(22), expiry);
+  insert.run("B".repeat(22), expiry);
+  assert.throws(() => insert.run(`!${"C".repeat(21)}`, expiry));
+});
+
+test("database health rejects a nonce table without replay uniqueness", (t) => {
+  const database = new DatabaseSync(":memory:");
+  t.after(() => database.close());
+  database.exec(`
+    CREATE TABLE internal_api_nonces (
+      nonce TEXT NOT NULL,
+      expires_at TEXT NOT NULL,
+      created_at TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      CONSTRAINT internal_api_nonces_format_check
+        CHECK(length(nonce) between 22 and 86 and nonce not glob '*[^A-Za-z0-9_-]*')
+    );
+    CREATE INDEX internal_api_nonces_expiry_idx
+      ON internal_api_nonces (expires_at);
+  `);
+
+  const evidence = healthyEvidence();
+  const internalApiNonceEvidence = readInternalApiNonceEvidence(database);
+  evidence.internalApiNonceColumns = internalApiNonceEvidence.columns;
+  evidence.internalApiNonceIndexes = internalApiNonceEvidence.indexes;
+  evidence.internalApiNonceTableSql = internalApiNonceEvidence.tableSql;
+
+  assert.equal(
+    evidence.internalApiNonceColumns.find(({ name }) => name === "nonce")
+      ?.primaryKeyPosition,
+    0,
+  );
+  assert.equal(
+    database
+      .prepare(`PRAGMA index_list('${INTERNAL_API_NONCE_HEALTH_TABLE}')`)
+      .all()
+      .some(({ unique }) => unique === 1),
+    false,
+  );
+  const report = buildDatabaseHealthReport(evidence);
+  assert.equal(report.internalApiNonceSchemaChecks.columns, false);
+  assert.equal(report.migration0018, false);
+  assert.equal(report.status, "degraded");
+});
+
 test("database health rejects subtle schema and data drift", () => {
   const cases = [
     (evidence) => {
@@ -297,6 +483,40 @@ test("database health rejects subtle schema and data drift", () => {
     },
     (evidence) => {
       evidence.mobileAuthForeignKeys[1].onUpdate = "CASCADE";
+    },
+    (evidence) => {
+      evidence.internalApiNonceColumns.pop();
+    },
+    (evidence) => {
+      evidence.internalApiNonceColumns[0].primaryKeyPosition = 0;
+    },
+    (evidence) => {
+      evidence.internalApiNonceColumns[0].notNull = false;
+    },
+    (evidence) => {
+      evidence.internalApiNonceColumns[0].type = "BLOB";
+    },
+    (evidence) => {
+      evidence.internalApiNonceColumns[1].notNull = false;
+    },
+    (evidence) => {
+      evidence.internalApiNonceColumns[2].defaultValue = null;
+    },
+    (evidence) => {
+      evidence.internalApiNonceIndexes[0].unique = true;
+    },
+    (evidence) => {
+      evidence.internalApiNonceIndexes[0].partial = true;
+    },
+    (evidence) => {
+      evidence.internalApiNonceIndexes[0].columns = ["nonce"];
+    },
+    (evidence) => {
+      evidence.internalApiNonceIndexes[0].name = "internal_api_nonces_wrong_idx";
+    },
+    (evidence) => {
+      evidence.internalApiNonceTableSql =
+        "CREATE TABLE internal_api_nonces (nonce text, expires_at text, created_at text)";
     },
   ];
 

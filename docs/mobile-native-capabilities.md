@@ -1,10 +1,12 @@
 # Native mobile capabilities: source audit and rollout
 
-Audited against main 3cae59b5d852acea17fc976b339200ebf4b2eac1.
+Rebased onto migration branch 730855a3d80df09dc9134bb0d48eace95072add3.
+
+The PR now includes the native Vercel build/proxy/auth migration already present on that branch. Main lacked it. The migration reserves 0018 for internal assertion nonces; native metadata is generated as 0019. Vercel BFF explicitly forces capabilities false after successful upstream authentication and refuses native attachment traffic with 503, even if a Worker advertises true. No live backend or storage deployment is inferred from the source.
 
 ## Differences from the supplied guide
 
-- App Router source uses **vinext + Cloudflare Workers**, D1 (`DB`) and private R2 (`BUCKET`), not a local SQLite file/volume. The Vercel project is configured with `npm run build:vercel`, but that script does not exist in main. This PR does not repair the deployment migration.
+- App Router source uses **vinext + Cloudflare Workers**, D1 (`DB`) and private R2 (`BUCKET`), not a local SQLite file/volume. Main lacked `build:vercel`; the rebased PR now preserves the migration branch's native Next build, Cloudflare stub, Auth.js and BFF. Their deployment still requires the existing backend settings and credentials; no infrastructure is provisioned.
 - `contacts.phone` already exists and is serialized by `/api/dashboard`. Do not add it again.
 - `organizations.address` and `city` are new nullable columns, exposed by the dashboard query. Existing organization edit/import flows are not extended here; populating these columns is a separate write-flow task. Demo payload fields remain optional.
 - `attachments` already contains email attachments with mandatory `message_id`; retain it unchanged. Native metadata uses `mobile_attachments`.
@@ -26,7 +28,7 @@ R2 or Blob behind a Vercel upload route does not bypass the incoming limit. Dire
 
 ## Safe rollout
 
-1. Back up D1 and private R2. Apply generated migration `0018_woozy_ted_forrester.sql` once through the existing D1 migration workflow. Never apply the guide's conflicting `CREATE TABLE attachments`/`ADD phone` statements.
+1. Back up D1 and private R2. Apply generated migration `0019_milky_maestro.sql` once through the existing D1 migration workflow. Never apply the guide's conflicting `CREATE TABLE attachments`/`ADD phone` statements.
 2. Deploy routes on the existing compatible Workers/D1/R2 stack without changing `crm.27pm.org` routing in this PR. Ensure the R2 bucket has no public access. No `node:fs` or Node-only runtime is required.
 3. Leave `ATTACHMENTS_ENABLED=0` (default). The capabilities endpoint returns false; other attachment endpoints return 503 when disabled. No queued iOS uploads should be drained.
 4. Before activation, resolve the Vercel-vs-Workers deployment architecture, verify 20 MiB multipart over `crm.27pm.org`, authenticated owner access, concurrent dedup, exact download bytes, delete retries, 401/403/error mapping, backup restoration and iOS offline replay. Source review and local tests are not end-to-end evidence.
@@ -43,6 +45,6 @@ R2 or Blob behind a Vercel upload route does not bypass the incoming limit. Dire
 
 ## Validation
 
-Nine focused tests cover migration compatibility, feature gating, multipart limits, owner lookup, concurrent deduplication, byte-identical private downloads, deletion retries, storage failures and route auth wiring. Route wiring tests are source checks, not live bearer-session E2E tests.
+Ten focused tests cover migration compatibility, feature gating, multipart limits, owner lookup, concurrent deduplication, byte-identical private downloads, deletion retries, storage failures and route auth wiring. Route wiring tests are source checks, not live bearer-session E2E tests.
 
-Local typecheck, lint and vinext build pass. Full suite: 374/415 pass, 41 fail. Baseline main: 365/406 pass, the same 41 failures; no new failing tests. Focused attachment/security tests: 23/23 pass. Production HTTP and iOS validation remain pending. No migration, environment mutation or deployment is performed by this PR preparation.
+Previous main-based checks passed typecheck, lint and vinext build; its full suite had the same 41 failures as main. Those results do not validate the rebased migration. Updated validation: native Next/Vercel build, typecheck and lint pass; focused security/attachment tests 24/24 pass. Full suite 426/467 pass with the same 41 failures as migration baseline (416/457 pass). Live preview status must be checked after publication. Production HTTP and iOS validation remain pending. No migration, environment mutation or deployment is performed by this PR preparation.
