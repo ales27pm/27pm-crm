@@ -19,6 +19,7 @@ export interface PrivateObjectBucket {
     },
   ): Promise<unknown>;
   get(key: string): Promise<PrivateObjectBody | null>;
+  delete(key: string): Promise<void>;
 }
 
 function bindings(): RuntimeBindings {
