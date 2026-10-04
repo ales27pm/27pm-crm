@@ -1,0 +1,16 @@
+1
+00:00:00,100 --> 00:00:04,290
+Bonjour, et bienvenue chez vingt-sept P M. Merci de nous appeler.
+
+2
+00:00:04,240 --> 00:00:10,098
+Chez vingt-sept P M, chaque projet commence par une bonne conversation — et la vôtre commence ici.
+
+3
+00:00:10,098 --> 00:00:13,615
+Pour joindre Alexis Boulet, appuyez sur la touche un.
+
+4
+00:00:13,615 --> 00:00:21,225
+Si vous connaissez déjà le numéro de poste de la personne que vous souhaitez joindre, composez ses trois chiffres maintenant, puis appuyez sur le carré.
+

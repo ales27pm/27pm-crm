@@ -1,4 +1,7 @@
-import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
+import {
+  operatorAuditDetails,
+  requireSameOriginOperatorOrMobileRequest,
+} from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import { jsonError, readJsonObject, validIsoTimestamp } from "@/lib/http";
 import { evaluateOutreachChannel } from "@/lib/outreach-readiness";
@@ -22,7 +25,7 @@ type CurrentStep = {
 };
 
 export async function PATCH(request: Request, context: RouteContext) {
-  const auth = requireSameOriginOperatorRequest(request);
+  const auth = await requireSameOriginOperatorOrMobileRequest(request, "crm:work");
   if (auth.response) return auth.response;
   const { strategyId, stepId } = await context.params;
   if (!validId(strategyId) || !validId(stepId)) return jsonError(400, "outreach_step_id_invalid");
@@ -129,8 +132,13 @@ export async function PATCH(request: Request, context: RouteContext) {
       )`)
       .bind(
         crypto.randomUUID(), auth.operator.email, stepId,
-        JSON.stringify({ strategyId, status, scheduledAt, readiness: readiness?.decision ?? null,
-          evidenceSnapshot: readiness?.evidenceSnapshot ?? null }),
+        JSON.stringify(operatorAuditDetails(auth.operator, {
+          strategyId,
+          status,
+          scheduledAt,
+          readiness: readiness?.decision ?? null,
+          evidenceSnapshot: readiness?.evidenceSnapshot ?? null,
+        })),
         stepId, strategyId, operationStamp,
       );
     const [updated] = await db.batch([stepWrite, auditWrite]);

@@ -7,6 +7,14 @@ export const DATABASE_HEALTH_TABLES = [
 
 export type DatabaseHealthTable = (typeof DATABASE_HEALTH_TABLES)[number];
 
+export const MOBILE_AUTH_HEALTH_TABLES = [
+  "mobile_authorization_grants",
+  "mobile_sessions",
+  "mobile_refresh_tokens",
+] as const;
+
+export type MobileAuthHealthTable = (typeof MOBILE_AUTH_HEALTH_TABLES)[number];
+
 export type DatabaseColumnEvidence = {
   name: string;
   notNull: boolean;
@@ -20,6 +28,24 @@ export type DatabaseIndexEvidence = {
   columns: string[];
 };
 
+export type MobileAuthIndexEvidence = {
+  name: string;
+  table: MobileAuthHealthTable;
+  unique: boolean;
+  partial: boolean;
+  columns: string[];
+  predicate: string | null;
+};
+
+export type MobileAuthForeignKeyEvidence = {
+  table: MobileAuthHealthTable;
+  from: string;
+  targetTable: MobileAuthHealthTable;
+  to: string;
+  onUpdate: string;
+  onDelete: string;
+};
+
 export type DatabaseHealthEvidence = {
   quickCheck: string[];
   foreignKeyViolations: number;
@@ -29,6 +55,10 @@ export type DatabaseHealthEvidence = {
   forbiddenIndexesPresent: string[];
   tableSql: Record<DatabaseHealthTable, string>;
   violations: Record<string, number>;
+  mobileAuthColumns: Record<MobileAuthHealthTable, string[]>;
+  mobileAuthIndexes: MobileAuthIndexEvidence[];
+  mobileAuthTableSql: Record<MobileAuthHealthTable, string>;
+  mobileAuthForeignKeys: MobileAuthForeignKeyEvidence[];
 };
 
 export const DATABASE_HEALTH_INDEX_REQUIREMENTS = [
@@ -140,6 +170,132 @@ const REQUIRED_COLUMNS: Readonly<
   webhook_receipts: ["transport_provider"],
 };
 
+const REQUIRED_MOBILE_AUTH_COLUMNS: Readonly<
+  Record<MobileAuthHealthTable, readonly string[]>
+> = {
+  mobile_authorization_grants: [
+    "id",
+    "code_hash",
+    "operator_email",
+    "client_id",
+    "redirect_uri",
+    "code_challenge",
+    "scopes",
+    "device_name",
+    "expires_at",
+    "consumed_at",
+    "consumed_session_id",
+    "created_at",
+  ],
+  mobile_sessions: [
+    "id",
+    "authorization_grant_id",
+    "operator_email",
+    "client_id",
+    "device_name",
+    "scopes",
+    "refresh_token_hash",
+    "expires_at",
+    "last_refreshed_at",
+    "revoked_at",
+    "created_at",
+    "updated_at",
+  ],
+  mobile_refresh_tokens: [
+    "token_hash",
+    "session_id",
+    "issued_at",
+    "rotated_at",
+  ],
+};
+
+export const MOBILE_AUTH_INDEX_REQUIREMENTS = [
+  {
+    table: "mobile_authorization_grants",
+    name: "mobile_authorization_grants_code_hash_unique",
+    unique: true,
+    partial: false,
+    columns: ["code_hash"],
+  },
+  {
+    table: "mobile_authorization_grants",
+    name: "mobile_authorization_grants_expiry_idx",
+    unique: false,
+    partial: false,
+    columns: ["expires_at"],
+  },
+  {
+    table: "mobile_authorization_grants",
+    name: "mobile_authorization_grants_operator_idx",
+    unique: false,
+    partial: false,
+    columns: ["operator_email", "created_at"],
+  },
+  {
+    table: "mobile_sessions",
+    name: "mobile_sessions_grant_unique",
+    unique: true,
+    partial: false,
+    columns: ["authorization_grant_id"],
+  },
+  {
+    table: "mobile_sessions",
+    name: "mobile_sessions_refresh_hash_unique",
+    unique: true,
+    partial: false,
+    columns: ["refresh_token_hash"],
+  },
+  {
+    table: "mobile_sessions",
+    name: "mobile_sessions_operator_idx",
+    unique: false,
+    partial: false,
+    columns: ["operator_email", "created_at"],
+  },
+  {
+    table: "mobile_sessions",
+    name: "mobile_sessions_expiry_idx",
+    unique: false,
+    partial: false,
+    columns: ["expires_at", "revoked_at"],
+  },
+  {
+    table: "mobile_refresh_tokens",
+    name: "mobile_refresh_tokens_session_idx",
+    unique: false,
+    partial: false,
+    columns: ["session_id", "issued_at"],
+  },
+  {
+    table: "mobile_refresh_tokens",
+    name: "mobile_refresh_tokens_one_current",
+    unique: true,
+    partial: true,
+    columns: ["session_id"],
+  },
+] as const satisfies readonly (Omit<MobileAuthIndexEvidence, "predicate"> & {
+  columns: readonly string[];
+})[];
+
+const MOBILE_AUTH_FOREIGN_KEY_REQUIREMENTS = [
+  {
+    table: "mobile_sessions",
+    from: "authorization_grant_id",
+    targetTable: "mobile_authorization_grants",
+    to: "id",
+    onUpdate: "NO ACTION",
+    onDelete: "RESTRICT",
+  },
+  {
+    table: "mobile_refresh_tokens",
+    from: "session_id",
+    targetTable: "mobile_sessions",
+    to: "id",
+    onUpdate: "NO ACTION",
+    onDelete: "RESTRICT",
+  },
+] as const satisfies readonly MobileAuthForeignKeyEvidence[];
+
 export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
   const schemaChecks = {
     columns: requiredColumnsArePresent(evidence.columns),
@@ -149,6 +305,42 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     providerChecks: providerChecksArePresent(evidence.tableSql),
   };
   const migration0014 = Object.values(schemaChecks).every(Boolean);
+  const mobileAuthSchemaChecks = {
+    columns: MOBILE_AUTH_HEALTH_TABLES.every((table) =>
+      containsEvery(
+        evidence.mobileAuthColumns[table],
+        REQUIRED_MOBILE_AUTH_COLUMNS[table],
+      ),
+    ),
+    indexes: MOBILE_AUTH_INDEX_REQUIREMENTS.every((requirement) => {
+      const actual = evidence.mobileAuthIndexes.find(
+        ({ name, table }) =>
+          name === requirement.name && table === requirement.table,
+      );
+      return (
+        actual?.unique === requirement.unique &&
+        actual.partial === requirement.partial &&
+        arraysEqual(actual.columns, requirement.columns) &&
+        actual.predicate === (
+          requirement.name === "mobile_refresh_tokens_one_current"
+            ? "rotated_at is null"
+            : null
+        )
+      );
+    }),
+    constraints: mobileAuthConstraintsArePresent(evidence.mobileAuthTableSql),
+    foreignKeys: MOBILE_AUTH_FOREIGN_KEY_REQUIREMENTS.every((requirement) =>
+      evidence.mobileAuthForeignKeys.some((actual) =>
+        actual.table === requirement.table &&
+        actual.from === requirement.from &&
+        actual.targetTable === requirement.targetTable &&
+        actual.to === requirement.to &&
+        actual.onUpdate === requirement.onUpdate &&
+        actual.onDelete === requirement.onDelete
+      ),
+    ),
+  };
+  const migration0017 = Object.values(mobileAuthSchemaChecks).every(Boolean);
   const dataConsistent = Object.values(evidence.violations).every(
     (count) => Number.isSafeInteger(count) && count === 0,
   );
@@ -157,6 +349,7 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     evidence.quickCheck.every((value) => value === "ok") &&
     evidence.foreignKeyViolations === 0 &&
     migration0014 &&
+    migration0017 &&
     dataConsistent;
 
   return {
@@ -165,8 +358,10 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     quickCheck: evidence.quickCheck,
     foreignKeyViolations: evidence.foreignKeyViolations,
     migration0014,
+    migration0017,
     dataConsistent,
     schemaChecks,
+    mobileAuthSchemaChecks,
     counts: evidence.counts,
     columns: Object.fromEntries(
       DATABASE_HEALTH_TABLES.map((table) => [
@@ -175,9 +370,74 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
       ]),
     ),
     indexes: evidence.indexes.map(({ name }) => name),
+    mobileAuthIndexes: evidence.mobileAuthIndexes.map(({ name }) => name),
     forbiddenIndexesPresent: evidence.forbiddenIndexesPresent,
     violations: evidence.violations,
   };
+}
+
+function containsEvery(
+  actual: readonly string[] | undefined,
+  required: readonly string[],
+): boolean {
+  if (!Array.isArray(actual)) return false;
+  const values = new Set(actual);
+  return required.every((value) => values.has(value));
+}
+
+export function normalizeDatabaseIndexPredicate(
+  sql: string | null | undefined,
+): string | null {
+  if (!sql) return null;
+  const normalized = sql
+    .toLowerCase()
+    .replaceAll("`", "")
+    .replaceAll('"', "")
+    .replace(/\s+/gu, " ")
+    .trim();
+  const where = normalized.match(/\bwhere\s+(.+)$/u)?.[1]?.trim();
+  return where
+    ?.replace(/\bmobile_refresh_tokens\./gu, "")
+    .replace(/;$/u, "") || null;
+}
+
+function mobileAuthConstraintsArePresent(
+  tableSql: Record<MobileAuthHealthTable, string>,
+): boolean {
+  const required: Record<MobileAuthHealthTable, readonly string[]> = {
+    mobile_authorization_grants: [
+      "mobile_authorization_grants_code_hash_check",
+      "mobile_authorization_grants_challenge_check",
+      "mobile_authorization_grants_scope_check",
+      "check(length(code_hash) = 64 and code_hash not glob '*[^0-9a-f]*')",
+      "check(length(code_challenge) = 43 and code_challenge not glob '*[^a-za-z0-9_-]*')",
+      "check(scopes = 'crm:dashboard:read crm:work')",
+    ],
+    mobile_sessions: [
+      "mobile_sessions_refresh_hash_check",
+      "mobile_sessions_scope_check",
+      "check(length(refresh_token_hash) = 64 and refresh_token_hash not glob '*[^0-9a-f]*')",
+      "check(scopes = 'crm:dashboard:read crm:work')",
+    ],
+    mobile_refresh_tokens: [
+      "mobile_refresh_tokens_hash_check",
+      "check(length(token_hash) = 64 and token_hash not glob '*[^0-9a-f]*')",
+    ],
+  };
+  return MOBILE_AUTH_HEALTH_TABLES.every((table) => {
+    const sql = normalizeTableSql(tableSql[table]);
+    return required[table].every((fragment) => sql.includes(fragment));
+  });
+}
+
+function normalizeTableSql(value: string | undefined): string {
+  return (value ?? "")
+    .toLowerCase()
+    .replaceAll("`", "")
+    .replaceAll('"', "")
+    .replace(/\bmobile_(?:authorization_grants|sessions|refresh_tokens)\./gu, "")
+    .replace(/\s+/gu, " ")
+    .trim();
 }
 
 function requiredColumnsArePresent(

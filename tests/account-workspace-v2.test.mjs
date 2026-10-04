@@ -254,7 +254,7 @@ test("connects the account 360 workspace to CRM data and responsive layout", asy
   assert.match(workspace, /if \(target\) onStrategyRequestHandled\(\)/u);
   assert.match(strategyDialog, /<fieldset className="form-grid" disabled=\{busy \|\| completed\}>/u);
   assert.match(strategyPanel, /aria-labelledby=\{`outreach-strategy-title-/u);
-  assert.match(dashboardRoute, /const auth = requireOperatorRequest\(request\);[\s\S]*if \(auth\.response\) return auth\.response;[\s\S]*CRM_DEMO_MODE/u);
+  assert.match(dashboardRoute, /const auth = await requireOperatorOrMobileRequest\(request, "crm:dashboard:read"\);[\s\S]*if \(auth\.response\) return auth\.response;[\s\S]*CRM_DEMO_MODE/u);
   assert.match(dashboardRoute, /Response\.json\(demoDashboard,[\s\S]*cache-control["']:\s*["']no-store/u);
   assert.match(dashboardRoute, /task\.conversation_id AS conversationId[\s\S]*COALESCE\(deal\.organization_id, contact\.organization_id\) AS organizationId/u);
   assert.match(css, /\.account-v2-layout/u);

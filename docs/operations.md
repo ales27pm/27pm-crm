@@ -30,6 +30,9 @@ them. Never commit a production value to `.env.example`.
 | Name | Sites secret? | Purpose |
 | --- | --- | --- |
 | `CRM_ADMIN_EMAILS` | Yes | Explicit operator allowlist; it must not be empty in production. |
+| `CRM_MOBILE_REDIRECT_URI` | No | Exact app-claimed HTTPS Universal Link, normally `https://crm.27pm.org/mobile/oauth/callback`; private-use schemes are rejected. |
+| `CRM_MOBILE_TOKEN_SIGNING_KEY` | Yes | Dedicated canonical base64url key containing at least 32 random bytes; never expose it through Expo or another integration. |
+| `CRM_IOS_APP_ID` | No | Public Apple Team ID plus iOS bundle identifier used by the AASA document; must match the shipping app and associated-domain entitlement. |
 | `CRM_OUTBOUND_PROVIDER` | No | `mailgun` by default; set `cakemail` only after every gate in `docs/cakemail.md` passes. |
 | `MAILGUN_SENDING_KEY` | Yes | Domain-scoped sending key used by the CRM; do not use the account route-administration key here. |
 | `MAILGUN_WEBHOOK_SIGNING_KEY` | Yes | Verifies fresh Mailgun HMAC-SHA256 callbacks and rejects replay. |
@@ -142,7 +145,7 @@ Any changed field produces a different digest and fails closed. A stale inbound
 message, suppression, prior reply, mismatched recipient, non-Mailgun inbound,
 HTML body, or missing digest also remains blocked by the server.
 
-## Migrations CRM 0004 à 0014
+## Migrations CRM 0004 à 0017
 
 The Sites build packages the SQL migrations and the production D1 binding is
 owned by the Sites project. Do not run Wrangler against the placeholder local
@@ -162,9 +165,14 @@ Before an authorized deployment:
    contact-step state to match that decision, and run `PRAGMA foreign_key_check`
    through the approved D1 console;
 5. call the operator-only `GET /api/admin/database-health` and require HTTP 200,
-   `status=ok`, `migration0014=true`, `quickCheck=["ok"]`, zero foreign-key
+   `status=ok`, `migration0014=true`, `migration0017=true`,
+   `quickCheck=["ok"]`, zero foreign-key
    violations, and the expected pre-deployment message/event row counts;
-6. verify a duplicate import key returns an idempotent no-change result.
+6. fetch `/.well-known/apple-app-site-association` without redirects, verify the
+   exact configured app ID under both `applinks` and `webcredentials`, then
+   prove the HTTPS callback and matching entitlements on a physical device
+   running the supported iOS 17.4-or-later client;
+7. verify a duplicate import key returns an idempotent no-change result.
 
 Rollback is not `DROP TABLE`: pause writes, restore the captured D1 snapshot
 and the prior Sites checkpoint together. If restoration is unavailable, keep
@@ -203,9 +211,17 @@ values, records the exact pre-dispatch outbound snapshot needed for idempotent
 local repair, and adds provider provenance to messages, commands, events and
 webhook receipts. Historical transport rows are backfilled as Mailgun; the
 migration does not contact either provider or create an outbound send.
+Migration 0015 adds hashed, expiring PKCE authorization grants and revocable
+mobile sessions. It stores no raw authorization code, refresh token or signing
+key. Migration 0016 records only the hashes of every issued refresh token so
+reuse of an old family token can revoke the session. Migration 0017 adds the
+partial unique invariant that permits exactly one current refresh token per
+session. Verify all three mobile tables, their exact unique/partial indexes and
+foreign keys before enabling the mobile runtime settings; the operator-only
+database health endpoint enforces this as `migration0017=true`.
 A code rollback without a data rollback has not been claimed compatible.
 
-Before applying any pending production migration, including 0014, validate the
+Before applying any pending production migration, including 0015 through 0017, validate the
 full export by restoring it to a disposable D1/SQLite target and record the
 source database, UTC timestamp, object count, checksum and exact restore
 command. A truncated SQL display or an untested download is not a restorable

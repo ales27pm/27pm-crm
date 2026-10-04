@@ -1,3 +1,4 @@
+import { operatorAuditDetails, type Operator } from "./auth";
 import type { CrmDatabase } from "./d1";
 import { optionalTrimmedString, validIsoTimestamp } from "./http";
 
@@ -53,6 +54,7 @@ export async function createInteraction(
   db: CrmDatabase,
   input: InteractionInput,
   actorEmail: string,
+  operator?: Operator,
 ) {
   const deal = await db
     .prepare(
@@ -99,7 +101,12 @@ export async function createInteraction(
         crypto.randomUUID(),
         actorEmail,
         id,
-        JSON.stringify({ dealId: input.dealId, kind: input.kind }),
+        JSON.stringify(operator
+          ? operatorAuditDetails(operator, {
+              dealId: input.dealId,
+              kind: input.kind,
+            })
+          : { dealId: input.dealId, kind: input.kind }),
       ),
     ...(recordsContact && deal.contactId ? [
       db.prepare("UPDATE contacts SET last_contact_at=?, updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(input.occurredAt, deal.contactId),

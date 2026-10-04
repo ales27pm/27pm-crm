@@ -27,6 +27,7 @@ test("starts dispatch-owned ChatGPT sign-in in the top-level context", async () 
   const accessScreen = await projectFile("app/components/access-screen.tsx");
   const authAnchor = accessScreen.match(/<a[\s\S]*?<\/a>/u)?.[0] ?? "";
 
-  assert.match(authAnchor, /chatGPTSignInPath\("\/"\)/u);
+  assert.match(accessScreen, /returnTo = "\/"/u);
+  assert.match(authAnchor, /chatGPTSignInPath\(returnTo\)/u);
   assert.match(authAnchor, /target=["']_top["']/u);
 });

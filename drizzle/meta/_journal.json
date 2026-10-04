@@ -106,6 +106,27 @@
       "when": 1789248385756,
       "tag": "0014_demonic_namorita",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "6",
+      "when": 1790857259504,
+      "tag": "0015_chief_wilson_fisk",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1790858648457,
+      "tag": "0016_glossy_mongoose",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1790858997222,
+      "tag": "0017_wonderful_nomad",
+      "breakpoints": true
     }
   ]
 }

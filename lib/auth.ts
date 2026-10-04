@@ -4,7 +4,23 @@ const AUTHENTICATED_EMAIL_HEADER = "oai-authenticated-user-email";
 
 export type Operator = {
   email: string;
+  mobileSessionId?: string;
 };
+
+export function operatorAuditDetails(
+  operator: Operator,
+  details: Record<string, unknown>,
+): Record<string, unknown> {
+  return operator.mobileSessionId
+    ? {
+        ...details,
+        authentication: {
+          source: "mobile",
+          sessionId: operator.mobileSessionId,
+        },
+      }
+    : details;
+}
 
 export type OperatorAuthorization =
   | { ok: true; operator: Operator }

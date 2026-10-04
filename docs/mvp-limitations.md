@@ -60,15 +60,26 @@ du sel de hachage doit rester contrôlée. Sans ces valeurs, l’API retourne
 
 ## Authentification et opérateurs
 
-Les pages et toutes les routes d’administration reposent sur l’identité
-injectée par OpenAI Sites, doublée de `CRM_ADMIN_EMAILS`. Le dépôt ne fournit ni
-mot de passe local, ni gestion de rôles, ni invitation d’utilisateur. Le point
-d’entrée public ne partage pas cette authentification et ne donne aucun accès
-aux données CRM.
+Les pages et la branche d’authentification web reposent sur l’identité injectée
+par OpenAI Sites, doublée de `CRM_ADMIN_EMAILS`. Le dépôt ne fournit ni mot de
+passe local, ni gestion de rôles, ni invitation d’utilisateur. Le point d’entrée
+public ne partage pas cette authentification et ne donne aucun accès aux données
+CRM.
+
+Une app native peut désormais demander une autorisation limitée au moyen de
+PKCE, mais seulement après approbation dans une session Sites existante. Le
+serveur dérive l’adresse de cette session et la revérifie dans
+`CRM_ADMIN_EMAILS`; il ne fait jamais confiance à une adresse fournie par
+l’app. L’envoi de courriels et les surfaces d’administration restent web
+seulement. Les appareils actifs peuvent être révoqués depuis
+`/mobile/sessions`. Cette capacité demeure inactive tant que
+`CRM_MOBILE_REDIRECT_URI`, `CRM_MOBILE_TOKEN_SIGNING_KEY` et la migration 0015
+à 0017, ainsi que `CRM_IOS_APP_ID` et les entitlements iOS correspondants, ne
+sont pas configurés et déployés. Voir `docs/mobile-auth.md`.
 
 ## Déploiement et données
 
-Les migrations `0004_flawless_orphan.sql` à `0014_demonic_namorita.sql` sont
+Les migrations `0004_flawless_orphan.sql` à `0017_wonderful_nomad.sql` sont
 validées ensemble sur une base SQLite jetable avec contrôle des clés
 étrangères. Le binding D1 réel appartient au projet Sites; le `database_id` du
 mode local est volontairement un placeholder. La preuve de publication et les

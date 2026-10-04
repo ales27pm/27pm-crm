@@ -5,9 +5,10 @@ import { Illustration } from "./visual-assets";
 type AccessScreenProps = {
   state: "signed-out" | "denied";
   email?: string;
+  returnTo?: string;
 };
 
-export function AccessScreen({ state, email }: AccessScreenProps) {
+export function AccessScreen({ state, email, returnTo = "/" }: AccessScreenProps) {
   const signedOut = state === "signed-out";
 
   return (
@@ -36,8 +37,8 @@ export function AccessScreen({ state, email }: AccessScreenProps) {
           target="_top"
           href={
             signedOut
-              ? chatGPTSignInPath("/")
-              : chatGPTSignOutPath("/")
+              ? chatGPTSignInPath(returnTo)
+              : chatGPTSignOutPath(returnTo)
           }
         >
           {signedOut ? "Se connecter avec ChatGPT" : "Changer de compte"}

@@ -9,6 +9,8 @@ import {
   DATABASE_HEALTH_INDEX_REQUIREMENTS,
   DATABASE_HEALTH_INTEGRITY_QUERIES,
   DATABASE_HEALTH_TABLES,
+  MOBILE_AUTH_INDEX_REQUIREMENTS,
+  normalizeDatabaseIndexPredicate,
 } from "../lib/database-health.ts";
 
 function healthyEvidence() {
@@ -56,6 +58,63 @@ function healthyEvidence() {
       eventMessageProviderMismatches: 0,
       cakemailNamespaceMismatches: 0,
     },
+    mobileAuthColumns: {
+      mobile_authorization_grants: [
+        "id", "code_hash", "operator_email", "client_id", "redirect_uri",
+        "code_challenge", "scopes", "device_name", "expires_at", "consumed_at",
+        "consumed_session_id", "created_at",
+      ],
+      mobile_sessions: [
+        "id", "authorization_grant_id", "operator_email", "client_id", "device_name",
+        "scopes", "refresh_token_hash", "expires_at", "last_refreshed_at",
+        "revoked_at", "created_at", "updated_at",
+      ],
+      mobile_refresh_tokens: [
+        "token_hash", "session_id", "issued_at", "rotated_at",
+      ],
+    },
+    mobileAuthIndexes: MOBILE_AUTH_INDEX_REQUIREMENTS.map((requirement) => ({
+      ...requirement,
+      columns: [...requirement.columns],
+      predicate: requirement.name === "mobile_refresh_tokens_one_current"
+        ? "rotated_at is null"
+        : null,
+    })),
+    mobileAuthTableSql: {
+      mobile_authorization_grants: `CREATE TABLE mobile_authorization_grants (
+        code_hash text CONSTRAINT mobile_authorization_grants_code_hash_check
+          CHECK(length(code_hash) = 64 and code_hash not glob '*[^0-9a-f]*'),
+        code_challenge text CONSTRAINT mobile_authorization_grants_challenge_check
+          CHECK(length(code_challenge) = 43 and code_challenge not glob '*[^A-Za-z0-9_-]*'),
+        scopes text CONSTRAINT mobile_authorization_grants_scope_check
+          CHECK(scopes = 'crm:dashboard:read crm:work'))`,
+      mobile_sessions: `CREATE TABLE mobile_sessions (
+        refresh_token_hash text CONSTRAINT mobile_sessions_refresh_hash_check
+          CHECK(length(refresh_token_hash) = 64 and refresh_token_hash not glob '*[^0-9a-f]*'),
+        scopes text CONSTRAINT mobile_sessions_scope_check
+          CHECK(scopes = 'crm:dashboard:read crm:work'))`,
+      mobile_refresh_tokens: `CREATE TABLE mobile_refresh_tokens (
+        token_hash text CONSTRAINT mobile_refresh_tokens_hash_check
+          CHECK(length(token_hash) = 64 and token_hash not glob '*[^0-9a-f]*'))`,
+    },
+    mobileAuthForeignKeys: [
+      {
+        table: "mobile_sessions",
+        from: "authorization_grant_id",
+        targetTable: "mobile_authorization_grants",
+        to: "id",
+        onUpdate: "NO ACTION",
+        onDelete: "RESTRICT",
+      },
+      {
+        table: "mobile_refresh_tokens",
+        from: "session_id",
+        targetTable: "mobile_sessions",
+        to: "id",
+        onUpdate: "NO ACTION",
+        onDelete: "RESTRICT",
+      },
+    ],
   };
 }
 
@@ -72,6 +131,7 @@ test("database health is operator-only, read-only, and gathers executable schema
   assert.match(source, /PRAGMA table_info/u);
   assert.match(source, /PRAGMA index_list/u);
   assert.match(source, /PRAGMA index_info/u);
+  assert.match(source, /PRAGMA foreign_key_list/u);
   assert.match(source, /sqlite_schema/u);
   assert.match(source, /DATABASE_HEALTH_INTEGRITY_QUERIES/u);
   assert.equal(
@@ -81,6 +141,8 @@ test("database health is operator-only, read-only, and gathers executable schema
     true,
   );
   assert.match(source, /DATABASE_HEALTH_FORBIDDEN_INDEXES/u);
+  assert.match(source, /MOBILE_AUTH_HEALTH_TABLES/u);
+  assert.match(source, /MOBILE_AUTH_INDEX_REQUIREMENTS/u);
   assert.match(source, /cache-control": "private, no-store"/u);
   assert.doesNotMatch(source, /\b(?:INSERT|UPDATE|DELETE|DROP|ALTER|CREATE)\b/iu);
   for (const { sql } of DATABASE_HEALTH_INTEGRITY_QUERIES) {
@@ -92,11 +154,98 @@ test("database health is operator-only, read-only, and gathers executable schema
   }
 });
 
-test("database health accepts complete migration 0014 evidence", () => {
+test("database health accepts complete migration 0014 and mobile auth evidence", () => {
   const report = buildDatabaseHealthReport(healthyEvidence());
   assert.equal(report.status, "ok");
   assert.equal(report.migration0014, true);
+  assert.equal(report.migration0017, true);
   assert.equal(report.dataConsistent, true);
+});
+
+test("database health normalizes the generated partial refresh-token predicate", async () => {
+  const migration = await readFile(
+    new URL("../drizzle/0017_wonderful_nomad.sql", import.meta.url),
+    "utf8",
+  );
+  assert.equal(
+    normalizeDatabaseIndexPredicate(migration),
+    "rotated_at is null",
+  );
+});
+
+test("database health accepts the exact packaged mobile authentication schema", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  t.after(() => database.close());
+  database.exec("PRAGMA foreign_keys = ON");
+  for (const name of [
+    "0015_chief_wilson_fisk.sql",
+    "0016_glossy_mongoose.sql",
+    "0017_wonderful_nomad.sql",
+  ]) {
+    const migration = await readFile(new URL(`../drizzle/${name}`, import.meta.url), "utf8");
+    for (const statement of migration.split("--> statement-breakpoint")) {
+      if (statement.trim()) database.exec(statement);
+    }
+  }
+
+  const evidence = healthyEvidence();
+  evidence.mobileAuthColumns = Object.fromEntries(
+    ["mobile_authorization_grants", "mobile_sessions", "mobile_refresh_tokens"]
+      .map((table) => [
+        table,
+        database.prepare(`PRAGMA table_info('${table}')`).all().map(({ name }) => name),
+      ]),
+  );
+  evidence.mobileAuthIndexes = MOBILE_AUTH_INDEX_REQUIREMENTS.map((requirement) => {
+    const index = database.prepare(`PRAGMA index_list('${requirement.table}')`)
+      .all()
+      .find(({ name }) => name === requirement.name);
+    const sql = database.prepare("SELECT sql FROM sqlite_schema WHERE type='index' AND name=?")
+      .get(requirement.name)?.sql;
+    return {
+      name: requirement.name,
+      table: requirement.table,
+      unique: index?.unique === 1,
+      partial: index?.partial === 1,
+      columns: database.prepare(`PRAGMA index_info('${requirement.name}')`)
+        .all()
+        .sort((left, right) => left.seqno - right.seqno)
+        .map(({ name }) => name),
+      predicate: normalizeDatabaseIndexPredicate(sql),
+    };
+  });
+  evidence.mobileAuthTableSql = Object.fromEntries(
+    ["mobile_authorization_grants", "mobile_sessions", "mobile_refresh_tokens"]
+      .map((table) => [
+        table,
+        database.prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name=?")
+          .get(table).sql,
+      ]),
+  );
+  evidence.mobileAuthForeignKeys = [
+    ...database.prepare("PRAGMA foreign_key_list('mobile_sessions')").all()
+      .map((row) => ({
+        table: "mobile_sessions",
+        from: row.from,
+        targetTable: row.table,
+        to: row.to,
+        onUpdate: row.on_update,
+        onDelete: row.on_delete,
+      })),
+    ...database.prepare("PRAGMA foreign_key_list('mobile_refresh_tokens')").all()
+      .map((row) => ({
+        table: "mobile_refresh_tokens",
+        from: row.from,
+        targetTable: row.table,
+        to: row.to,
+        onUpdate: row.on_update,
+        onDelete: row.on_delete,
+      })),
+  ];
+
+  const report = buildDatabaseHealthReport(evidence);
+  assert.equal(report.migration0017, true);
+  assert.equal(report.status, "ok");
 });
 
 test("database health rejects subtle schema and data drift", () => {
@@ -127,6 +276,27 @@ test("database health rejects subtle schema and data drift", () => {
     },
     (evidence) => {
       evidence.violations.eventMessageProviderMismatches = 1;
+    },
+    (evidence) => {
+      evidence.mobileAuthColumns.mobile_refresh_tokens.pop();
+    },
+    (evidence) => {
+      evidence.mobileAuthIndexes.at(-1).partial = false;
+    },
+    (evidence) => {
+      evidence.mobileAuthIndexes.at(-1).predicate = "issued_at is null";
+    },
+    (evidence) => {
+      evidence.mobileAuthTableSql.mobile_sessions = "CREATE TABLE mobile_sessions (id text)";
+    },
+    (evidence) => {
+      evidence.mobileAuthForeignKeys.pop();
+    },
+    (evidence) => {
+      evidence.mobileAuthForeignKeys[0].onDelete = "CASCADE";
+    },
+    (evidence) => {
+      evidence.mobileAuthForeignKeys[1].onUpdate = "CASCADE";
     },
   ];
 

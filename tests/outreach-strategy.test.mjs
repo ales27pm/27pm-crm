@@ -223,7 +223,7 @@ test("bulk readiness query loads every email dossier in one set-based statement"
   assert.ok(rows.every((row) => Number(row.suppressionCount) === 0));
 });
 
-test("strategy routes are operator-only planning surfaces and never send a message", async () => {
+test("strategy routes accept scoped operators and never send a message", async () => {
   const [strategyRoute, stepRoute, readiness, workViews, dashboardRoute] = await Promise.all([
     readFile(new URL("../app/api/strategies/[strategyId]/route.ts", import.meta.url), "utf8"),
     readFile(new URL("../app/api/strategies/[strategyId]/steps/[stepId]/route.ts", import.meta.url), "utf8"),
@@ -232,7 +232,7 @@ test("strategy routes are operator-only planning surfaces and never send a messa
     readFile(new URL("../app/api/dashboard/route.ts", import.meta.url), "utf8"),
   ]);
   for (const source of [strategyRoute, stepRoute]) {
-    assert.match(source, /requireSameOriginOperatorRequest/u);
+    assert.match(source, /requireSameOriginOperatorOrMobileRequest\(request, "crm:work"\)/u);
     assert.doesNotMatch(source, /messages\/send|send_commands|mailgun/iu);
   }
   assert.match(stepRoute, /evaluateOutreachChannel/u);

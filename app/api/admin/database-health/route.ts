@@ -6,10 +6,16 @@ import {
   DATABASE_HEALTH_INDEX_REQUIREMENTS,
   DATABASE_HEALTH_INTEGRITY_QUERIES,
   DATABASE_HEALTH_TABLES,
+  MOBILE_AUTH_INDEX_REQUIREMENTS,
+  MOBILE_AUTH_HEALTH_TABLES,
+  normalizeDatabaseIndexPredicate,
   type DatabaseColumnEvidence,
   type DatabaseHealthEvidence,
   type DatabaseHealthTable,
   type DatabaseIndexEvidence,
+  type MobileAuthIndexEvidence,
+  type MobileAuthForeignKeyEvidence,
+  type MobileAuthHealthTable,
 } from "@/lib/database-health";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +55,25 @@ export async function GET(request: Request) {
          WHERE type = 'table'
            AND name IN ('messages','send_commands','message_events','webhook_receipts')`,
       ),
+      ...MOBILE_AUTH_HEALTH_TABLES.map((table) =>
+        db.prepare(`PRAGMA table_info('${table}')`),
+      ),
+      ...MOBILE_AUTH_HEALTH_TABLES.map((table) =>
+        db.prepare(`PRAGMA index_list('${table}')`),
+      ),
+      ...MOBILE_AUTH_INDEX_REQUIREMENTS.map(({ name }) =>
+        db.prepare(`PRAGMA index_info('${name}')`),
+      ),
+      db.prepare(
+        `SELECT name, sql FROM sqlite_schema
+         WHERE type = 'index' AND name LIKE 'mobile_%'`,
+      ),
+      db.prepare(
+        `SELECT name, sql FROM sqlite_schema
+         WHERE type = 'table' AND name LIKE 'mobile_%'`,
+      ),
+      db.prepare("PRAGMA foreign_key_list('mobile_sessions')"),
+      db.prepare("PRAGMA foreign_key_list('mobile_refresh_tokens')"),
       ...DATABASE_HEALTH_INTEGRITY_QUERIES.map(({ sql }) => db.prepare(sql)),
     ]);
     if (results.some((result) => !result.success)) {
@@ -91,6 +116,58 @@ export async function GET(request: Request) {
           : [],
       ),
     ) as Record<DatabaseHealthTable, string>;
+    const mobileAuthColumns = Object.fromEntries(
+      MOBILE_AUTH_HEALTH_TABLES.map((table) => [
+        table,
+        rows(next()).flatMap((row) =>
+          typeof row.name === "string" ? [row.name] : [],
+        ),
+      ]),
+    ) as Record<MobileAuthHealthTable, string[]>;
+    const mobileAuthIndexLists = new Map(
+      MOBILE_AUTH_HEALTH_TABLES.map((table) => [table, rows(next())]),
+    );
+    const mobileAuthIndexColumnEvidence = new Map(
+      MOBILE_AUTH_INDEX_REQUIREMENTS.map((requirement) => [
+        requirement.name,
+        indexColumns(next()),
+      ]),
+    );
+    const mobileAuthIndexSql = new Map(
+      rows(next()).flatMap((row) =>
+        typeof row.name === "string" && typeof row.sql === "string"
+          ? [[row.name, row.sql] as const]
+          : [],
+      ),
+    );
+    const mobileAuthIndexes: MobileAuthIndexEvidence[] =
+      MOBILE_AUTH_INDEX_REQUIREMENTS.map((requirement) => ({
+        name: requirement.name,
+        table: requirement.table,
+        unique: indexIsUnique(
+          mobileAuthIndexLists.get(requirement.table),
+          requirement.name,
+        ),
+        partial: indexIsPartial(
+          mobileAuthIndexLists.get(requirement.table),
+          requirement.name,
+        ),
+        columns: mobileAuthIndexColumnEvidence.get(requirement.name) ?? [],
+        predicate: normalizeDatabaseIndexPredicate(
+          mobileAuthIndexSql.get(requirement.name),
+        ),
+      }));
+    const mobileAuthTableSql = Object.fromEntries(
+      rows(next()).flatMap((row) =>
+        typeof row.name === "string" && typeof row.sql === "string"
+          ? [[row.name, row.sql]]
+          : [],
+      ),
+    ) as Record<MobileAuthHealthTable, string>;
+    const mobileAuthForeignKeys: MobileAuthForeignKeyEvidence[] = [
+      ...foreignKeyEvidence("mobile_sessions", next()),
+      ...foreignKeyEvidence("mobile_refresh_tokens", next()),
+    ];
     const violations = Object.fromEntries(
       DATABASE_HEALTH_INTEGRITY_QUERIES.map(({ name }) => [
         name,
@@ -110,6 +187,10 @@ export async function GET(request: Request) {
       forbiddenIndexesPresent,
       tableSql,
       violations,
+      mobileAuthColumns,
+      mobileAuthIndexes,
+      mobileAuthTableSql,
+      mobileAuthForeignKeys,
     };
     const report = buildDatabaseHealthReport(evidence);
     return Response.json(report, {
@@ -166,6 +247,15 @@ function indexExists(indexList: D1Row[] | undefined, name: string): boolean {
   return indexList?.some((row) => row.name === name) ?? false;
 }
 
+function indexIsPartial(
+  indexList: D1Row[] | undefined,
+  name: string,
+): boolean {
+  return (
+    indexList?.some((row) => row.name === name && row.partial === 1) ?? false
+  );
+}
+
 function indexColumns(
   result: { results?: D1Row[] } | undefined,
 ): string[] {
@@ -176,6 +266,31 @@ function indexColumns(
     )
     .sort((left, right) => left.seqno - right.seqno)
     .map(({ name }) => name);
+}
+
+function foreignKeyEvidence(
+  table: MobileAuthHealthTable,
+  result: { results?: D1Row[] } | undefined,
+): MobileAuthForeignKeyEvidence[] {
+  return rows(result).flatMap((row) =>
+    typeof row.from === "string" &&
+    typeof row.table === "string" &&
+    MOBILE_AUTH_HEALTH_TABLES.some((candidate) => candidate === row.table) &&
+    typeof row.to === "string" &&
+    typeof row.on_update === "string" &&
+    typeof row.on_delete === "string"
+      ? [
+          {
+            table,
+            from: row.from,
+            targetTable: row.table as MobileAuthHealthTable,
+            to: row.to,
+            onUpdate: row.on_update.trim().toUpperCase(),
+            onDelete: row.on_delete.trim().toUpperCase(),
+          },
+        ]
+      : [],
+  );
 }
 
 function noStoreHeaders(): HeadersInit {

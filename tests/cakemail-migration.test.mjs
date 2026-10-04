@@ -9,10 +9,11 @@ test("migration separates transport IDs and backfills historical Mailgun rows", 
   const database = new DatabaseSync(":memory:");
   database.exec("PRAGMA foreign_keys = ON");
   const migrationNames = await migrationFileNames();
-  const cakemailMigration = migrationNames.at(-1);
+  const cakemailMigrationIndex = migrationNames.findIndex((name) => /^0014_/u.test(name));
+  const cakemailMigration = migrationNames[cakemailMigrationIndex];
   assert.match(cakemailMigration ?? "", /^0014_/u);
 
-  for (const migrationName of migrationNames.slice(0, -1)) {
+  for (const migrationName of migrationNames.slice(0, cakemailMigrationIndex)) {
     await applyMigration(database, migrationName);
   }
 

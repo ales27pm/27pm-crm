@@ -1,4 +1,7 @@
-import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
+import {
+  operatorAuditDetails,
+  requireSameOriginOperatorOrMobileRequest,
+} from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import { canCall, canEmail, complianceEvidenceSnapshot, loadComplianceConfiguration, loadContactCompliance, type ComplianceDecision, type ContactCompliance } from "@/lib/compliance";
 import { runtimeString } from "@/lib/runtime";
@@ -13,7 +16,7 @@ import {
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const auth = requireSameOriginOperatorRequest(request);
+  const auth = await requireSameOriginOperatorOrMobileRequest(request, "crm:work");
   if (auth.response) return auth.response;
 
   const payload = await readJsonObject(request);
@@ -117,7 +120,14 @@ export async function POST(request: Request) {
           crypto.randomUUID(),
           auth.operator.email,
           id,
-          JSON.stringify({ conversationId, dealId, contactAction, contactChannel, complianceDecision: decision, evidenceSnapshot }),
+          JSON.stringify(operatorAuditDetails(auth.operator, {
+            conversationId,
+            dealId,
+            contactAction,
+            contactChannel,
+            complianceDecision: decision,
+            evidenceSnapshot,
+          })),
         )
         .run();
 

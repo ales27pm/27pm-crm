@@ -31,10 +31,18 @@ site stores no CRM data.
 
 ## Security invariants
 
-- CRM pages and operator API routes require dispatch-owned ChatGPT sign-in and
-  an explicit server-side email allowlist. Browser mutation routes additionally
-  require positive same-origin evidence and reject missing or cross-origin
-  browser signals.
+- CRM pages and the browser branch of operator API routes require
+  dispatch-owned ChatGPT sign-in and an explicit server-side email allowlist.
+  Browser mutation routes additionally require positive same-origin evidence
+  and reject missing or cross-origin browser signals.
+- The native app uses an authorization-code + PKCE bridge anchored in that
+  same Sites identity. Authorization codes are single-use and expire after five
+  minutes; signed access tokens expire after fifteen minutes; refresh tokens
+  are opaque, hashed in D1 and rotated. Every mobile request rechecks the
+  verified email against `CRM_ADMIN_EMAILS` and the active session. An editable
+  app setting or `EXPO_PUBLIC_*` value is never an identity assertion. Reuse of
+  an old refresh token revokes its family, and a Sites-authenticated operator
+  can list and revoke a lost device without possessing its token.
 - Provider webhook endpoints remain public but require their provider-specific
   HMAC-SHA256 signatures and deduplicate or reject replayed callback identities
   according to each provider contract.
@@ -91,6 +99,27 @@ site stores no CRM data.
 An outreach strategy is planning data, not send authorization. The strategy
 and step routes never write `messages` or `send_commands` and never call the
 mail transport.
+
+## Native mobile seam
+
+- `GET /mobile/authorize` — Sites-authenticated operator approval for the fixed
+  27PM client, redirect and PKCE S256 challenge.
+- `GET /.well-known/apple-app-site-association` — public app-to-domain binding
+  for the configured iOS application identifier and the fixed HTTPS callback.
+- `POST /api/mobile/authorize` — same-origin creation of one hashed,
+  five-minute authorization grant.
+- `POST /api/mobile/token` — bounded authorization-code exchange or refresh
+  rotation; token material is returned only with private no-store headers.
+- `POST /api/mobile/logout` — revokes the matching refresh session.
+- `GET /mobile/sessions` — Sites-authenticated lost-device management.
+- `GET` and `DELETE /api/mobile/sessions` — list the current operator's active
+  devices or revoke one with same-origin Sites authentication.
+
+Mobile scope `crm:dashboard:read` is accepted only by `GET /api/dashboard`.
+Scope `crm:work` is accepted by conversation, deal, intake-review,
+interaction, strategy and task mutations. Account/contact mutations, sending
+messages, provider administration, compliance, privacy workflows, imports and
+controlled canaries remain Sites-only even for a valid mobile session.
 
 ## Mailgun route target
 

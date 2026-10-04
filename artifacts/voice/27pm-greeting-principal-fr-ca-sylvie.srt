@@ -1,0 +1,20 @@
+1
+00:00:00,100 --> 00:00:03,695
+Bonjour, et bienvenue chez vingt-sept P M.
+
+2
+00:00:03,645 --> 00:00:08,255
+Cette annonce utilise une voix générée par intelligence artificielle.
+
+3
+00:00:08,255 --> 00:00:13,255
+Chaque projet commence par une bonne conversation, et la vôtre commence ici.
+
+4
+00:00:13,255 --> 00:00:15,625
+Pour Alexis, faites le 1.
+
+5
+00:00:15,625 --> 00:00:23,164
+Si vous connaissez l’extension de la personne que vous tentez de rejoindre, composez maintenant les trois chiffres, suivis du carré.
+
