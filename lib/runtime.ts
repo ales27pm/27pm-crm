@@ -59,3 +59,10 @@ export function getPrivateObjectBucket(): PrivateObjectBucket {
   if (!bucket) throw new Error("Cloudflare R2 binding `BUCKET` is unavailable.");
   return bucket as PrivateObjectBucket;
 }
+
+/** Private Fetcher/VPC service binding; never a caller-selected scanner URL. */
+export function getAntimalwareService(): { fetch(request: Request): Promise<Response> } | null {
+  const service = bindings().ANTIMALWARE;
+  if (!service || typeof (service as { fetch?: unknown }).fetch !== "function") return null;
+  return service as { fetch(request: Request): Promise<Response> };
+}
