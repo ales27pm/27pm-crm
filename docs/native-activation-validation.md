@@ -1,8 +1,13 @@
 # Native attachment validation — follow-up to the scanner integration
 
-Source work only. No feature flag, deployed binding, secret, DNS route, migration,
-customer data or production deployment is changed by this patch. Keep PR #4 draft.
-See `native-antimalware-rollout.md` for the existing service/gateway architecture.
+This document records the source-only scanner follow-up as it stood before PR #4
+was published for review. No feature flag, deployed binding, secret, DNS route,
+migration, customer data or production deployment was changed by that patch.
+The later instruction to publish the PR for review superseded the historical
+"keep draft" note; it did not authorize a merge or waive any activation gate.
+Current evidence is under `evidence/native-activation/`, including the follow-up
+run `20261008T063952Z`. See `native-antimalware-rollout.md` for the existing
+service/gateway architecture.
 
 ## Corrected R2 adapter boundary
 

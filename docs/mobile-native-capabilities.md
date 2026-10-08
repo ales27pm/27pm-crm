@@ -48,6 +48,11 @@ failure is 503. Never trigger token rotation for a storage or validation error.
 New metadata records the verified device-session reference, not a supplied
 client identity. No interaction-logging endpoint is introduced.
 
+The authenticated list includes the lowercase content `sha256` alongside the
+public attachment metadata. It never includes an R2 key or storage URL. The
+digest lets a native client safely recover a lost upload acknowledgement when
+owner-scoped deduplication retained an older filename from another device.
+
 ## Migrations and dashboard
 
 `0018_married_praxagora` is reserved for `internal_api_nonces`; leave it unchanged.

@@ -55,7 +55,9 @@ def verify(sql_file: Path, manifest_file: Path, objects_root: Path) -> dict[str,
     if not isinstance(expected, dict) or not isinstance(entries, list):
         raise InvalidBackup("invalid_inventory")
     connection = sqlite3.connect(":memory:")
-    connection.enable_load_extension(False)
+    disable_extension_loading = getattr(connection, "enable_load_extension", None)
+    if disable_extension_loading is not None:
+        disable_extension_loading(False)
     deadline = time.monotonic() + 30
     connection.set_progress_handler(lambda: int(time.monotonic() > deadline), 10_000)
     connection.execute("PRAGMA trusted_schema=OFF")

@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
 spec = importlib.util.spec_from_file_location("verify_backup", ROOT / "scripts/verify-native-backup.py")
@@ -88,6 +89,19 @@ class BackupTests(unittest.TestCase):
         self.manifest["databaseSha256"] = hashlib.sha256(self.sql.read_bytes()).hexdigest(); self.save_manifest()
         with self.assertRaises(verify_module.InvalidBackup): self.check()
         self.assertFalse(target.exists())
+
+    def test_sqlite_without_extension_loading_api_is_supported(self):
+        raw_connection = sqlite3.connect(":memory:")
+
+        class ConnectionWithoutExtensionLoading:
+            def __getattr__(self, name):
+                if name == "enable_load_extension":
+                    raise AttributeError(name)
+                return getattr(raw_connection, name)
+
+        connection = ConnectionWithoutExtensionLoading()
+        with mock.patch.object(verify_module.sqlite3, "connect", return_value=connection):
+            self.assertEqual(self.check()["status"], "passed")
 
     def test_schema_and_table_counts_required(self):
         self.manifest["tableCounts"]["organizations"] += 1; self.save_manifest()

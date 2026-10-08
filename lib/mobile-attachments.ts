@@ -225,8 +225,11 @@ export async function listMobileAttachments(db: CrmDatabase, kind: AttachmentOwn
     WHERE owner_kind = ? AND owner_id = ? AND deleted_at IS NULL ORDER BY created_at DESC, id DESC`)
     .bind(kind, id).all<MobileAttachmentRow>();
   if (!rows.success) throw new Error("attachment_list_unavailable");
+  if (rows.results.some(row => !SHA256.test(row.sha256))) {
+    throw new Error("attachment_list_unavailable");
+  }
   return rows.results.map(r => ({ id: r.id, ownerKind: r.owner_kind, ownerId: r.owner_id,
-    fileName: r.file_name, byteSize: r.byte_size, createdAt: r.created_at }));
+    fileName: r.file_name, byteSize: r.byte_size, sha256: r.sha256, createdAt: r.created_at }));
 }
 export async function downloadMobileAttachment(db: CrmDatabase, bucket: PrivateObjectBucket, id: string) {
   const row = await db.prepare("SELECT * FROM mobile_attachments WHERE id = ? AND deleted_at IS NULL")

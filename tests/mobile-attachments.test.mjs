@@ -35,6 +35,9 @@ test("upload, dedup, list, private byte-identical download, delete and reupload"
   assert.equal(list.length, 1);
   assert.equal(list[0].id, id);
   const row = sqlite.prepare("SELECT * FROM mobile_attachments").get();
+  assert.equal(list[0].sha256, row.sha256);
+  assert.equal("storageKey" in list[0], false);
+  assert.equal("storage_key" in list[0], false);
   assert.equal(row.created_by, "session-test");
   assert.match(row.sha256, /^[0-9a-f]{64}$/);
   assert.match(row.storage_key, /^mobile\/\d{4}\/\d{2}\/[0-9a-f-]+$/);
@@ -53,6 +56,17 @@ test("upload, dedup, list, private byte-identical download, delete and reupload"
   assert.deepEqual(await listMobileAttachments(db, "account", "org-test"), []);
   await assert.rejects(downloadMobileAttachment(db, bucket, id), errorCode(404, "not_found"));
   assert.notEqual(await uploadMobileAttachment(db, bucket, "account", "org-test", file(), "session-test"), id);
+  sqlite.close();
+});
+
+test("list fails closed on a non-canonical persisted checksum", async () => {
+  const { sqlite, db, bucket } = await fixture();
+  const id = await uploadMobileAttachment(db, bucket, "account", "org-test", file(), "session-test");
+  sqlite.prepare("UPDATE mobile_attachments SET sha256 = ? WHERE id = ?").run("A".repeat(64), id);
+  await assert.rejects(
+    listMobileAttachments(db, "account", "org-test"),
+    /attachment_list_unavailable/u,
+  );
   sqlite.close();
 });
 
