@@ -8,6 +8,8 @@ import {
   DATABASE_HEALTH_TABLES,
   INTERNAL_API_NONCE_HEALTH_TABLE,
   INTERNAL_API_NONCE_INDEX_REQUIREMENT,
+  MOBILE_ATTACHMENT_HEALTH_TABLE,
+  MOBILE_ATTACHMENT_INDEX_REQUIREMENTS,
   MOBILE_AUTH_INDEX_REQUIREMENTS,
   MOBILE_AUTH_HEALTH_TABLES,
   normalizeDatabaseIndexPredicate,
@@ -17,9 +19,12 @@ import {
   type DatabaseIndexEvidence,
   type InternalApiNonceColumnEvidence,
   type InternalApiNonceIndexEvidence,
+  type MobileAttachmentColumnEvidence,
+  type MobileAttachmentIndexEvidence,
   type MobileAuthIndexEvidence,
   type MobileAuthForeignKeyEvidence,
   type MobileAuthHealthTable,
+  type OrganizationColumnEvidence,
 } from "@/lib/database-health";
 
 export const dynamic = "force-dynamic";
@@ -86,6 +91,20 @@ export async function GET(request: Request) {
       db.prepare(
         `SELECT name, sql FROM sqlite_schema
          WHERE type = 'table' AND name = '${INTERNAL_API_NONCE_HEALTH_TABLE}'`,
+      ),
+      db.prepare("PRAGMA table_info('organizations')"),
+      db.prepare(`PRAGMA table_info('${MOBILE_ATTACHMENT_HEALTH_TABLE}')`),
+      db.prepare(`PRAGMA index_list('${MOBILE_ATTACHMENT_HEALTH_TABLE}')`),
+      ...MOBILE_ATTACHMENT_INDEX_REQUIREMENTS.map(({ name }) =>
+        db.prepare(`PRAGMA index_info('${name}')`),
+      ),
+      db.prepare(
+        `SELECT name, sql FROM sqlite_schema
+         WHERE type = 'index' AND tbl_name = '${MOBILE_ATTACHMENT_HEALTH_TABLE}'`,
+      ),
+      db.prepare(
+        `SELECT name, sql FROM sqlite_schema
+         WHERE type = 'table' AND name = '${MOBILE_ATTACHMENT_HEALTH_TABLE}'`,
       ),
       ...DATABASE_HEALTH_INTEGRITY_QUERIES.map(({ sql }) => db.prepare(sql)),
     ]);
@@ -204,6 +223,44 @@ export async function GET(request: Request) {
           row.name === INTERNAL_API_NONCE_HEALTH_TABLE &&
           typeof row.sql === "string",
       )?.sql as string | undefined;
+    const organizationColumns = organizationColumnEvidence(next());
+    const mobileAttachmentColumns = mobileAttachmentColumnEvidence(next());
+    const mobileAttachmentIndexList = rows(next());
+    const mobileAttachmentIndexColumns = new Map(
+      MOBILE_ATTACHMENT_INDEX_REQUIREMENTS.map((requirement) => [
+        requirement.name,
+        indexColumns(next()),
+      ]),
+    );
+    const mobileAttachmentIndexSql = new Map(
+      rows(next()).flatMap((row) =>
+        typeof row.name === "string" && typeof row.sql === "string"
+          ? [[row.name, row.sql] as const]
+          : [],
+      ),
+    );
+    const mobileAttachmentIndexes: MobileAttachmentIndexEvidence[] =
+      MOBILE_ATTACHMENT_INDEX_REQUIREMENTS.map((requirement) => ({
+        name: requirement.name,
+        unique: indexIsUnique(
+          mobileAttachmentIndexList,
+          requirement.name,
+        ),
+        partial: indexIsPartial(
+          mobileAttachmentIndexList,
+          requirement.name,
+        ),
+        columns: mobileAttachmentIndexColumns.get(requirement.name) ?? [],
+        predicate: normalizeDatabaseIndexPredicate(
+          mobileAttachmentIndexSql.get(requirement.name),
+        ),
+      }));
+    const mobileAttachmentTableSql =
+      rows(next()).find(
+        (row) =>
+          row.name === MOBILE_ATTACHMENT_HEALTH_TABLE &&
+          typeof row.sql === "string",
+      )?.sql as string | undefined;
     const violations = Object.fromEntries(
       DATABASE_HEALTH_INTEGRITY_QUERIES.map(({ name }) => [
         name,
@@ -230,6 +287,10 @@ export async function GET(request: Request) {
       internalApiNonceColumns,
       internalApiNonceIndexes,
       internalApiNonceTableSql: internalApiNonceTableSql ?? "",
+      organizationColumns,
+      mobileAttachmentColumns,
+      mobileAttachmentIndexes,
+      mobileAttachmentTableSql: mobileAttachmentTableSql ?? "",
     };
     const report = buildDatabaseHealthReport(evidence);
     return Response.json(report, {
@@ -292,6 +353,18 @@ function internalApiNonceColumnEvidence(
         ]
       : [],
   );
+}
+
+function mobileAttachmentColumnEvidence(
+  result: { results?: D1Row[] } | undefined,
+): MobileAttachmentColumnEvidence[] {
+  return internalApiNonceColumnEvidence(result);
+}
+
+function organizationColumnEvidence(
+  result: { results?: D1Row[] } | undefined,
+): OrganizationColumnEvidence[] {
+  return internalApiNonceColumnEvidence(result);
 }
 
 function indexIsUnique(

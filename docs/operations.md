@@ -147,7 +147,7 @@ Any changed field produces a different digest and fails closed. A stale inbound
 message, suppression, prior reply, mismatched recipient, non-Mailgun inbound,
 HTML body, or missing digest also remains blocked by the server.
 
-## Migrations CRM 0004 à 0018
+## Migrations CRM 0004 à 0019
 
 The Sites build packages the SQL migrations and the production D1 binding is
 owned by the Sites project. Do not run Wrangler against the placeholder local
@@ -157,29 +157,41 @@ Before an authorized deployment:
 
 1. export or snapshot the production D1 database using the Sites project
    controls;
-2. record the current checkpoint and migration state;
-3. deploy the exact reviewed checkpoint through Sites so its packaged
+2. before any 0019 activation, use the approved coordinated mechanism to
+   capture a source-derived private R2 inventory with object versions, byte
+   lengths, and SHA-256 values at the same consistency point as the D1 export;
+   obtain specific maintenance approval if that requires a write/delete freeze;
+3. restore the coordinated backup into an isolated real D1 database and a
+   private isolated R2 bucket, then compare the restored database and bytes to
+   the authoritative source inventory rather than a manifest generated from
+   the restore;
+4. record the current checkpoint and migration state;
+5. deploy the exact reviewed checkpoint through Sites so its packaged
    migrations apply to the correct binding;
-4. verify `GET /api/health`, operator denial/allowlist behavior, the five
+6. verify `GET /api/health`, operator denial/allowlist behavior, the five
    accounts, and all six research contacts; require every email channel either
    to be denied by the current server compliance decision or to have current,
    complete, server-validated evidence for the permitted contact, require each
    contact-step state to match that decision, and run `PRAGMA foreign_key_check`
    through the approved D1 console;
-5. call the operator-only `GET /api/admin/database-health` and require HTTP 200,
+7. call the operator-only `GET /api/admin/database-health` and require HTTP 200,
    `status=ok`, `migration0014=true`, `migration0017=true`,
-   `migration0018=true`,
+   `migration0018=true`, `migration0019=true`,
    `quickCheck=["ok"]`, zero foreign-key
    violations, and the expected pre-deployment message/event row counts;
-6. fetch `/.well-known/apple-app-site-association` without redirects, verify the
+8. fetch `/.well-known/apple-app-site-association` without redirects, verify the
    exact configured app ID under both `applinks` and `webcredentials`, then
    prove the HTTPS callback and matching entitlements on a physical device
    running the supported iOS 17.4-or-later client;
-7. verify a duplicate import key returns an idempotent no-change result.
+9. verify a duplicate import key returns an idempotent no-change result.
 
-Rollback is not `DROP TABLE`: pause writes, restore the captured D1 snapshot
-and the prior Sites checkpoint together. If restoration is unavailable, keep
-the new schema and ship a reviewed forward-only corrective migration.
+Rollback is not `DROP TABLE`. For compatible additive migrations, including
+0019, disable the attachment runtime and gateway, deploy the prior reviewed
+code checkpoint, and preserve the D1 schema, attachment rows, and private R2
+objects. If forward compatibility fails and a coordinated restore is expressly
+approved, pause writes and restore the captured D1 snapshot and matching object
+inventory together. Otherwise keep the new schema and ship a reviewed
+forward-only corrective migration.
 Migration 0004 preserves legacy contacts, backfills organizations and seeds
 the five account hypotheses. Migration 0005 adds the atomic public-intake rate
 bucket and the explicit channel for contact tasks. Migration 0006 adds the
@@ -227,12 +239,29 @@ signed internal API assertions between Vercel and the dedicated Worker. Verify
 its primary-key format constraint and expiry index before enabling hybrid API
 authentication; the operator-only database health endpoint enforces this as
 `migration0018=true`.
-A code rollback without a data rollback has not been claimed compatible.
+Migration 0019 adds nullable `organizations.address` and `organizations.city`
+columns plus the separate `mobile_attachments` table. It does not recreate the
+existing email `attachments` table or `contacts.phone`. Before any native
+attachment activation, verify every required column and both named CHECK
+constraints, then verify `mobile_attachments_owner_idx`, the unique
+`mobile_attachments_storage_unique`, and the exact partial unique
+`mobile_attachments_active_dedup_unique(owner_kind, owner_id, sha256) WHERE
+deleted_at IS NULL`. The operator-only database health endpoint must report
+`migration0019=true`; this structural result does not prove the migration
+ledger, R2 restore, scanner readiness, receipt integrity, or live file traffic.
+Confirm the prior code checkpoint tolerates this additive schema before relying
+on a code-only rollback; rollback never authorizes deleting D1 rows or R2
+objects.
 
-Before applying any pending production migration, including 0015 through 0018, validate the
-full export by restoring it to a disposable D1/SQLite target and record the
-source database, UTC timestamp, object count, checksum and exact restore
-command. A truncated SQL display or an untested download is not a restorable
+Before applying any pending production migration, including 0015 through 0019,
+validate the full export and record the source database, UTC timestamp, object
+count, checksum, and exact restore command. For 0019 activation, a synthetic or
+SQLite-only restore is insufficient: the source-derived coordinated database
+and private-object inventory must be restored into isolated real D1 and private
+R2 resources, and every active native or email attachment reference must match
+the restored bytes by length and SHA-256. The offline backup verifier is an
+additional structural check only; it never substitutes for that provider-level
+restore. A truncated SQL display or an untested download is not a restorable
 backup. After migration, run `PRAGMA
 foreign_key_check`, confirm the five cohort accounts remain ordered, confirm
 all six research contacts retain their provenance, and require each email

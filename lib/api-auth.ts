@@ -141,9 +141,6 @@ async function requireMobileOperatorRequest(
   if (!claims) {
     return { response: privateJsonError(401, "mobile_token_invalid") };
   }
-  if (!hasMobileScope(claims, mobileScope)) {
-    return { response: privateJsonError(403, "mobile_scope_forbidden") };
-  }
   try {
     const operator = await activeMobileSession(
       crmDatabase(),
@@ -152,6 +149,11 @@ async function requireMobileOperatorRequest(
     );
     if (!operator) {
       return { response: privateJsonError(401, "mobile_session_invalid") };
+    }
+    // A scope denial is meaningful only after the signed token is tied to a
+    // current session; unknown or revoked sessions remain non-enumerating 401s.
+    if (!hasMobileScope(claims, mobileScope)) {
+      return { response: privateJsonError(403, "mobile_scope_forbidden") };
     }
     return { operator };
   } catch {

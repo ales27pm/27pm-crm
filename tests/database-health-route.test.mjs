@@ -11,6 +11,9 @@ import {
   DATABASE_HEALTH_TABLES,
   INTERNAL_API_NONCE_HEALTH_TABLE,
   INTERNAL_API_NONCE_INDEX_REQUIREMENT,
+  MIGRATION_0019_ORGANIZATION_COLUMNS,
+  MOBILE_ATTACHMENT_HEALTH_TABLE,
+  MOBILE_ATTACHMENT_INDEX_REQUIREMENTS,
   MOBILE_AUTH_INDEX_REQUIREMENTS,
   normalizeDatabaseIndexPredicate,
 } from "../lib/database-health.ts";
@@ -152,6 +155,40 @@ function healthyEvidence() {
       created_at text DEFAULT CURRENT_TIMESTAMP NOT NULL,
       CONSTRAINT internal_api_nonces_format_check
         CHECK(length(nonce) between 22 and 86 and nonce not glob '*[^A-Za-z0-9_-]*'))`,
+    organizationColumns: MIGRATION_0019_ORGANIZATION_COLUMNS.map((name) => ({
+      name,
+      type: "TEXT",
+      notNull: false,
+      defaultValue: null,
+      primaryKeyPosition: 0,
+    })),
+    mobileAttachmentColumns: [
+      { name: "id", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 1 },
+      { name: "owner_kind", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "owner_id", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "file_name", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "content_type", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "byte_size", type: "INTEGER", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "sha256", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "storage_key", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "created_at", type: "TEXT", notNull: true, defaultValue: "CURRENT_TIMESTAMP", primaryKeyPosition: 0 },
+      { name: "created_by", type: "TEXT", notNull: true, defaultValue: null, primaryKeyPosition: 0 },
+      { name: "deleted_at", type: "TEXT", notNull: false, defaultValue: null, primaryKeyPosition: 0 },
+    ],
+    mobileAttachmentIndexes: MOBILE_ATTACHMENT_INDEX_REQUIREMENTS.map(
+      (requirement) => ({
+        ...requirement,
+        columns: [...requirement.columns],
+      }),
+    ),
+    mobileAttachmentTableSql: `CREATE TABLE mobile_attachments (
+      id text PRIMARY KEY NOT NULL,
+      owner_kind text NOT NULL,
+      byte_size integer NOT NULL,
+      CONSTRAINT mobile_attachments_owner_check
+        CHECK(owner_kind in ('account', 'deal', 'conversation')),
+      CONSTRAINT mobile_attachments_size_check
+        CHECK(byte_size > 0 and byte_size <= 20971520))`,
   };
 }
 
@@ -192,6 +229,56 @@ function readInternalApiNonceEvidence(database) {
   };
 }
 
+function readMigration0019Evidence(database) {
+  const indexList = database
+    .prepare(`PRAGMA index_list('${MOBILE_ATTACHMENT_HEALTH_TABLE}')`)
+    .all();
+  return {
+    organizationColumns: database
+      .prepare("PRAGMA table_info('organizations')")
+      .all()
+      .map(({ name, type, notnull, dflt_value, pk }) => ({
+        name,
+        type,
+        notNull: notnull === 1,
+        defaultValue: dflt_value,
+        primaryKeyPosition: pk,
+      })),
+    mobileAttachmentColumns: database
+      .prepare(`PRAGMA table_info('${MOBILE_ATTACHMENT_HEALTH_TABLE}')`)
+      .all()
+      .map(({ name, type, notnull, dflt_value, pk }) => ({
+        name,
+        type,
+        notNull: notnull === 1,
+        defaultValue: dflt_value,
+        primaryKeyPosition: pk,
+      })),
+    mobileAttachmentIndexes: MOBILE_ATTACHMENT_INDEX_REQUIREMENTS.map(
+      (requirement) => {
+        const index = indexList.find(({ name }) => name === requirement.name);
+        const sql = database
+          .prepare("SELECT sql FROM sqlite_schema WHERE type='index' AND name=?")
+          .get(requirement.name)?.sql;
+        return {
+          name: requirement.name,
+          unique: index?.unique === 1,
+          partial: index?.partial === 1,
+          columns: database
+            .prepare(`PRAGMA index_info('${requirement.name}')`)
+            .all()
+            .sort((left, right) => left.seqno - right.seqno)
+            .map(({ name }) => name),
+          predicate: normalizeDatabaseIndexPredicate(sql),
+        };
+      },
+    ),
+    mobileAttachmentTableSql: database
+      .prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name=?")
+      .get(MOBILE_ATTACHMENT_HEALTH_TABLE).sql,
+  };
+}
+
 test("database health is operator-only, read-only, and gathers executable schema evidence", async () => {
   const source = await readFile(
     new URL("../app/api/admin/database-health/route.ts", import.meta.url),
@@ -219,6 +306,9 @@ test("database health is operator-only, read-only, and gathers executable schema
   assert.match(source, /MOBILE_AUTH_INDEX_REQUIREMENTS/u);
   assert.match(source, /INTERNAL_API_NONCE_HEALTH_TABLE/u);
   assert.match(source, /INTERNAL_API_NONCE_INDEX_REQUIREMENT/u);
+  assert.match(source, /PRAGMA table_info\('organizations'\)/u);
+  assert.match(source, /MOBILE_ATTACHMENT_HEALTH_TABLE/u);
+  assert.match(source, /MOBILE_ATTACHMENT_INDEX_REQUIREMENTS/u);
   assert.match(source, /type: row\.type/u);
   assert.match(source, /notNull: row\.notnull === 1/u);
   assert.match(source, /primaryKeyPosition: row\.pk/u);
@@ -233,13 +323,107 @@ test("database health is operator-only, read-only, and gathers executable schema
   }
 });
 
-test("database health accepts complete migrations 0014, 0017, and 0018", () => {
+test("database health accepts complete migrations 0014, 0017, 0018, and 0019", () => {
   const report = buildDatabaseHealthReport(healthyEvidence());
   assert.equal(report.status, "ok");
   assert.equal(report.migration0014, true);
   assert.equal(report.migration0017, true);
   assert.equal(report.migration0018, true);
+  assert.equal(report.migration0019, true);
   assert.equal(report.dataConsistent, true);
+});
+
+test("database health accepts the exact packaged native attachment schema", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  t.after(() => database.close());
+  database.exec("CREATE TABLE organizations (id text PRIMARY KEY NOT NULL)");
+  const migration = await readFile(
+    new URL("../drizzle/0019_milky_maestro.sql", import.meta.url),
+    "utf8",
+  );
+  for (const statement of migration.split("--> statement-breakpoint")) {
+    if (statement.trim()) database.exec(statement);
+  }
+
+  const evidence = healthyEvidence();
+  Object.assign(evidence, readMigration0019Evidence(database));
+
+  const report = buildDatabaseHealthReport(evidence);
+  assert.equal(report.migration0019, true);
+  assert.equal(report.status, "ok");
+  assert.equal(
+    MIGRATION_0019_ORGANIZATION_COLUMNS.every((column) =>
+      evidence.organizationColumns.some(({ name }) => name === column)),
+    true,
+  );
+  assert.deepEqual(
+    evidence.mobileAttachmentIndexes.find(
+      ({ name }) => name === "mobile_attachments_active_dedup_unique",
+    ),
+    {
+      name: "mobile_attachments_active_dedup_unique",
+      unique: true,
+      partial: true,
+      columns: ["owner_kind", "owner_id", "sha256"],
+      predicate: "deleted_at is null",
+    },
+  );
+});
+
+test("database health rejects organization address and city shape drift", () => {
+  const cases = [
+    ["missing column", (evidence) => evidence.organizationColumns.pop()],
+    ["wrong type", (evidence) => {
+      evidence.organizationColumns[0].type = "INTEGER";
+    }],
+    ["not nullable", (evidence) => {
+      evidence.organizationColumns[1].notNull = true;
+    }],
+    ["non-null default", (evidence) => {
+      evidence.organizationColumns[0].defaultValue = "'unknown'";
+    }],
+    ["primary key", (evidence) => {
+      evidence.organizationColumns[1].primaryKeyPosition = 1;
+    }],
+  ];
+
+  for (const [name, mutate] of cases) {
+    const evidence = healthyEvidence();
+    mutate(evidence);
+    const report = buildDatabaseHealthReport(evidence);
+    assert.equal(
+      report.mobileAttachmentSchemaChecks.organizationColumns,
+      false,
+      name,
+    );
+    assert.equal(report.migration0019, false, name);
+    assert.equal(report.status, "degraded", name);
+  }
+});
+
+test("operations require explicit migration 0019 health and exact dedup evidence", async () => {
+  const operations = await readFile(
+    new URL("../docs/operations.md", import.meta.url),
+    "utf8",
+  );
+  assert.match(operations, /Migrations CRM 0004 à 0019/u);
+  assert.match(operations, /`migration0019=true`/u);
+  assert.match(
+    operations,
+    /mobile_attachments_active_dedup_unique\(owner_kind, owner_id, sha256\) WHERE\s+deleted_at IS NULL/u,
+  );
+  assert.match(operations, /including 0015 through 0019/u);
+  assert.match(operations, /preserve the D1 schema, attachment rows, and private R2\s+objects/u);
+  assert.match(operations, /source-derived private R2 inventory/u);
+  assert.match(
+    operations,
+    /isolated real D1 database and a\s+private isolated R2 bucket/u,
+  );
+  assert.match(operations, /a synthetic or\s+SQLite-only restore is insufficient/u);
+  assert.match(
+    operations,
+    /offline backup verifier is an\s+additional structural check only; it never substitutes/u,
+  );
 });
 
 test("database health normalizes quoted internal nonce defaults", () => {
@@ -517,6 +701,31 @@ test("database health rejects subtle schema and data drift", () => {
     (evidence) => {
       evidence.internalApiNonceTableSql =
         "CREATE TABLE internal_api_nonces (nonce text, expires_at text, created_at text)";
+    },
+    (evidence) => {
+      evidence.mobileAttachmentColumns.pop();
+    },
+    (evidence) => {
+      evidence.mobileAttachmentColumns[0].primaryKeyPosition = 0;
+    },
+    (evidence) => {
+      evidence.mobileAttachmentColumns[5].type = "TEXT";
+    },
+    (evidence) => {
+      evidence.mobileAttachmentIndexes[0].columns.reverse();
+    },
+    (evidence) => {
+      evidence.mobileAttachmentIndexes[1].unique = false;
+    },
+    (evidence) => {
+      evidence.mobileAttachmentIndexes[1].partial = false;
+    },
+    (evidence) => {
+      evidence.mobileAttachmentIndexes[1].predicate = "deleted_at is not null";
+    },
+    (evidence) => {
+      evidence.mobileAttachmentTableSql =
+        "CREATE TABLE mobile_attachments (id text PRIMARY KEY NOT NULL)";
     },
   ];
 
