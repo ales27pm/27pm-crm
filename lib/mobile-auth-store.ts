@@ -470,7 +470,9 @@ export async function activeMobileSession(
     session.expiresAt <= now.toISOString() ||
     session.operatorEmail.toLowerCase() !== email ||
     session.clientId !== MOBILE_CLIENT_ID ||
-    session.scopes !== claims.scopes ||
+    // Access-token scopes may only attenuate the exact full-scope session
+    // grant. Stored grants and refreshable sessions never become partial.
+    session.scopes !== MOBILE_SCOPE_VALUE ||
     !parseOperatorAllowlist(operatorAllowlist).has(email)
   ) return null;
   return { email, mobileSessionId: claims.sessionId };

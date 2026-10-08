@@ -18,6 +18,8 @@ export const organizations = sqliteTable(
     externalKey: text("external_key").notNull(),
     name: text("name").notNull(),
     website: text("website"),
+    address: text("address"),
+    city: text("city"),
     sourceLabel: text("source_label").notNull(),
     sourceUrl: text("source_url"),
     sourceDate: text("source_date"),
@@ -1040,3 +1042,42 @@ export const mobileRefreshTokens = sqliteTable(
     ),
   ],
 );
+
+export const internalApiNonces = sqliteTable(
+  "internal_api_nonces",
+  {
+    nonce: text("nonce").primaryKey(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("internal_api_nonces_expiry_idx").on(table.expiresAt),
+    check(
+      "internal_api_nonces_format_check",
+      sql`length(${table.nonce}) between 22 and 86 and ${table.nonce} not glob '*[^A-Za-z0-9_-]*'`,
+    ),
+  ],
+);
+
+// Separate from mail attachments, whose message_id remains mandatory.
+export const mobileAttachments = sqliteTable("mobile_attachments", {
+  id: text("id").primaryKey(),
+  ownerKind: text("owner_kind").notNull(),
+  ownerId: text("owner_id").notNull(),
+  fileName: text("file_name").notNull(),
+  contentType: text("content_type").notNull(),
+  byteSize: integer("byte_size").notNull(),
+  sha256: text("sha256").notNull(),
+  storageKey: text("storage_key").notNull(),
+  createdAt: timestamp("created_at"),
+  createdBy: text("created_by").notNull(),
+  deletedAt: text("deleted_at"),
+}, (table) => [
+  index("mobile_attachments_owner_idx").on(table.ownerKind, table.ownerId),
+  uniqueIndex("mobile_attachments_active_dedup_unique")
+    .on(table.ownerKind, table.ownerId, table.sha256)
+    .where(sql`${table.deletedAt} is null`),
+  uniqueIndex("mobile_attachments_storage_unique").on(table.storageKey),
+  check("mobile_attachments_owner_check", sql`${table.ownerKind} in ('account', 'deal', 'conversation')`),
+  check("mobile_attachments_size_check", sql`${table.byteSize} > 0 and ${table.byteSize} <= 20971520`),
+]);

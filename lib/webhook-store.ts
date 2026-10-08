@@ -1,5 +1,6 @@
 import "server-only";
 
+import { safeAttachmentDisplayName } from "./attachment-download";
 import type { CrmDatabase } from "./d1";
 import { changedRows } from "./d1";
 import {
@@ -201,7 +202,9 @@ export async function storeInboundAttachments(
       `${messageId}\u0000${attachment.fieldName}\u0000${digest}`,
     );
     const attachmentId = `att_${attachmentIdentity.slice(0, 32)}`;
-    const fileName = safeFileName(attachment.file.name || attachment.fieldName);
+    const fileName = safeAttachmentDisplayName(
+      attachment.file.name || attachment.fieldName,
+    );
     const r2Key = `mail/${messageId}/${attachmentId}/${fileName}`;
 
     await bucket.put(r2Key, data, {
@@ -213,6 +216,7 @@ export async function storeInboundAttachments(
         scanStatus: "unscanned",
         sha256: digest,
       },
+      sha256: digest,
     });
     const result = await db
       .prepare(
@@ -233,14 +237,4 @@ export async function storeInboundAttachments(
     stored += changedRows(result);
   }
   return stored;
-}
-
-function safeFileName(value: string): string {
-  const sanitized = value
-    .normalize("NFKC")
-    .replace(/[\u0000-\u001f\u007f/\\]/gu, "_")
-    .replace(/\s+/gu, " ")
-    .trim()
-    .slice(0, 180);
-  return sanitized || "attachment.bin";
 }

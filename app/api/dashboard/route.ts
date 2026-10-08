@@ -67,7 +67,7 @@ type ContactRow = {
 };
 
 type OrganizationRow = {
-  id: string; name: string; website: string | null; sourceLabel: string;
+  id: string; name: string; website: string | null; address: string | null; city: string | null; sourceLabel: string;
   sourceUrl: string | null; sourceDate: string | null; score: number | null;
   priority: "very_high" | "high" | "normal" | "low";
   budgetMinCents: number | null; budgetMaxCents: number | null;
@@ -274,6 +274,7 @@ export async function GET(request: Request) {
         db
           .prepare(
             `SELECT organization.id, organization.name, organization.website,
+                    organization.address, organization.city,
                     organization.source_label AS sourceLabel,
                     organization.source_url AS sourceUrl,
                     organization.source_date AS sourceDate,

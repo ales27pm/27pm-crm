@@ -1,0 +1,21 @@
+{
+  "runId": "20261007T235314Z",
+  "startedAt": "2026-10-07T23:53:14Z",
+  "completedAt": "2026-10-08T00:25:49Z",
+  "outcome": "BLOCKED_NOT_ACTIVATED",
+  "remoteHead": "7d39658483641aeb1813a10ab6beb69b560103a3",
+  "localPatchSha256": "88607129c079418b77d5cd71a759df1457e8dddb3a846f23b5314d0d8f5fa316",
+  "steps": [
+    { "step": 1, "status": "PASS", "evidence": "step-01-baseline.md" },
+    { "step": 2, "status": "BLOCKED", "evidence": "step-02-environment.md" },
+    { "step": 3, "status": "BLOCKED", "evidence": "step-03-validation.md" },
+    { "step": 4, "status": "BLOCKED", "evidence": "step-04-10-boundaries.md" },
+    { "step": 5, "status": "NOT_RUN", "evidence": "step-04-10-boundaries.md" },
+    { "step": 6, "status": "BLOCKED", "evidence": "step-04-10-boundaries.md" },
+    { "step": 7, "status": "BLOCKED", "evidence": "step-04-10-boundaries.md" },
+    { "step": 8, "status": "BLOCKED", "evidence": "step-04-10-boundaries.md" },
+    { "step": 9, "status": "NOT_RUN", "evidence": "step-04-10-boundaries.md" },
+    { "step": 10, "status": "NOT_RUN", "evidence": "step-04-10-boundaries.md" },
+    { "step": 11, "status": "PASS", "evidence": "summary.md" }
+  ]
+}

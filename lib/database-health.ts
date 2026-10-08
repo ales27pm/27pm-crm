@@ -15,6 +15,12 @@ export const MOBILE_AUTH_HEALTH_TABLES = [
 
 export type MobileAuthHealthTable = (typeof MOBILE_AUTH_HEALTH_TABLES)[number];
 
+export const INTERNAL_API_NONCE_HEALTH_TABLE = "internal_api_nonces" as const;
+
+export const MIGRATION_0019_ORGANIZATION_COLUMNS = ["address", "city"] as const;
+
+export const MOBILE_ATTACHMENT_HEALTH_TABLE = "mobile_attachments" as const;
+
 export type DatabaseColumnEvidence = {
   name: string;
   notNull: boolean;
@@ -46,6 +52,46 @@ export type MobileAuthForeignKeyEvidence = {
   onDelete: string;
 };
 
+export type InternalApiNonceIndexEvidence = {
+  name: string;
+  table: typeof INTERNAL_API_NONCE_HEALTH_TABLE;
+  unique: boolean;
+  partial: boolean;
+  columns: string[];
+};
+
+export type InternalApiNonceColumnEvidence = {
+  name: string;
+  type: string;
+  notNull: boolean;
+  defaultValue: string | null;
+  primaryKeyPosition: number;
+};
+
+export type MobileAttachmentColumnEvidence = {
+  name: string;
+  type: string;
+  notNull: boolean;
+  defaultValue: string | null;
+  primaryKeyPosition: number;
+};
+
+export type OrganizationColumnEvidence = {
+  name: string;
+  type: string;
+  notNull: boolean;
+  defaultValue: string | null;
+  primaryKeyPosition: number;
+};
+
+export type MobileAttachmentIndexEvidence = {
+  name: string;
+  unique: boolean;
+  partial: boolean;
+  columns: string[];
+  predicate: string | null;
+};
+
 export type DatabaseHealthEvidence = {
   quickCheck: string[];
   foreignKeyViolations: number;
@@ -59,6 +105,13 @@ export type DatabaseHealthEvidence = {
   mobileAuthIndexes: MobileAuthIndexEvidence[];
   mobileAuthTableSql: Record<MobileAuthHealthTable, string>;
   mobileAuthForeignKeys: MobileAuthForeignKeyEvidence[];
+  internalApiNonceColumns: InternalApiNonceColumnEvidence[];
+  internalApiNonceIndexes: InternalApiNonceIndexEvidence[];
+  internalApiNonceTableSql: string;
+  organizationColumns: OrganizationColumnEvidence[];
+  mobileAttachmentColumns: MobileAttachmentColumnEvidence[];
+  mobileAttachmentIndexes: MobileAttachmentIndexEvidence[];
+  mobileAttachmentTableSql: string;
 };
 
 export const DATABASE_HEALTH_INDEX_REQUIREMENTS = [
@@ -277,6 +330,40 @@ export const MOBILE_AUTH_INDEX_REQUIREMENTS = [
   columns: readonly string[];
 })[];
 
+export const INTERNAL_API_NONCE_INDEX_REQUIREMENT = {
+  table: INTERNAL_API_NONCE_HEALTH_TABLE,
+  name: "internal_api_nonces_expiry_idx",
+  unique: false,
+  partial: false,
+  columns: ["expires_at"],
+} as const;
+
+export const MOBILE_ATTACHMENT_INDEX_REQUIREMENTS = [
+  {
+    name: "mobile_attachments_owner_idx",
+    unique: false,
+    partial: false,
+    columns: ["owner_kind", "owner_id"],
+    predicate: null,
+  },
+  {
+    name: "mobile_attachments_active_dedup_unique",
+    unique: true,
+    partial: true,
+    columns: ["owner_kind", "owner_id", "sha256"],
+    predicate: "deleted_at is null",
+  },
+  {
+    name: "mobile_attachments_storage_unique",
+    unique: true,
+    partial: false,
+    columns: ["storage_key"],
+    predicate: null,
+  },
+] as const satisfies readonly (Omit<MobileAttachmentIndexEvidence, "columns"> & {
+  columns: readonly string[];
+})[];
+
 const MOBILE_AUTH_FOREIGN_KEY_REQUIREMENTS = [
   {
     table: "mobile_sessions",
@@ -295,6 +382,127 @@ const MOBILE_AUTH_FOREIGN_KEY_REQUIREMENTS = [
     onDelete: "RESTRICT",
   },
 ] as const satisfies readonly MobileAuthForeignKeyEvidence[];
+
+const INTERNAL_API_NONCE_COLUMN_REQUIREMENTS = [
+  {
+    name: "nonce",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 1,
+  },
+  {
+    name: "expires_at",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "created_at",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: "CURRENT_TIMESTAMP",
+    primaryKeyPosition: 0,
+  },
+] as const satisfies readonly InternalApiNonceColumnEvidence[];
+
+const MOBILE_ATTACHMENT_COLUMN_REQUIREMENTS = [
+  {
+    name: "id",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 1,
+  },
+  {
+    name: "owner_kind",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "owner_id",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "file_name",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "content_type",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "byte_size",
+    type: "INTEGER",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "sha256",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "storage_key",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "created_at",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: "CURRENT_TIMESTAMP",
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "created_by",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "deleted_at",
+    type: "TEXT",
+    notNull: false,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+] as const satisfies readonly MobileAttachmentColumnEvidence[];
+
+const MIGRATION_0019_ORGANIZATION_COLUMN_REQUIREMENTS = [
+  {
+    name: "address",
+    type: "TEXT",
+    notNull: false,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "city",
+    type: "TEXT",
+    notNull: false,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+] as const satisfies readonly OrganizationColumnEvidence[];
 
 export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
   const schemaChecks = {
@@ -341,6 +549,56 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     ),
   };
   const migration0017 = Object.values(mobileAuthSchemaChecks).every(Boolean);
+  const internalApiNonceIndex = evidence.internalApiNonceIndexes.find(
+    ({ name, table }) =>
+      name === INTERNAL_API_NONCE_INDEX_REQUIREMENT.name &&
+      table === INTERNAL_API_NONCE_INDEX_REQUIREMENT.table,
+  );
+  const internalApiNonceSchemaChecks = {
+    columns: internalApiNonceColumnsAreExact(
+      evidence.internalApiNonceColumns,
+    ),
+    index:
+      internalApiNonceIndex?.unique ===
+        INTERNAL_API_NONCE_INDEX_REQUIREMENT.unique &&
+      internalApiNonceIndex.partial ===
+        INTERNAL_API_NONCE_INDEX_REQUIREMENT.partial &&
+      arraysEqual(
+        internalApiNonceIndex.columns,
+        INTERNAL_API_NONCE_INDEX_REQUIREMENT.columns,
+      ),
+    constraint: internalApiNonceConstraintIsPresent(
+      evidence.internalApiNonceTableSql,
+    ),
+  };
+  const migration0018 = Object.values(internalApiNonceSchemaChecks).every(
+    Boolean,
+  );
+  const mobileAttachmentSchemaChecks = {
+    organizationColumns: organizationColumnsAreReady(
+      evidence.organizationColumns,
+    ),
+    columns: mobileAttachmentColumnsAreExact(
+      evidence.mobileAttachmentColumns,
+    ),
+    indexes: MOBILE_ATTACHMENT_INDEX_REQUIREMENTS.every((requirement) => {
+      const actual = evidence.mobileAttachmentIndexes.find(
+        ({ name }) => name === requirement.name,
+      );
+      return (
+        actual?.unique === requirement.unique &&
+        actual.partial === requirement.partial &&
+        arraysEqual(actual.columns, requirement.columns) &&
+        actual.predicate === requirement.predicate
+      );
+    }),
+    constraints: mobileAttachmentConstraintsArePresent(
+      evidence.mobileAttachmentTableSql,
+    ),
+  };
+  const migration0019 = Object.values(mobileAttachmentSchemaChecks).every(
+    Boolean,
+  );
   const dataConsistent = Object.values(evidence.violations).every(
     (count) => Number.isSafeInteger(count) && count === 0,
   );
@@ -350,6 +608,8 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     evidence.foreignKeyViolations === 0 &&
     migration0014 &&
     migration0017 &&
+    migration0018 &&
+    migration0019 &&
     dataConsistent;
 
   return {
@@ -359,9 +619,13 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     foreignKeyViolations: evidence.foreignKeyViolations,
     migration0014,
     migration0017,
+    migration0018,
+    migration0019,
     dataConsistent,
     schemaChecks,
     mobileAuthSchemaChecks,
+    internalApiNonceSchemaChecks,
+    mobileAttachmentSchemaChecks,
     counts: evidence.counts,
     columns: Object.fromEntries(
       DATABASE_HEALTH_TABLES.map((table) => [
@@ -371,9 +635,105 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     ),
     indexes: evidence.indexes.map(({ name }) => name),
     mobileAuthIndexes: evidence.mobileAuthIndexes.map(({ name }) => name),
+    internalApiNonceIndexes: evidence.internalApiNonceIndexes.map(
+      ({ name }) => name,
+    ),
+    mobileAttachmentIndexes: evidence.mobileAttachmentIndexes.map(
+      ({ name }) => name,
+    ),
     forbiddenIndexesPresent: evidence.forbiddenIndexesPresent,
     violations: evidence.violations,
   };
+}
+
+function organizationColumnsAreReady(
+  columns: readonly OrganizationColumnEvidence[],
+): boolean {
+  return MIGRATION_0019_ORGANIZATION_COLUMN_REQUIREMENTS.every(
+    (requirement) => {
+      const actual = columns.find(({ name }) => name === requirement.name);
+      return (
+        actual?.type.trim().toUpperCase() === requirement.type &&
+        actual.notNull === requirement.notNull &&
+        normalizeColumnDefault(actual.defaultValue) ===
+          requirement.defaultValue &&
+        actual.primaryKeyPosition === requirement.primaryKeyPosition
+      );
+    },
+  );
+}
+
+function mobileAttachmentColumnsAreExact(
+  columns: readonly MobileAttachmentColumnEvidence[],
+): boolean {
+  return (
+    columns.length === MOBILE_ATTACHMENT_COLUMN_REQUIREMENTS.length &&
+    MOBILE_ATTACHMENT_COLUMN_REQUIREMENTS.every((requirement) => {
+      const actual = columns.find(({ name }) => name === requirement.name);
+      return (
+        actual?.type.trim().toUpperCase() === requirement.type &&
+        actual.notNull === requirement.notNull &&
+        normalizeColumnDefault(actual.defaultValue) ===
+          requirement.defaultValue &&
+        actual.primaryKeyPosition === requirement.primaryKeyPosition
+      );
+    })
+  );
+}
+
+function internalApiNonceColumnsAreExact(
+  columns: readonly InternalApiNonceColumnEvidence[],
+): boolean {
+  return (
+    columns.length === INTERNAL_API_NONCE_COLUMN_REQUIREMENTS.length &&
+    INTERNAL_API_NONCE_COLUMN_REQUIREMENTS.every((requirement) => {
+      const actual = columns.find(({ name }) => name === requirement.name);
+      return (
+        actual?.type.trim().toUpperCase() === requirement.type &&
+        actual.notNull === requirement.notNull &&
+        normalizeColumnDefault(actual.defaultValue) ===
+          requirement.defaultValue &&
+        actual.primaryKeyPosition === requirement.primaryKeyPosition
+      );
+    })
+  );
+}
+
+function normalizeColumnDefault(value: string | null): string | null {
+  if (value === null) return null;
+  let normalized = value.trim();
+  while (normalized.startsWith("(") && normalized.endsWith(")")) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  if (
+    (normalized.startsWith("'") && normalized.endsWith("'")) ||
+    (normalized.startsWith('"') && normalized.endsWith('"'))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized.toUpperCase();
+}
+
+function internalApiNonceConstraintIsPresent(tableSql: string): boolean {
+  const sql = normalizeTableSql(tableSql);
+  return (
+    sql.includes("internal_api_nonces_format_check") &&
+    sql.includes(
+      "check(length(nonce) between 22 and 86 and nonce not glob '*[^a-za-z0-9_-]*')",
+    )
+  );
+}
+
+function mobileAttachmentConstraintsArePresent(tableSql: string): boolean {
+  const sql = normalizeTableSql(tableSql);
+  return (
+    sql.includes("mobile_attachments_owner_check") &&
+    sql.includes(
+      "check(owner_kind in ('account', 'deal', 'conversation'))",
+    ) &&
+    sql.includes("mobile_attachments_size_check") &&
+    sql.includes("check(byte_size > 0 and byte_size <= 20971520)")
+  );
 }
 
 function containsEvery(
@@ -397,7 +757,7 @@ export function normalizeDatabaseIndexPredicate(
     .trim();
   const where = normalized.match(/\bwhere\s+(.+)$/u)?.[1]?.trim();
   return where
-    ?.replace(/\bmobile_refresh_tokens\./gu, "")
+    ?.replace(/\b(?:mobile_refresh_tokens|mobile_attachments)\./gu, "")
     .replace(/;$/u, "") || null;
 }
 
@@ -435,7 +795,10 @@ function normalizeTableSql(value: string | undefined): string {
     .toLowerCase()
     .replaceAll("`", "")
     .replaceAll('"', "")
-    .replace(/\bmobile_(?:authorization_grants|sessions|refresh_tokens)\./gu, "")
+    .replace(
+      /\b(?:mobile_(?:authorization_grants|sessions|refresh_tokens|attachments)|internal_api_nonces)\./gu,
+      "",
+    )
     .replace(/\s+/gu, " ")
     .trim();
 }

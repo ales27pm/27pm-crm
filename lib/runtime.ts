@@ -4,9 +4,18 @@ import { env } from "cloudflare:workers";
 
 type RuntimeBindings = Record<string, unknown>;
 
-export interface PrivateObjectBody {
-  body: ReadableStream<Uint8Array>;
+export interface PrivateObjectMetadata {
+  key: string;
+  size: number;
+  etag: string;
+  version: string;
   httpEtag?: string;
+  customMetadata?: Record<string, string>;
+  checksums?: { sha256?: ArrayBuffer };
+}
+
+export interface PrivateObjectBody extends PrivateObjectMetadata {
+  body: ReadableStream<Uint8Array>;
 }
 
 export interface PrivateObjectBucket {
@@ -16,9 +25,15 @@ export interface PrivateObjectBucket {
     options?: {
       httpMetadata?: { contentType?: string };
       customMetadata?: Record<string, string>;
+      sha256?: ArrayBuffer | string;
     },
   ): Promise<unknown>;
-  get(key: string): Promise<PrivateObjectBody | null>;
+  delete(key: string): Promise<void>;
+  head(key: string): Promise<PrivateObjectMetadata | null>;
+  get(
+    key: string,
+    options?: { onlyIf?: { etagMatches?: string } },
+  ): Promise<PrivateObjectBody | PrivateObjectMetadata | null>;
 }
 
 function bindings(): RuntimeBindings {
@@ -43,4 +58,11 @@ export function getPrivateObjectBucket(): PrivateObjectBucket {
   const bucket = bindings().BUCKET;
   if (!bucket) throw new Error("Cloudflare R2 binding `BUCKET` is unavailable.");
   return bucket as PrivateObjectBucket;
+}
+
+/** Private Fetcher/VPC service binding; never a caller-selected scanner URL. */
+export function getAntimalwareService(): { fetch(request: Request): Promise<Response> } | null {
+  const service = bindings().ANTIMALWARE;
+  if (!service || typeof (service as { fetch?: unknown }).fetch !== "function") return null;
+  return service as { fetch(request: Request): Promise<Response> };
 }
