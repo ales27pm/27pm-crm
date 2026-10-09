@@ -3,6 +3,7 @@ import {
   requireSameOriginOperatorOrMobileRequest,
 } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
+import { isConversationId } from "@/lib/conversation-id";
 import { canCall, canEmail, complianceEvidenceSnapshot, loadComplianceConfiguration, loadContactCompliance, type ComplianceDecision, type ContactCompliance } from "@/lib/compliance";
 import { runtimeString } from "@/lib/runtime";
 import { validUnsubscribeSecret } from "@/lib/unsubscribe";
@@ -23,7 +24,7 @@ export async function POST(request: Request) {
   if (!payload) return jsonError(400, "request_body_invalid");
   const title = optionalTrimmedString(payload.title, 300);
   const dealId = entityId(payload.dealId);
-  const requestedConversationId = entityId(payload.conversationId);
+  const requestedConversationId = isConversationId(payload.conversationId) ? payload.conversationId : null;
   const dueAt = "dueAt" in payload ? validIsoTimestamp(payload.dueAt) : null;
   const contactAction = payload.contactAction === true;
   const requestedChannel = payload.contactChannel;

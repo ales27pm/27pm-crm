@@ -1,6 +1,7 @@
 import { requireOperatorRequest } from "@/lib/api-auth";
 import { safeAttachmentDisplayName } from "@/lib/attachment-download";
 import { crmDatabase } from "@/lib/d1";
+import { isConversationId } from "@/lib/conversation-id";
 import { privateJsonError, privateNoStoreHeaders } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -23,8 +24,7 @@ export async function GET(request: Request) {
   if (
     query.length !== 1 ||
     query[0]?.[0] !== "conversationId" ||
-    !conversationId ||
-    !/^[A-Za-z0-9_-]{1,128}$/u.test(conversationId)
+    !isConversationId(conversationId)
   ) return privateJsonError(400, "conversation_id_invalid");
 
   try {

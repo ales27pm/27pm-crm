@@ -1,4 +1,5 @@
 import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
+import { isConversationId } from "@/lib/conversation-id";
 import { changedRows, crmDatabase } from "@/lib/d1";
 import {
   advanceSendAuthorization,
@@ -723,7 +724,7 @@ function normalizedRecipient(value: unknown): string | null {
 }
 
 function validConversationId(value: string | null): string | null {
-  return value !== null && /^[a-zA-Z0-9_-]{1,128}$/u.test(value) ? value : null;
+  return isConversationId(value) ? value : null;
 }
 
 function validSendContent(

@@ -23,6 +23,13 @@ const approval = {
   text: "Bonjour Isabel,\n\nMerci pour votre précision.",
 };
 
+test("binds approval to the full server-generated conversation ID", async () => {
+  const value = { ...approval, conversationId: `accepted-conversation:${"a".repeat(64)}` };
+  const result = await operationalReplyApprovalFromValue(value);
+  const expected = createHash("sha256").update(JSON.stringify({ version: 1, ...value })).digest("hex");
+  assert.equal(result.approvalSha256, expected);
+});
+
 test("builds the exact runtime approval without echoing reply content", async () => {
   const result = await operationalReplyApprovalFromValue(approval);
   const expected = createHash("sha256").update(JSON.stringify({

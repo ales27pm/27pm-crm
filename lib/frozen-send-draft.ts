@@ -1,3 +1,4 @@
+import { isConversationId } from "./conversation-id";
 import type {
   SendAttemptCoordinator,
   SendAttemptPayload,
@@ -48,7 +49,6 @@ export class FrozenSendDraftError extends Error {
 }
 
 const STORAGE_PREFIX = "27pm.crm.frozen-send-draft.v1:";
-const VALID_SLOT = /^(?:compose|reply:[a-zA-Z0-9_-]{1,128})$/u;
 const VALID_PAYLOAD_KEY = /^[a-zA-Z][a-zA-Z0-9_]{0,63}$/u;
 const MAX_PAYLOAD_FIELDS = 32;
 const MAX_PAYLOAD_STRING_LENGTH = 2_000_000;
@@ -64,7 +64,7 @@ export function browserFrozenSendDraftRegistry(): FrozenSendDraftRegistry {
 }
 
 export function replyFrozenDraftSlot(conversationId: string): string {
-  if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(conversationId)) {
+  if (!isConversationId(conversationId)) {
     throw new FrozenSendDraftError("invalid", "Conversation draft slot is invalid.");
   }
   return `reply:${conversationId}`;
@@ -318,7 +318,7 @@ function payloadsEqual(
 }
 
 function checkedStorageKey(slot: string): string {
-  if (!VALID_SLOT.test(slot)) {
+  if (slot !== "compose" && !(typeof slot === "string" && slot.startsWith("reply:") && isConversationId(slot.slice(6)))) {
     throw new FrozenSendDraftError("invalid", "Frozen draft slot is invalid.");
   }
   return `${STORAGE_PREFIX}${slot}`;

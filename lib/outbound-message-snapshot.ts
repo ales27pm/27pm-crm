@@ -1,4 +1,5 @@
 import { normalizeEmailAddress } from "./mailboxes";
+import { isConversationId } from "./conversation-id";
 import type { OutboundProvider } from "./outbound-runtime";
 
 export type OutboundMessageSnapshot = {
@@ -113,7 +114,7 @@ function validSnapshotActor(value: Record<string, unknown>): boolean {
 function validSnapshotConversation(value: Record<string, unknown>): boolean {
   return (
     value.conversationId === null ||
-    validIdentifier(value.conversationId)
+    isConversationId(value.conversationId)
   );
 }
 

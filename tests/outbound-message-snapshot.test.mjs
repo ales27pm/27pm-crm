@@ -31,6 +31,12 @@ test("round-trips a bounded pre-dispatch message snapshot", () => {
   assert.deepEqual(parseOutboundMessageSnapshot(serialized), snapshot);
 });
 
+test("preserves the exact generated conversation ID for reply recovery", () => {
+  const reply = { ...snapshot, conversationId: `accepted-conversation:${"a".repeat(64)}` };
+  assert.deepEqual(parseOutboundMessageSnapshot(outboundMessageSnapshotJson(reply)), reply);
+  assert.equal(parseOutboundMessageSnapshot(JSON.stringify({ ...reply, conversationId: "arbitrary:namespace" })), null);
+});
+
 test("rejects malformed or non-canonical recovery snapshots", () => {
   for (const value of [
     null,
