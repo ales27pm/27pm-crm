@@ -12,7 +12,10 @@ import {
 export const WEB_SESSION_MAX_AGE_SECONDS = 8 * 60 * 60;
 
 export const authConfig = {
-  providers: [Google],
+  // Do not silently reuse another Google account in a multi-account browser.
+  // Account choice does not grant access: the verified-email allowlist below
+  // remains the authority for every sign-in and existing session.
+  providers: [Google({ authorization: { params: { prompt: "select_account" } } })],
   session: {
     strategy: "jwt",
     maxAge: WEB_SESSION_MAX_AGE_SECONDS,

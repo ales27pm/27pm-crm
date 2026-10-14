@@ -24,6 +24,16 @@ test("web identity defaults to Sites and only opts into Google explicitly", () =
   assert.equal(webIdentityProvider("other"), "disabled");
 });
 
+test("Google sign-in offers account choice without requesting broader scopes", () => {
+  const provider = authConfig.providers[0];
+  assert.equal(typeof provider, "object");
+  assert.equal(provider.id, "google");
+  assert.deepEqual(provider.options.authorization, {
+    params: { prompt: "select_account" },
+  });
+  assert.equal(provider.options.allowDangerousEmailAccountLinking, undefined);
+});
+
 test("Google identities require the enabled provider, verified email, and exact allowlist membership", () => {
   const allowedProfile = {
     email: " Alexis@27PM.org ",
