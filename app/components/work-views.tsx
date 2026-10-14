@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ActivityEntry, Contact, CrmTask, Deal, Mailbox, OutreachStrategy, TransportState } from "../crm-types";
 import { outreachStepTiming } from "../../lib/outreach-strategy";
@@ -155,6 +156,7 @@ export function SettingsView({
           <div><dt>Stockage</dt><dd>D1 + R2 privés</dd></div>
           <div><dt>Domaine</dt><dd>27pm.org</dd></div>
         </dl>
+        <Link className="secondary-action" href="/settings/exchange">Gérer la connexion Microsoft Exchange</Link>
       </div>
       <p className="settings-warning">
         Les pièces jointes reçues restent bloquées tant qu’une analyse antimalware n’est pas configurée.

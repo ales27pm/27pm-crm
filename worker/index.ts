@@ -5,12 +5,6 @@ import { handleAttachmentDownloadRequest } from "../lib/attachment-download-work
 import type { AttachmentDownloadEnvironment } from "../lib/attachment-download-worker";
 import { prepareInternalApiRequest } from "../lib/internal-api-edge";
 import type { InternalApiNonceDatabase } from "../lib/internal-api-nonce-store";
-import {
-  isAllowedDuringPredeployBackup,
-  isPredeployBackupFreezeActive,
-  PREDEPLOY_BACKUP_PATHS,
-  predeployMaintenanceResponse,
-} from "../lib/predeploy-backup";
 
 interface Env {
   ASSETS: Fetcher;
@@ -31,8 +25,6 @@ interface Env {
   CRM_INTERNAL_API_AUDIENCE?: string;
   CRM_INTERNAL_API_SIGNING_KEY?: string;
   CRM_SITES_TRUSTED_ORIGIN?: string;
-  CRM_PREDEPLOY_BACKUP_MODE?: string;
-  CRM_PREDEPLOY_BACKUP_EXPIRES_AT?: string;
 }
 
 interface ExecutionContext {
@@ -48,22 +40,6 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    // Freeze before attachment consumption or HMAC nonce writes. The two backup
-    // routes retain their own short-lived token and exact-origin authorization.
-    const backupPath = new URL(request.url).pathname;
-    if (isPredeployBackupFreezeActive(
-      env.CRM_PREDEPLOY_BACKUP_MODE,
-      env.CRM_PREDEPLOY_BACKUP_EXPIRES_AT,
-    )) {
-      if (!isAllowedDuringPredeployBackup(request.method, backupPath)) {
-        return withSecurityHeaders(predeployMaintenanceResponse());
-      }
-      return withSecurityHeaders(await handler.fetch(request, env, ctx));
-    }
-    if (PREDEPLOY_BACKUP_PATHS.has(backupPath)) {
-      // An expired or missing window must never fall through into ordinary auth.
-      return withSecurityHeaders(new Response(null, { status: 404 }));
-    }
     const attachmentDownload = await handleAttachmentDownloadRequest(
       request,
       env,

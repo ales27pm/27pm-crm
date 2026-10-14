@@ -12,7 +12,6 @@ export interface PrivateObjectMetadata {
   httpEtag?: string;
   customMetadata?: Record<string, string>;
   checksums?: { sha256?: ArrayBuffer };
-  uploaded?: Date | string;
 }
 
 export interface PrivateObjectBody extends PrivateObjectMetadata {
@@ -20,20 +19,16 @@ export interface PrivateObjectBody extends PrivateObjectMetadata {
 }
 
 export interface PrivateObjectBucket {
-  list(options?: { limit?: number; cursor?: string }): Promise<{
-    objects: PrivateObjectMetadata[];
-    truncated: boolean;
-    cursor?: string;
-  }>;
   put(
     key: string,
     value: ArrayBuffer | ArrayBufferView | Blob | ReadableStream,
     options?: {
-      httpMetadata?: { contentType?: string };
+      httpMetadata?: { contentType?: string; cacheControl?: string };
       customMetadata?: Record<string, string>;
       sha256?: ArrayBuffer | string;
+      onlyIf?: { etagMatches: string } | { etagDoesNotMatch: string };
     },
-  ): Promise<unknown>;
+  ): Promise<PrivateObjectMetadata | null | void>;
   head(key: string): Promise<PrivateObjectMetadata | null>;
   get(
     key: string,
