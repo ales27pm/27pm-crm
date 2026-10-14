@@ -16,7 +16,8 @@ export type OutboundEmailMessage = OutboundMailgunMessage;
 export type OutboundDispatchResult = {
   provider: OutboundProvider;
   providerMessageId: string;
-  externalMessageId: string;
+  providerConversationId?: string;
+  externalMessageId: string | null;
   message: string;
   responseStatus: number;
 };
@@ -49,6 +50,11 @@ export function outboundTransmittedContent(
   if (transport.provider === "mailgun") {
     return { contentMode: "multipart", text: content.text, html: content.html };
   }
+  if (transport.provider === "exchange") {
+    // First-contact Exchange messages remain plain text: no tracking pixel,
+    // remote asset, or provider-generated HTML is introduced here.
+    return { contentMode: "text", text: content.text, html: null };
+  }
   return transport.config.contentMode === "html"
     ? { contentMode: "html", text: null, html: content.html }
     : { contentMode: "text", text: content.text, html: null };
@@ -69,6 +75,13 @@ export async function sendOutboundMessage(
       onDispatchStart: options.onDispatchStart,
     });
     return { provider: "cakemail", ...result };
+  }
+
+  if (transport.provider === "exchange") {
+    // Exchange requires durable draft/send state and is dispatched by the CRM
+    // route through exchange-outbound.ts. Reaching this generic boundary would
+    // lose that state machine, so fail before any network request.
+    throw new Error("exchange_dispatch_requires_durable_state");
   }
 
   const result = await sendMailgunMessage(message, transport.config, {

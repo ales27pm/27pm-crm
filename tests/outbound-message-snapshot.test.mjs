@@ -37,6 +37,22 @@ test("preserves the exact generated conversation ID for reply recovery", () => {
   assert.equal(parseOutboundMessageSnapshot(JSON.stringify({ ...reply, conversationId: "arbitrary:namespace" })), null);
 });
 
+test("preserves a bounded Exchange conversation ID only for Exchange snapshots", () => {
+  const exchange = {
+    ...snapshot,
+    provider: "exchange",
+    contentMode: "text",
+    text: "Texte conforme",
+    html: null,
+    providerConversationId: "graph-conversation-id",
+  };
+  assert.deepEqual(parseOutboundMessageSnapshot(outboundMessageSnapshotJson(exchange)), exchange);
+  assert.equal(parseOutboundMessageSnapshot(JSON.stringify({
+    ...snapshot,
+    providerConversationId: "graph-conversation-id",
+  })), null);
+});
+
 test("rejects malformed or non-canonical recovery snapshots", () => {
   for (const value of [
     null,

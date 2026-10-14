@@ -124,8 +124,8 @@ export const DATABASE_HEALTH_INTEGRITY_QUERIES = [
   {
     name: "invalidTransportProviders",
     sql: `SELECT
-      (SELECT COUNT(*) FROM messages WHERE transport_provider NOT IN ('mailgun','cakemail')) +
-      (SELECT COUNT(*) FROM send_commands WHERE transport_provider NOT IN ('mailgun','cakemail')) +
+      (SELECT COUNT(*) FROM messages WHERE transport_provider NOT IN ('mailgun','cakemail','exchange')) +
+      (SELECT COUNT(*) FROM send_commands WHERE transport_provider NOT IN ('mailgun','cakemail','exchange')) +
       (SELECT COUNT(*) FROM message_events WHERE transport_provider NOT IN ('mailgun','cakemail')) +
       (SELECT COUNT(*) FROM webhook_receipts WHERE transport_provider NOT IN ('mailgun','cakemail'))
       AS count`,
@@ -141,7 +141,8 @@ export const DATABASE_HEALTH_INTEGRITY_QUERIES = [
     sql: `SELECT COUNT(*) AS count FROM send_commands
       WHERE status = 'sent'
         AND (provider_message_id IS NULL OR trim(provider_message_id) = ''
-          OR external_message_id IS NULL OR trim(external_message_id) = '')`,
+          OR (transport_provider <> 'exchange' AND
+            (external_message_id IS NULL OR trim(external_message_id) = '')))`,
   },
   {
     name: "eventMessageProviderMismatches",
@@ -622,9 +623,12 @@ function providerChecksArePresent(
       .replaceAll("`", "")
       .replaceAll('"', "")
       .replace(/\s+/gu, " ");
-    const constraint = `${table}_transport_provider_check`;
-    const providerCheck =
-      /check\s*\(\s*transport_provider\s+in\s*\(\s*'mailgun'\s*,\s*'cakemail'\s*\)\s*\)/u;
+    const constraint = ["messages", "send_commands"].includes(table)
+      ? `${table}_transport_provider_exchange_check`
+      : `${table}_transport_provider_check`;
+    const providerCheck = ["messages", "send_commands"].includes(table)
+      ? /check\s*\(\s*transport_provider\s+in\s*\(\s*'mailgun'\s*,\s*'cakemail'\s*,\s*'exchange'\s*\)\s*\)/u
+      : /check\s*\(\s*transport_provider\s+in\s*\(\s*'mailgun'\s*,\s*'cakemail'\s*\)\s*\)/u;
     return normalized.includes(constraint) && providerCheck.test(normalized);
   });
 }

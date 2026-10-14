@@ -7,6 +7,7 @@ import { exportJWK, generateKeyPair, SignJWT } from "jose";
 import {
   checkExchangeConnection, disconnectExchangeConnection, exchangeConnectionStatus,
   finalizeExchangeConnection, stageExchangeCallback, startExchangeConnection,
+  withExchangeAccess,
 } from "../lib/exchange-connection-service.ts";
 import { getConnection } from "../lib/exchange-connection-store.ts";
 import { credentialObjectKey, readExchangeCredential } from "../lib/exchange-token-vault.ts";
@@ -62,6 +63,76 @@ test("status/start/callback/finalize/check/disconnect keep credentials encrypted
     for (const secret of [CODE, "fixture-refresh", "fixture-access", CONFIG.clientSecret, BINDER]) assert.equal(serialized.includes(secret), false);
   }
   assert.equal(f.providerCalls.every((c) => new URL(c.url).hostname === "login.microsoftonline.com"), true);
+});
+
+test("a bounded Graph operation receives an access token only after durable refresh rotation", async (t) => {
+  const f = await fixture(t);
+  const flow = await prepareFlow(f);
+  await finalizeExchangeConnection(f.ctx, OPERATOR, flow.flowId, BINDER);
+  const before = await getConnection(f.db);
+  let callbackCalls = 0;
+  let delayed = false;
+  f.hooks.afterPut = () => {
+    if (!delayed) {
+      delayed = true;
+      f.time.value += 45_000;
+    }
+  };
+  const result = await withExchangeAccess(f.ctx, async (access) => {
+    callbackCalls += 1;
+    const current = await getConnection(f.db);
+    assert.notEqual(current.credentialVersion, before.credentialVersion);
+    assert.equal(current.leaseOwner?.length > 0, true);
+    assert.deepEqual(
+      (await credential(f, `credential:${current.credentialVersion}`)).payload,
+      { refreshToken: "fixture-refresh-2" },
+    );
+    assert.equal(access.accessToken, "fixture-access-2");
+    assert.equal(access.mailboxId, CONFIG.mailboxId);
+    await access.assertCurrent();
+    assert.equal(
+      (await getConnection(f.db)).leaseExpiresAt,
+      new Date(f.time.value + 60_000).toISOString(),
+      "credential rotation delay is followed by a fresh bounded-operation lease",
+    );
+    return "graph-result";
+  });
+  assert.equal(result, "graph-result");
+  assert.equal(callbackCalls, 1);
+  assert.equal((await getConnection(f.db)).leaseOwner, null);
+  assert.equal((await credential(f, `credential:${before.credentialVersion}`)).payload, null);
+  assert.equal(f.providerCalls.filter((c) => c.url.endsWith("/token")).length, 2);
+});
+
+test("the Graph lease guard fences expiry and callback errors are never retried", async (t) => {
+  for (const scenario of ["expired", "callback-error"]) {
+    const f = await fixture(t);
+    const flow = await prepareFlow(f);
+    await finalizeExchangeConnection(f.ctx, OPERATOR, flow.flowId, BINDER);
+    let callbackCalls = 0;
+    await assert.rejects(withExchangeAccess(f.ctx, async (access) => {
+      callbackCalls += 1;
+      if (scenario === "expired") {
+        f.time.value += 61_000;
+        await access.assertCurrent();
+      }
+      throw new Error("single-graph-attempt");
+    }), scenario === "expired" ? errorCode("exchange_connection_changed") : /single-graph-attempt/u);
+    assert.equal(callbackCalls, 1);
+    assert.equal(f.providerCalls.filter((c) => c.url.endsWith("/token")).length, 2);
+    assert.equal((await getConnection(f.db)).leaseOwner, null);
+  }
+});
+
+test("Graph access fails closed when the connection is absent, disconnected or leased", async (t) => {
+  const f = await fixture(t);
+  await assert.rejects(withExchangeAccess(f.ctx, async () => "unused"), errorCode("exchange_reauthentication_required"));
+  const flow = await prepareFlow(f);
+  await finalizeExchangeConnection(f.ctx, OPERATOR, flow.flowId, BINDER);
+  const owner = "d1234567-1234-1234-1234-123456789abc";
+  f.sqlite.prepare(`UPDATE exchange_connections SET lease_owner = ?, lease_expires_at = ? WHERE id = 'alexis'`)
+    .run(owner, new Date(f.time.value + 60_000).toISOString());
+  await assert.rejects(withExchangeAccess(f.ctx, async () => "unused"), errorCode("exchange_connection_busy"));
 });
 
 test("callback and finalization cannot replay, switch operator or switch the original browser", async (t) => {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 
 const ENDPOINT = "/api/integrations/exchange";
+const SYNC_ENDPOINT = "/api/integrations/exchange/sync";
 const FLOW_STORAGE_KEY = "27pm.exchange.connection-flow.v1";
 const BINDER = /^[A-Za-z0-9_-]{43}$/u;
 const FLOW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
@@ -12,12 +13,13 @@ export type ExchangeConnectionStatus = {
   configured: boolean;
   status: "disconnected" | "connected" | "reauth_required";
   updatedAt?: string | null;
-  mailFlowEnabled: false;
+  mailFlowEnabled: boolean;
+  syncEnabled?: boolean;
   cleanupPending?: boolean;
 };
 
 type BrowserFlow = { binder: string; flowId?: string };
-type Action = "connect" | "finalize" | "check" | "disconnect";
+type Action = "connect" | "finalize" | "check" | "disconnect" | "sync";
 type ApiResult =
   | { ok: true; value: Record<string, unknown> }
   | { ok: false; ambiguous: boolean; error: string };
@@ -149,7 +151,7 @@ export function ExchangeConnection({
           ? "Le CRM est déconnecté. Les courriels Microsoft et les données du CRM sont conservés."
           : "La déconnexion n’est pas confirmée. Consulte l’état de la connexion avant de continuer."
         : status.status === "connected"
-          ? "La connexion Microsoft est confirmée. L’envoi et la synchronisation restent désactivés."
+          ? "La connexion Microsoft est confirmée. Consulte les capacités actives avant toute opération."
           : status.status === "reauth_required"
             ? "Microsoft demande une nouvelle autorisation. Tu peux relancer la connexion."
             : "Aucune connexion active. Tu peux commencer une nouvelle connexion.");
@@ -173,6 +175,40 @@ export function ExchangeConnection({
     }
     operationPending.current = false;
     setBusy(null);
+  }
+
+  async function performSync(folder: "inbox" | "junkemail" | "sentitems") {
+    if (operationPending.current || connection?.status !== "connected" || !connection.syncEnabled) return;
+    operationPending.current = true;
+    setBusy("sync");
+    setNotice("Synchronisation d’une page Microsoft…");
+    try {
+      const response = await fetch(SYNC_ENDPOINT, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ folder }),
+        credentials: "same-origin",
+        cache: "no-store",
+        redirect: "error",
+        signal: AbortSignal.timeout(55_000),
+      });
+      const value: unknown = await response.json();
+      if (!response.ok || !isSyncResult(value, folder)) {
+        setNotice(response.status === 429
+          ? "Microsoft demande d’attendre avant une nouvelle lecture. Aucun message n’a été renvoyé."
+          : "La synchronisation n’est pas confirmée. Aucun envoi n’a été effectué; vérifie l’état avant de recommencer.");
+      } else {
+        const label = { inbox: "réception", junkemail: "indésirables", sentitems: "envoyés" }[folder];
+        setNotice(value.deltaReset
+          ? `Le curseur ${label} a expiré. L’historique CRM est conservé; relance une page pour repartir proprement.`
+          : `${value.processed} message(s) ${label} traité(s), ${value.ambiguous} à classer${value.more ? ". Une autre page reste à lire." : ". La page est à jour."}`);
+      }
+    } catch {
+      setNotice("Le résultat de la synchronisation est inconnu. Aucun envoi n’a été effectué; vérifie avant de relancer.");
+    } finally {
+      operationPending.current = false;
+      setBusy(null);
+    }
   }
 
   useEffect(() => {
@@ -206,14 +242,16 @@ export function ExchangeConnection({
         <p className="mobile-authorization-kicker">27PM CRM · Connexion courriel</p>
         <h1 id="exchange-connection-title">Microsoft Exchange</h1>
         <p>
-          Cette étape autorise le CRM à accéder à la seule boîte d’Alexis. Elle
-          n’active ni l’envoi, ni la suppression, ni la synchronisation des courriels.
+          Cette page autorise le CRM à accéder à la seule boîte d’Alexis. Les
+          capacités réellement actives sont indiquées ci-dessous; aucune action
+          de synchronisation ou d’envoi n’est implicite.
         </p>
         <dl className="settings-facts">
           <div><dt>Boîte principale</dt><dd>alexis@27pm.org</dd></div>
           <div><dt>Alias de la même boîte</dt><dd>bonjour@27pm.org · admin@27pm.org</dd></div>
           <div><dt>État enregistré</dt><dd>{connection ? statusLabel(connection.status) : "Inconnu"}</dd></div>
-          <div><dt>Courriels dans le CRM</dt><dd>Envoi et synchronisation désactivés</dd></div>
+          <div><dt>Synchronisation CRM</dt><dd>{connection?.syncEnabled ? "Disponible sur action manuelle" : "Désactivée"}</dd></div>
+          <div><dt>Envoi Exchange</dt><dd>{connection?.mailFlowEnabled ? "Activé" : "Désactivé"}</dd></div>
           {connection?.updatedAt ? <div><dt>Dernière mise à jour</dt><dd>{formatDate(connection.updatedAt)}</dd></div> : null}
         </dl>
         <p>
@@ -251,6 +289,13 @@ export function ExchangeConnection({
               {busy === "disconnect" ? "Déconnexion…" : "Déconnecter le CRM"}
             </button>
           ) : null}
+          {connection?.status === "connected" && connection.syncEnabled ? (
+            <div className="settings-section">
+              <button className="secondary-action" disabled={busy !== null} onClick={() => void performSync("inbox")} type="button">Lire Réception</button>
+              <button className="secondary-action" disabled={busy !== null} onClick={() => void performSync("junkemail")} type="button">Lire Indésirables</button>
+              <button className="secondary-action" disabled={busy !== null} onClick={() => void performSync("sentitems")} type="button">Lire Envoyés</button>
+            </div>
+          ) : null}
         </div>
         <p className="mobile-authorization-status" role="status" aria-live="polite">{notice}</p>
         <Link className="secondary-action" href="/">Retour au CRM</Link>
@@ -260,15 +305,17 @@ export function ExchangeConnection({
 }
 
 export function parseExchangeConnectionStatus(value: unknown): ExchangeConnectionStatus | null {
-  if (!isObject(value) || typeof value.configured !== "boolean" || value.mailFlowEnabled !== false ||
+  if (!isObject(value) || typeof value.configured !== "boolean" || typeof value.mailFlowEnabled !== "boolean" ||
       typeof value.status !== "string" || !["disconnected", "connected", "reauth_required"].includes(value.status) ||
+      (value.syncEnabled !== undefined && typeof value.syncEnabled !== "boolean") ||
       (value.cleanupPending !== undefined && typeof value.cleanupPending !== "boolean") ||
       (value.updatedAt !== undefined && value.updatedAt !== null &&
         (typeof value.updatedAt !== "string" || !Number.isFinite(Date.parse(value.updatedAt))))) return null;
   return {
     configured: value.configured,
     status: value.status as ExchangeConnectionStatus["status"],
-    mailFlowEnabled: false,
+    mailFlowEnabled: value.mailFlowEnabled,
+    ...(value.syncEnabled === undefined ? {} : { syncEnabled: value.syncEnabled as boolean }),
     ...(value.cleanupPending === undefined ? {} : { cleanupPending: value.cleanupPending as boolean }),
     ...(value.updatedAt === undefined ? {} : { updatedAt: value.updatedAt as string | null }),
   };
@@ -358,4 +405,21 @@ function formatDate(value: string): string {
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isSyncResult(
+  value: unknown,
+  folder: "inbox" | "junkemail" | "sentitems",
+): value is {
+  ok: true;
+  folder: typeof folder;
+  processed: number;
+  ambiguous: number;
+  more: boolean;
+  deltaReset: boolean;
+} {
+  return isObject(value) && value.ok === true && value.folder === folder &&
+    Number.isSafeInteger(value.processed) && Number(value.processed) >= 0 &&
+    Number.isSafeInteger(value.ambiguous) && Number(value.ambiguous) >= 0 &&
+    typeof value.more === "boolean" && typeof value.deltaReset === "boolean";
 }

@@ -14,6 +14,7 @@ import {
 import { recordAcceptedOutboundMessage } from "@/lib/accepted-outbound-message";
 import { cakemailAudiencePolicyViolation } from "@/lib/cakemail-audience-policy";
 import { jsonError, readJsonObject } from "@/lib/http";
+import { sendApprovedExchangeMessage } from "@/lib/exchange-outbound";
 import {
   normalizeCommandIdempotencyKey,
   requestFingerprint,
@@ -39,7 +40,6 @@ import {
 } from "@/lib/outbound-message-snapshot";
 import { reconcileOutboundEventsBestEffort } from "@/lib/outbound-event-reconciliation";
 import {
-  requireMailgunOperationalConfig,
   requireOutboundOperationalConfig,
   type OutboundProvider,
   type OutboundTransportConfig,
@@ -120,9 +120,14 @@ export async function POST(request: Request) {
 
   let transport: OutboundTransportConfig;
   try {
-    transport = command.mailbox.purpose === "operations"
-      ? requireMailgunOperationalConfig()
-      : requireOutboundOperationalConfig();
+    transport = requireOutboundOperationalConfig();
+    if (
+      command.mailbox.purpose === "operations" &&
+      transport.provider !== "mailgun" &&
+      transport.provider !== "exchange"
+    ) {
+      throw new Error("operational_transport_invalid");
+    }
   } catch {
     return jsonError(503, "transport_configuration_invalid");
   }
@@ -156,8 +161,18 @@ export async function POST(request: Request) {
         .prepare(
           `SELECT c.id, c.mailbox_id AS mailboxId, c.contact_id AS contactId,
                   contact.email AS contactEmail,
-                  (SELECT m.external_message_id FROM messages m
-                    WHERE m.conversation_id = c.id AND m.external_message_id IS NOT NULL
+                  (SELECT COALESCE(
+                      trim(exchange_link.internet_message_id, '<> '),
+                      trim(m.external_message_id, '<> ')
+                    )
+                    FROM messages m
+                    LEFT JOIN exchange_message_links exchange_link
+                      ON exchange_link.crm_message_id = m.id
+                     AND exchange_link.logical_mailbox_id = c.mailbox_id
+                     AND exchange_link.classification = 'mapped'
+                    WHERE m.conversation_id = c.id
+                      AND (m.external_message_id IS NOT NULL
+                        OR exchange_link.internet_message_id IS NOT NULL)
                     ORDER BY m.occurred_at DESC LIMIT 1) AS externalMessageId
            FROM conversations c
            LEFT JOIN contacts contact ON contact.id = c.contact_id
@@ -342,7 +357,7 @@ export async function POST(request: Request) {
       transport,
     );
     const occurredAt = new Date().toISOString();
-    const messageSnapshotJson = outboundMessageSnapshotJson({
+    const messageSnapshot: OutboundMessageSnapshot = {
       version: 1,
       requestHash,
       provider: transportProvider,
@@ -360,7 +375,8 @@ export async function POST(request: Request) {
       actorEmail: auth.operator.email,
       conversationId: conversation?.id ?? null,
       occurredAt,
-    });
+    };
+    const messageSnapshotJson = outboundMessageSnapshotJson(messageSnapshot);
     const snapshotRecorded = await db
       .prepare(
         `UPDATE send_commands
@@ -388,32 +404,50 @@ export async function POST(request: Request) {
       return jsonError(409, audienceViolation);
     }
 
-    const result = await sendOutboundMessage(
-      {
+    const replyReference = conversation?.externalMessageId
+      ? transport.provider === "exchange"
+        ? `<${conversation.externalMessageId}>`
+        : conversation.externalMessageId
+      : undefined;
+    const outboundMessage = {
         fromAddress: command.mailbox.address,
         fromName: command.mailbox.displayName,
         to: command.to,
         subject: command.subject,
         text: outboundContent.text,
         html: outboundContent.html,
-        inReplyTo: conversation?.externalMessageId,
-        references: conversation?.externalMessageId
-          ? [conversation.externalMessageId]
+        inReplyTo: replyReference,
+        references: replyReference
+          ? [replyReference]
           : undefined,
         replyTo: command.mailbox.address,
         unsubscribeUrl: outboundContent.unsubscribeUrl,
         tags: command.mailbox.purpose === "operations"
           ? CRM_ADMINISTRATIVE_TAGS
           : CRM_PROSPECTING_TAGS,
-      },
-      transport,
-      {
+      };
+    const result = transport.provider === "exchange"
+      ? await sendApprovedExchangeMessage(db, transport.config, {
+          commandId,
+          fromAddress: outboundMessage.fromAddress,
+          fromName: outboundMessage.fromName,
+          to: outboundMessage.to,
+          subject: outboundMessage.subject,
+          text: outboundContent.text,
+          replyTo: outboundMessage.replyTo,
+          inReplyTo: outboundMessage.inReplyTo ?? undefined,
+          references: outboundMessage.references,
+        }, {
+          onDispatchStart: () => {
+            providerDispatchStarted = true;
+          },
+        })
+      : await sendOutboundMessage(outboundMessage, transport, {
         externalMessageId,
         onDispatchStart: () => {
           providerDispatchStarted = true;
         },
-      },
-    );
+      });
 
     if (result.provider !== transportProvider) {
       throw new Error("transport_provider_mismatch");
@@ -421,12 +455,18 @@ export async function POST(request: Request) {
     providerMessageId = result.providerMessageId;
     externalMessageId = result.externalMessageId;
     providerResponseStatus = result.responseStatus;
+    const acceptedMessageSnapshotJson = outboundMessageSnapshotJson({
+      ...messageSnapshot,
+      ...(result.providerConversationId
+        ? { providerConversationId: result.providerConversationId }
+        : {}),
+    });
     providerAccepted = true;
     const acceptanceRecorded = await db
       .prepare(
         `UPDATE send_commands
          SET status = 'sent', provider_message_id = ?, external_message_id = ?,
-             response_status = ?,
+             response_status = ?, message_snapshot_json = ?,
              failure_code = NULL, updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND transport_provider = ? AND status = 'dispatching'`,
       )
@@ -434,6 +474,7 @@ export async function POST(request: Request) {
         providerMessageId,
         externalMessageId,
         providerResponseStatus,
+        acceptedMessageSnapshotJson,
         commandId,
         transportProvider,
       )
@@ -448,6 +489,7 @@ export async function POST(request: Request) {
       provider: transportProvider,
       providerMessageId,
       externalMessageId,
+      providerConversationId: result.providerConversationId,
       mailbox: command.mailbox,
       recipient: command.to[0],
       subject: command.subject,
@@ -615,7 +657,7 @@ async function responseForAcceptedSendCommand(
   if (
     !crmRecorded &&
     existing.providerMessageId &&
-    existing.externalMessageId &&
+    (existing.externalMessageId || existing.transportProvider === "exchange") &&
     snapshot &&
     snapshotMatchesCommand(snapshot, existing, command)
   ) {
@@ -626,6 +668,7 @@ async function responseForAcceptedSendCommand(
         provider: existing.transportProvider,
         providerMessageId: existing.providerMessageId,
         externalMessageId: existing.externalMessageId,
+        providerConversationId: snapshot.providerConversationId,
         mailbox: snapshot.mailbox,
         recipient: snapshot.recipient,
         subject: snapshot.subject,

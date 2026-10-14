@@ -432,8 +432,8 @@ export const messages = sqliteTable(
       sql`${table.direction} in ('inbound', 'outbound')`,
     ),
     check(
-      "messages_transport_provider_check",
-      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
+      "messages_transport_provider_exchange_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail', 'exchange')`,
     ),
     check(
       "messages_status_check",
@@ -882,8 +882,8 @@ export const sendCommands = sqliteTable(
       table.providerMessageId,
     ),
     check(
-      "send_commands_transport_provider_check",
-      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
+      "send_commands_transport_provider_exchange_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail', 'exchange')`,
     ),
     check(
       "send_commands_status_check",
@@ -1123,3 +1123,65 @@ export const exchangeCredentialCleanup = sqliteTable(
     check("exchange_credential_cleanup_version_check", sql`length(${table.credentialVersion}) = 36 and ${table.credentialVersion} not glob '*[^0-9a-f-]*'`),
   ],
 );
+
+// A physical Exchange mailbox is synchronized once. The three CRM mailboxes
+// remain logical projections; ambiguous recipient headers never select one.
+export const exchangeSyncCursors = sqliteTable("exchange_sync_cursors", {
+  id: text("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+  tenantId: text("tenant_id").notNull(),
+  physicalMailboxId: text("physical_mailbox_id").notNull(),
+  folderId: text("folder_id").notNull(),
+  generation: integer("generation").notNull(),
+  version: integer("version").notNull().default(0),
+  nextLink: text("next_link"),
+  deltaLink: text("delta_link"),
+  updatedAt: timestamp("updated_at"),
+}, (table) => [
+  uniqueIndex("exchange_sync_cursors_scope_unique").on(table.tenantId, table.physicalMailboxId, table.folderId),
+  check("exchange_sync_cursors_version_check", sql`${table.generation} >= 0 and ${table.version} >= 0`),
+  check("exchange_sync_cursors_pointer_check", sql`(${table.nextLink} is null) != (${table.deltaLink} is null)`),
+]);
+
+export const exchangeMessageLinks = sqliteTable("exchange_message_links", {
+  id: text("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+  tenantId: text("tenant_id").notNull(),
+  physicalMailboxId: text("physical_mailbox_id").notNull(),
+  graphMessageId: text("graph_message_id").notNull(),
+  crmMessageId: text("crm_message_id").references(() => messages.id, { onDelete: "set null" }),
+  logicalMailboxId: text("logical_mailbox_id").references(() => mailboxes.id, { onDelete: "restrict" }),
+  internetMessageId: text("internet_message_id"),
+  folderId: text("folder_id"),
+  classification: text("classification").notNull().default("unclassified"),
+  messageJson: text("message_json").notNull().default("{}"),
+  remoteRemoved: integer("remote_removed", { mode: "boolean" }).notNull().default(false),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+}, (table) => [
+  uniqueIndex("exchange_message_links_scope_unique").on(table.tenantId, table.physicalMailboxId, table.graphMessageId),
+  uniqueIndex("exchange_message_links_crm_message_unique").on(table.crmMessageId),
+  index("exchange_message_links_classification_idx").on(table.classification, table.updatedAt),
+  index("exchange_message_links_internet_id_idx").on(table.internetMessageId),
+  check("exchange_message_links_classification_check", sql`${table.classification} in ('unclassified','mapped','ambiguous','external_sent','draft')`),
+  check("exchange_message_links_json_check", sql`json_valid(${table.messageJson}) and json_type(${table.messageJson}) = 'object'`),
+]);
+
+export const exchangeSendState = sqliteTable("exchange_send_state", {
+  commandId: text("command_id").primaryKey().references(() => sendCommands.id, { onDelete: "restrict" }),
+  connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+  tenantId: text("tenant_id").notNull(),
+  physicalMailboxId: text("physical_mailbox_id").notNull(),
+  correlationId: text("correlation_id").notNull(),
+  graphMessageId: text("graph_message_id"),
+  phase: text("phase").notNull().default("prepared"),
+  version: integer("version").notNull().default(0),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+}, (table) => [
+  uniqueIndex("exchange_send_state_correlation_unique").on(table.correlationId),
+  uniqueIndex("exchange_send_state_graph_id_unique").on(table.tenantId, table.physicalMailboxId, table.graphMessageId),
+  check("exchange_send_state_phase_check", sql`${table.phase} in ('prepared','drafted','send_requested','accepted','unknown','manual_review','rejected')`),
+  check("exchange_send_state_version_check", sql`${table.version} >= 0`),
+  check("exchange_send_state_draft_check", sql`${table.phase} not in ('drafted','send_requested','accepted') or ${table.graphMessageId} is not null`),
+]);

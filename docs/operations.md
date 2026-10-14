@@ -35,7 +35,10 @@ them. Never commit a production value to `.env.example`.
 | `CRM_MOBILE_REDIRECT_URI` | No | Exact app-claimed HTTPS Universal Link, normally `https://crm.27pm.org/mobile/oauth/callback`; private-use schemes are rejected. |
 | `CRM_MOBILE_TOKEN_SIGNING_KEY` | Yes | Dedicated canonical base64url key containing at least 32 random bytes; never expose it through Expo or another integration. |
 | `CRM_IOS_APP_ID` | No | Public Apple Team ID plus iOS bundle identifier used by the AASA document; must match the shipping app and associated-domain entitlement. |
-| `CRM_OUTBOUND_PROVIDER` | No | `mailgun` by default; set `cakemail` only after every gate in `docs/cakemail.md` passes. |
+| `CRM_OUTBOUND_PROVIDER` | No | `mailgun` by default; `cakemail` and `exchange` remain fail-closed until their documented gates pass. Selecting a provider is not send authorization. |
+| `CRM_EXCHANGE_ENABLED` | No | Enables only the verified delegated Microsoft connection. It does not enable sync or sending. |
+| `CRM_EXCHANGE_SYNC_ENABLED` | No | Enables operator-triggered bounded delta reads of Inbox, Junk and Sent Items. Keep false until migration 0021 and the restore gate pass. |
+| `CRM_EXCHANGE_MAIL_ENABLED` | No | Second gate required with `CRM_OUTBOUND_PROVIDER=exchange`; it never bypasses the exact per-message approval and idempotency contracts. |
 | `MAILGUN_SENDING_KEY` | Yes | Domain-scoped sending key used by the CRM; do not use the account route-administration key here. |
 | `MAILGUN_WEBHOOK_SIGNING_KEY` | Yes | Verifies fresh Mailgun HMAC-SHA256 callbacks and rejects replay. |
 | `MAILGUN_API_BASE` | No | `https://api.mailgun.net` for US or `https://api.eu.mailgun.net` for EU. |

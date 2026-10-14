@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
@@ -50,7 +50,7 @@ function healthyEvidence() {
     tableSql: Object.fromEntries(
       DATABASE_HEALTH_TABLES.map((table) => [
         table,
-        `CREATE TABLE ${table} (transport_provider text DEFAULT 'mailgun' NOT NULL CONSTRAINT ${table}_transport_provider_check CHECK (transport_provider in ('mailgun', 'cakemail')))`,
+        `CREATE TABLE ${table} (transport_provider text DEFAULT 'mailgun' NOT NULL CONSTRAINT ${["messages", "send_commands"].includes(table) ? `${table}_transport_provider_exchange_check` : `${table}_transport_provider_check`} CHECK (transport_provider in (${["messages", "send_commands"].includes(table) ? "'mailgun', 'cakemail', 'exchange'" : "'mailgun', 'cakemail'"})))`,
       ]),
     ),
     violations: {
@@ -240,6 +240,32 @@ test("database health accepts complete migrations 0014, 0017, and 0018", () => {
   assert.equal(report.migration0017, true);
   assert.equal(report.migration0018, true);
   assert.equal(report.dataConsistent, true);
+});
+
+test("database health accepts the exact provider constraints after migration 0021", async (t) => {
+  const database = new DatabaseSync(":memory:");
+  t.after(() => database.close());
+  database.exec("PRAGMA foreign_keys = ON");
+  const directory = new URL("../drizzle/", import.meta.url);
+  for (const name of (await readdir(directory)).filter((entry) => /^\d+_.+\.sql$/u.test(entry)).sort()) {
+    const migration = await readFile(new URL(name, directory), "utf8");
+    for (const statement of migration.split("--> statement-breakpoint")) {
+      if (statement.trim()) database.exec(statement);
+    }
+  }
+
+  const evidence = healthyEvidence();
+  evidence.tableSql = Object.fromEntries(
+    DATABASE_HEALTH_TABLES.map((table) => [
+      table,
+      database.prepare("SELECT sql FROM sqlite_schema WHERE type='table' AND name=?")
+        .get(table).sql,
+    ]),
+  );
+
+  const report = buildDatabaseHealthReport(evidence);
+  assert.equal(report.schemaChecks.providerChecks, true);
+  assert.equal(report.status, "ok");
 });
 
 test("database health normalizes quoted internal nonce defaults", () => {

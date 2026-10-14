@@ -3,7 +3,7 @@ import type { CrmDatabase } from "./d1";
 const CRM_PROSPECTING_TAGS = ["source-crm", "traffic-prospecting"] as const;
 const CRM_ADMINISTRATIVE_TAGS = ["source-crm", "traffic-administrative"] as const;
 
-type AcceptedOutboundProvider = "mailgun" | "cakemail";
+type AcceptedOutboundProvider = "mailgun" | "cakemail" | "exchange";
 
 type AcceptedOutboundMailbox = {
   id: string;
@@ -16,7 +16,8 @@ export type AcceptedOutboundMessage = {
   contactId: string;
   provider: AcceptedOutboundProvider;
   providerMessageId: string;
-  externalMessageId: string;
+  externalMessageId: string | null;
+  providerConversationId?: string;
   mailbox: AcceptedOutboundMailbox;
   recipient: string;
   subject: string;
@@ -158,6 +159,9 @@ export async function recordAcceptedOutboundMessage(
           provider: input.provider,
           providerMessageId: input.providerMessageId,
           externalMessageId: input.externalMessageId,
+          ...(input.providerConversationId
+            ? { providerConversationId: input.providerConversationId }
+            : {}),
         }),
       ),
     db
@@ -233,7 +237,14 @@ async function findOrCreateConversation(
   input: AcceptedOutboundMessage,
   contact: Contact,
 ): Promise<Conversation> {
-  const threadKey = `message:${input.externalMessageId}`;
+  const recipient = input.recipient.trim().toLowerCase();
+  const threadKey = input.provider === "exchange"
+    ? input.providerConversationId
+      ? `exchange:${await sha256Hex(`${input.providerConversationId}\u0000${recipient}`)}`
+      : (() => { throw new Error("accepted_message_exchange_conversation_unavailable"); })()
+    : input.externalMessageId
+      ? `message:${input.externalMessageId}`
+      : `provider:${input.providerMessageId}`;
   const conversationDigest = await sha256Hex(
     `${input.mailbox.id}\u0000${threadKey}`,
   );

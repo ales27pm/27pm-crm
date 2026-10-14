@@ -8,7 +8,7 @@ import {
   acquireConnectionLease, claimCallback, claimFinalize, commitConnection, commitConnectionFlow,
   completeCredentialCleanup, completeFlow, countCredentialCleanup, createFlow,
   disconnectConnection, ensureConnection, failFlow, finishCallback, getConnection,
-  listCredentialCleanup, queueCredentialCleanup, releaseConnectionLease,
+  listCredentialCleanup, queueCredentialCleanup, releaseConnectionLease, renewConnectionLease,
 } from "../lib/exchange-connection-store.ts";
 
 const NOW = new Date("2026-10-14T04:00:00.000Z");
@@ -109,6 +109,31 @@ test("the lease serializes writers, expires in sixty seconds and guards commits 
   assert.ok(replacement);
   assert.equal(await releaseConnectionLease(db, { owner: lease.leaseOwner }), false);
   assert.equal(await commitConnection(db, { ...input, version: 1 }, later(61)), null);
+});
+
+test("a current connected owner can renew once without reviving an expired or replaced lease", async (t) => {
+  const { db } = await setup(t);
+  await ensureConnection(db, config, NOW);
+  const owner = randomUUID();
+  const lease = await acquireConnectionLease(db, { owner }, NOW);
+  const committed = await commitConnection(db, {
+    owner,
+    generation: lease.generation,
+    version: lease.version,
+    status: "connected",
+    credentialVersion: randomUUID(),
+  }, later(1));
+  assert.equal(await renewConnectionLease(db, {
+    owner: randomUUID(), generation: committed.generation, version: committed.version,
+  }, later(10)), null);
+  const renewed = await renewConnectionLease(db, {
+    owner, generation: committed.generation, version: committed.version,
+  }, later(10));
+  assert.equal(renewed.leaseExpiresAt, later(70).toISOString());
+  assert.equal(renewed.version, committed.version);
+  assert.equal(await renewConnectionLease(db, {
+    owner, generation: committed.generation, version: committed.version,
+  }, later(70)), null, "strict expiry cannot be revived");
 });
 
 test("disconnect fences late callbacks and finalizers and clears the credential pointer before external cleanup", async (t) => {

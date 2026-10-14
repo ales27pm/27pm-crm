@@ -19,6 +19,7 @@ export type OutboundMessageSnapshot = {
   html: string | null;
   actorEmail: string;
   conversationId: string | null;
+  providerConversationId?: string;
   occurredAt: string;
 };
 
@@ -76,8 +77,18 @@ function validSnapshotIdentity(value: Record<string, unknown>): boolean {
     value.version === 1 &&
     validRequestHash(value.requestHash) &&
     validOutboundProvider(value.provider) &&
-    validIdentifier(value.contactId)
+    validIdentifier(value.contactId) &&
+    validProviderConversationId(value)
   );
+}
+
+function validProviderConversationId(value: Record<string, unknown>): boolean {
+  if (value.providerConversationId === undefined) return true;
+  return value.provider === "exchange" &&
+    typeof value.providerConversationId === "string" &&
+    value.providerConversationId.length > 0 &&
+    value.providerConversationId.length <= 2048 &&
+    !/[\u0000-\u001f\u007f]/u.test(value.providerConversationId);
 }
 
 function validSnapshotMailbox(
@@ -130,7 +141,7 @@ function validRequestHash(value: unknown): boolean {
 }
 
 function validOutboundProvider(value: unknown): boolean {
-  return value === "mailgun" || value === "cakemail";
+  return value === "mailgun" || value === "cakemail" || value === "exchange";
 }
 
 function validIdentifier(value: unknown): boolean {
@@ -156,6 +167,13 @@ function validSnapshotContent(
       contentMode === "multipart" &&
       boundedText(text, 1, MAX_BODY_LENGTH) &&
       boundedText(html, 1, MAX_BODY_LENGTH)
+    );
+  }
+  if (provider === "exchange") {
+    return (
+      contentMode === "text" &&
+      boundedText(text, 1, MAX_BODY_LENGTH) &&
+      html === null
     );
   }
   if (provider !== "cakemail") return false;

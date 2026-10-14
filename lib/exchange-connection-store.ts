@@ -87,6 +87,33 @@ export async function acquireConnectionLease(
     .first<ExchangeConnection>();
 }
 
+/**
+ * Give a still-current owner a fresh operation window after credential
+ * rotation. This never revives an expired lease and never changes ownership,
+ * generation, version, identity, or connection status.
+ */
+export async function renewConnectionLease(
+  db: CrmDatabase,
+  input: { owner: string; generation: number; version: number },
+  now = new Date(),
+): Promise<ExchangeConnection | null> {
+  if (!validGuard(input) || !validDate(now)) return null;
+  return db.prepare(`UPDATE exchange_connections
+    SET lease_expires_at = ?
+    WHERE id = 'alexis' AND status = 'connected'
+      AND lease_owner = ? AND lease_expires_at > ?
+      AND generation = ? AND version = ?
+    RETURNING ${CONNECTION_COLUMNS}`)
+    .bind(
+      new Date(now.valueOf() + EXCHANGE_LEASE_TTL_SECONDS * 1000).toISOString(),
+      input.owner,
+      now.toISOString(),
+      input.generation,
+      input.version,
+    )
+    .first<ExchangeConnection>();
+}
+
 export async function releaseConnectionLease(db: CrmDatabase, input: { owner: string }): Promise<boolean> {
   if (!validGuid(input.owner)) return false;
   const result = await db.prepare(`UPDATE exchange_connections SET lease_owner = NULL, lease_expires_at = NULL

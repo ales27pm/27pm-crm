@@ -3,7 +3,7 @@ import {
   checkExchangeConnection, disconnectExchangeConnection, exchangeConnectionStatus,
   ExchangeConnectionError, finalizeExchangeConnection, startExchangeConnection,
 } from "@/lib/exchange-connection-service";
-import { exchangeRuntimeContext } from "@/lib/exchange-runtime";
+import { exchangeRuntimeCapabilities, exchangeRuntimeContext } from "@/lib/exchange-runtime";
 import { readExchangeAction } from "@/lib/exchange-request";
 import { reportExchangeFailure } from "@/lib/exchange-diagnostics";
 import { privateJsonError, privateNoStoreHeaders } from "@/lib/http";
@@ -15,9 +15,10 @@ export async function GET(request: Request) {
   if (auth.response) return auth.response;
   try {
     const context = exchangeRuntimeContext();
-    return Response.json(context ? await exchangeConnectionStatus(context) : {
+    const result = context ? await exchangeConnectionStatus(context) : {
       configured: false, status: "disconnected", updatedAt: null, mailFlowEnabled: false,
-    }, { headers: privateNoStoreHeaders() });
+    };
+    return Response.json(withCapabilities(result), { headers: privateNoStoreHeaders() });
   } catch { return privateJsonError(503, "exchange_connection_unavailable"); }
 }
 
@@ -34,11 +35,18 @@ export async function POST(request: Request) {
       : input.action === "check" ? await checkExchangeConnection(context)
       : input.action === "disconnect" ? await disconnectExchangeConnection(context) : null;
     if (!result) return privateJsonError(400, "invalid_request");
-    return Response.json(result, { headers: privateNoStoreHeaders() });
+    return Response.json(withCapabilities(result), { headers: privateNoStoreHeaders() });
   } catch (error) {
     reportExchangeFailure(input.action, error instanceof ExchangeConnectionError ? error.code : undefined);
     return error instanceof ExchangeConnectionError
       ? privateJsonError(error.status, error.code)
       : privateJsonError(503, "exchange_connection_unavailable");
   }
+}
+
+function withCapabilities<T extends object>(result: T) {
+  return {
+    ...result,
+    ...exchangeRuntimeCapabilities(),
+  };
 }

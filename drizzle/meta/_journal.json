@@ -148,6 +148,13 @@
       "when": 1791949711752,
       "tag": "0020_cynical_the_order",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791962369378,
+      "tag": "0021_furry_the_anarchist",
+      "breakpoints": true
     }
   ]
 }

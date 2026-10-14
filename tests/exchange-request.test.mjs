@@ -273,7 +273,10 @@ async function operatorRoute() {
   };
   const route = await loadModule("app/api/integrations/exchange/route.ts", {
     "@/lib/api-auth": apiAuth, "@/lib/exchange-connection-service": service,
-    "@/lib/exchange-runtime": { exchangeRuntimeContext() { events.push("runtime"); return {}; } },
+    "@/lib/exchange-runtime": {
+      exchangeRuntimeContext() { events.push("runtime"); return {}; },
+      exchangeRuntimeCapabilities() { return { syncEnabled: false, mailFlowEnabled: false }; },
+    },
     "@/lib/exchange-request": { async readExchangeAction(request) { events.push("parse"); return readExchangeAction(request); } },
     "@/lib/http": http,
     "@/lib/exchange-diagnostics": { reportExchangeFailure() { throw new Error("unexpected diagnostic on successful request"); } },

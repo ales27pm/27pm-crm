@@ -23,3 +23,15 @@ export function exchangeRuntimeContext(): ExchangeServiceContext | null {
     oauth, vault: { tenantId: oauth.tenantId, mailboxId: oauth.mailboxId, clientId: oauth.clientId, encryptionKey },
   };
 }
+
+/** Non-secret feature switches reported only after operator authentication. */
+export function exchangeRuntimeCapabilities(): {
+  syncEnabled: boolean;
+  mailFlowEnabled: boolean;
+} {
+  return {
+    syncEnabled: runtimeString("CRM_EXCHANGE_SYNC_ENABLED") === "true",
+    mailFlowEnabled: runtimeString("CRM_EXCHANGE_MAIL_ENABLED") === "true" &&
+      runtimeString("CRM_OUTBOUND_PROVIDER") === "exchange",
+  };
+}

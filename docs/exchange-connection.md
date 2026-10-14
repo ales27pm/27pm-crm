@@ -2,10 +2,13 @@
 
 ## Portée
 
-Cette tranche prépare la connexion de la boîte Alexis au CRM; elle **ne livre
-pas encore la synchronisation de messages ni le transport sortant Exchange**.
-Les MX, les webhooks et le fournisseur sortant Mailgun restent inchangés.
-Aucun envoi, suppression ou déplacement Microsoft n'est exécuté par ce code.
+Cette tranche relie la boîte Alexis au CRM et contient maintenant la
+synchronisation bornée des dossiers Réception, Indésirables et Envoyés ainsi
+que le transport sortant Exchange à brouillon durable. Ces fonctions restent
+**désactivées par défaut** jusqu'à leur déploiement et leurs tests contrôlés.
+Les MX, les webhooks et le fournisseur sortant Mailgun restent inchangés tant
+que la bascule explicite n'a pas eu lieu. Le connecteur ne supprime ni ne
+déplace de message Microsoft.
 Le statut `connected` confirme une autorisation OAuth vérifiée et conservée,
 pas un test de réception, un envoi ou un placement Inbox.
 
@@ -30,8 +33,12 @@ OIDC `openid profile offline_access` servent à vérifier l'identité immuable e
 - Le code Microsoft étant très bref, la finalisation est immédiate au retour.
   Un échec ou un résultat ambigu ne déclenche aucun rejeu automatique.
 
-`CRM_EXCHANGE_ENABLED` est **false par défaut**. Il contrôle la connexion,
-pas l'envoi de courriels. Aucun changement de `CRM_OUTBOUND_PROVIDER`.
+Les trois portes sont indépendantes : `CRM_EXCHANGE_ENABLED` contrôle la
+connexion, `CRM_EXCHANGE_SYNC_ENABLED` les lectures delta déclenchées par un
+opérateur et `CRM_EXCHANGE_MAIL_ENABLED` l'éligibilité du transport sortant.
+Un envoi exige en plus `CRM_OUTBOUND_PROVIDER=exchange`, l'approbation exacte
+du message et son état durable; aucun de ces réglages n'autorise un envoi à lui
+seul.
 
 ## Identités préparées
 
@@ -95,8 +102,11 @@ sessions du compte par défaut.
 5. Activer la connexion, ouvrir `/settings/exchange` en opérateur, consentir
    pour la boîte prévue; vérifier connexion, renouvellement manuel, rejet des
    autres identités et déconnexion. Ne pas annoncer ces tests comme déjà faits.
-6. Livrer séparément le delta entrant, le classement fiable des trois identités
-   CRM et les brouillons/envois à approbation explicite. Puis tester les alias,
+6. Après la sauvegarde restaurée et la migration 0021, activer d'abord la
+   synchronisation seule. Lire une page bornée par dossier, vérifier le
+   classement fiable des trois identités CRM et conserver les éléments ambigus
+   uniquement dans le miroir. Activer ensuite l'envoi Exchange et le fournisseur
+   seulement pour un message témoin exact approuvé. Puis tester les alias,
    SPF/DKIM/DMARC et le placement sur des boîtes témoins autorisées.
 7. La bascule MX nécessite toutes ces preuves de continuité; elle n'est pas
    autorisée par un simple statut OAuth `connected`.
@@ -120,9 +130,10 @@ sessions du compte par défaut.
   des codes numériques explicitement autorisés. Ne jamais ajouter de corps
   Microsoft, d'exception brute, de jeton ou de secret aux journaux.
 
-Ces contrôles concernent la connexion OAuth et sa récupération, pas encore
-le transport des messages. Voir aussi la définition du compteur dans
-la [documentation D1](https://developers.cloudflare.com/api/resources/d1/).
+Ces contrôles s'appliquent aussi aux états durables de synchronisation et
+d'envoi : une perte d'accusé ne doit jamais déclencher un second appel Graph.
+Voir aussi la définition du compteur dans la
+[documentation D1](https://developers.cloudflare.com/api/resources/d1/).
 
 ### Protocoles et stockage
 

@@ -2,7 +2,7 @@ import type { CrmDatabase } from "./d1";
 import {
   acquireConnectionLease, claimCallback, claimFinalize, commitConnection,
   commitConnectionFlow, createFlow, disconnectConnection, ensureConnection,
-  failFlow, finishCallback, getConnection, releaseConnectionLease,
+  failFlow, finishCallback, getConnection, releaseConnectionLease, renewConnectionLease,
   completeCredentialCleanup, countCredentialCleanup, listCredentialCleanup, queueCredentialCleanup,
   type ExchangeConnection,
 } from "./exchange-connection-store";
@@ -22,6 +22,19 @@ export type ExchangeServiceContext = {
   vault: ExchangeVaultConfig;
   now?: () => Date;
   fetcher?: typeof fetch;
+};
+
+/** Short-lived Graph access which never leaves the active connection lease. */
+export type ExchangeAccess = {
+  accessToken: string;
+  mailboxId: string;
+  assertCurrent: () => Promise<void>;
+  fetcher?: typeof fetch;
+  /** Internal-only D1 fencing values for sync/send state transitions. */
+  scope: { tenantId: string; mailboxId: string };
+  guard: { owner: string; generation: number };
+  /** Internal clock shared by lease assertions and fenced D1 writes. */
+  now: () => Date;
 };
 
 export class ExchangeConnectionError extends Error {
@@ -198,6 +211,126 @@ export async function checkExchangeConnection(ctx: ExchangeServiceContext) {
         await drainCredentialCleanup(ctx, owner);
       }
     } finally { await releaseConnectionLease(ctx.db, { owner }); }
+  }
+}
+
+/**
+ * Refresh and rotate the Microsoft credential once, then run one bounded Graph
+ * operation while the connection lease is still current. The access token is
+ * confined to the callback and is never returned by an HTTP route or stored.
+ */
+export async function withExchangeAccess<T>(
+  ctx: ExchangeServiceContext,
+  operation: (access: ExchangeAccess) => Promise<T>,
+): Promise<T> {
+  const initial = await getConnection(ctx.db);
+  if (initial) assertIdentity(ctx, initial);
+  if (!initial || initial.status !== "connected" || !initial.credentialVersion) {
+    throw new ExchangeConnectionError("exchange_reauthentication_required", 503);
+  }
+
+  const owner = crypto.randomUUID();
+  const connection = await acquireConnectionLease(ctx.db, { owner }, now(ctx));
+  if (!connection) throw new ExchangeConnectionError("exchange_connection_busy");
+  let newVersion: string | null = null;
+  let committed = false;
+  let commitUnknown = false;
+  try {
+    assertIdentity(ctx, connection);
+    if (connection.status !== "connected" || !connection.credentialVersion) {
+      throw new ExchangeConnectionError("exchange_reauthentication_required", 503);
+    }
+    const stored = await readExchangeCredential(ctx.bucket, ctx.vault, tokenPurpose(connection.credentialVersion));
+    if (typeof stored?.payload?.refreshToken !== "string") {
+      throw new ExchangeConnectionError("exchange_reauthentication_required", 503);
+    }
+    const result = await refreshExchangeCredentials(ctx.oauth, stored.payload.refreshToken, {
+      fetcher: ctx.fetcher,
+      now: now(ctx),
+    });
+    if (!result.ok) {
+      if (result.error === "exchange_reauthentication_required") {
+        await commitConnection(ctx.db, {
+          owner,
+          generation: connection.generation,
+          version: connection.version,
+          status: "reauth_required",
+          credentialVersion: connection.credentialVersion,
+        }, now(ctx));
+      }
+      throw new ExchangeConnectionError(result.error, 503);
+    }
+
+    newVersion = crypto.randomUUID();
+    await writeImmutable(ctx, tokenPurpose(newVersion), { refreshToken: result.value.refreshToken });
+    let updated: ExchangeConnection | null;
+    try {
+      updated = await commitConnection(ctx.db, {
+        owner,
+        generation: connection.generation,
+        version: connection.version,
+        status: "connected",
+        credentialVersion: newVersion,
+      }, now(ctx));
+    } catch {
+      // A lost D1 acknowledgement is reconciled by observing the exact fenced
+      // lease and credential pointer. Never repeat the Microsoft refresh.
+      commitUnknown = true;
+      const observed = await getConnection(ctx.db);
+      commitUnknown = false;
+      updated = observed?.credentialVersion === newVersion &&
+        observed.status === "connected" &&
+        observed.generation === connection.generation &&
+        observed.version === connection.version + 1 &&
+        observed.leaseOwner === owner
+        ? observed
+        : null;
+    }
+    if (!updated) throw new ExchangeConnectionError("exchange_connection_changed");
+    committed = true;
+
+    // Token refresh, immutable-vault persistence and the D1 CAS all happen
+    // before the bounded Graph operation. Renew exactly once here so that the
+    // operation receives a full lease window; an expired or replaced owner can
+    // never be revived by this renewal.
+    const expected = await renewConnectionLease(ctx.db, {
+      owner,
+      generation: updated.generation,
+      version: updated.version,
+    }, now(ctx));
+    if (!expected) throw new ExchangeConnectionError("exchange_connection_changed");
+    const assertCurrent = async () => {
+      const current = await getConnection(ctx.db);
+      const currentTime = now(ctx).valueOf();
+      if (!current || current.status !== "connected" ||
+        current.generation !== expected.generation || current.version !== expected.version ||
+        current.credentialVersion !== expected.credentialVersion || current.leaseOwner !== owner ||
+        !current.leaseExpiresAt || Date.parse(current.leaseExpiresAt) <= currentTime) {
+        throw new ExchangeConnectionError("exchange_connection_changed");
+      }
+    };
+    await assertCurrent();
+    return await operation({
+      accessToken: result.value.accessToken,
+      mailboxId: expected.mailboxId,
+      assertCurrent,
+      fetcher: ctx.fetcher,
+      scope: { tenantId: expected.tenantId, mailboxId: expected.mailboxId },
+      guard: { owner, generation: expected.generation },
+      now: () => now(ctx),
+    });
+  } finally {
+    try {
+      if (newVersion && !committed && !commitUnknown) {
+        await queueCredentialCleanup(ctx.db, newVersion, now(ctx));
+      }
+      // Cleanup is best effort after the caller's one bounded Graph action;
+      // it must never cause that action to be retried.
+      if (committed) await drainCredentialCleanup(ctx, owner);
+      else if (newVersion && !commitUnknown) await drainCredentialCleanup(ctx, owner);
+    } finally {
+      await releaseConnectionLease(ctx.db, { owner });
+    }
   }
 }
 

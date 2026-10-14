@@ -9,6 +9,9 @@ export async function reconcileOutboundEventsBestEffort(
   providerMessageId: string | null | undefined,
   externalMessageId: string | null | undefined,
 ): Promise<void> {
+  // Exchange submission state is reconciled through immutable Graph IDs and
+  // the dedicated mirror, never through Mailgun/Cakemail webhook tables.
+  if (provider === "exchange") return;
   if (provider === "cakemail") {
     await reconcileCakemailEventsBestEffort(
       db,

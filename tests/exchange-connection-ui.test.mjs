@@ -23,7 +23,8 @@ test("the Exchange screen distinguishes connection from live mail flow", () => {
   assert.match(html, /aucune nouvelle vérification Microsoft n’a été effectuée/u);
   assert.match(html, /alexis@27pm\.org/u);
   assert.match(html, /bonjour@27pm\.org · admin@27pm\.org/u);
-  assert.match(html, /Envoi et synchronisation désactivés/u);
+  assert.match(html, /Synchronisation CRM<\/dt><dd>Désactivée/u);
+  assert.match(html, /Envoi Exchange<\/dt><dd>Désactivé/u);
   assert.match(html, /La réception actuelle et les MX ne changent pas/u);
   assert.match(html, /Vérifier l’état/u);
   assert.match(html, /Déconnecter le CRM/u);
@@ -74,10 +75,14 @@ test("session storage admits only the browser CSRF binder and optional unconsume
   }
 });
 
-test("accepts only the pinned disabled-mail status contract, not unknown live modes", () => {
+test("accepts explicit sync and mail capabilities, not malformed live modes", () => {
   const status = { configured: true, status: "connected", mailFlowEnabled: false, updatedAt: "2026-10-14T04:00:00Z" };
   assert.deepEqual(parseExchangeConnectionStatus({ ok: true, ...status }), status);
-  for (const changed of [{ status: "unknown" }, { status: ["connected"] }, { mailFlowEnabled: true }, { updatedAt: "invalid" }, { configured: 1 }, { cleanupPending: "yes" }]) {
+  assert.deepEqual(
+    parseExchangeConnectionStatus({ ...status, mailFlowEnabled: true, syncEnabled: true }),
+    { ...status, mailFlowEnabled: true, syncEnabled: true },
+  );
+  for (const changed of [{ status: "unknown" }, { status: ["connected"] }, { mailFlowEnabled: "yes" }, { syncEnabled: "yes" }, { updatedAt: "invalid" }, { configured: 1 }, { cleanupPending: "yes" }]) {
     assert.equal(parseExchangeConnectionStatus({ ...status, ...changed }), null);
   }
 });
@@ -137,7 +142,7 @@ test("failed or malformed recovery returns unknown, never an old connected resul
   const replies = [
     () => { throw new Error("network unavailable"); },
     () => Response.json({ error: "unavailable" }, { status: 503 }),
-    () => Response.json({ configured: true, status: "connected", mailFlowEnabled: true }),
+    () => Response.json({ configured: true, status: "connected", mailFlowEnabled: true, syncEnabled: "yes" }),
   ];
   let calls = 0;
   t.mock.method(globalThis, "fetch", async (_url, init) => {

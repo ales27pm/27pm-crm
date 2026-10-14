@@ -89,7 +89,7 @@ test("persists a Cakemail RFC Message-ID before the non-idempotent provider requ
 
 test("snapshots the exact compliant message and original actor before dispatch", async () => {
   const source = await readFile(routeUrl, "utf8");
-  const snapshot = source.indexOf("outboundMessageSnapshotJson({");
+  const snapshot = source.indexOf("const messageSnapshot: OutboundMessageSnapshot = {");
   const persistSnapshot = source.indexOf("message_snapshot_json = ?", snapshot);
   const providerCall = source.indexOf("await sendOutboundMessage(", persistSnapshot);
 
@@ -120,7 +120,24 @@ test("requires the shared outbound and inbound operational boundary", async () =
   const source = await readFile(routeUrl, "utf8");
 
   assert.match(source, /requireOutboundOperationalConfig\(\)/u);
+  assert.doesNotMatch(source, /requireMailgunOperationalConfig/u);
+  assert.match(source, /transport\.provider !== "mailgun"[\s\S]*transport\.provider !== "exchange"/u);
   assert.doesNotMatch(source, /transport = outboundTransportConfig\(\)/u);
+});
+
+test("formats a mirrored RFC Message-ID for Graph without changing approval evidence", async () => {
+  const source = await readFile(routeUrl, "utf8");
+
+  assert.match(source, /LEFT JOIN exchange_message_links exchange_link/u);
+  assert.match(source, /exchange_link\.logical_mailbox_id = c\.mailbox_id/u);
+  assert.match(source, /exchange_link\.classification = 'mapped'/u);
+  assert.match(source, /trim\(exchange_link\.internet_message_id, '<> '\)/u);
+  assert.match(
+    source,
+    /transport\.provider === "exchange"[\s\S]*`<\$\{conversation\.externalMessageId\}>`/u,
+  );
+  assert.match(source, /inReplyTo: outboundMessage\.inReplyTo/u);
+  assert.match(source, /references: outboundMessage\.references/u);
 });
 
 test("persists the provider's actual acceptance status", async () => {
