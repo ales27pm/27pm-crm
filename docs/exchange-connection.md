@@ -103,6 +103,29 @@ sessions du compte par défaut.
 
 ## Références
 
+### Pièges de compatibilité vérifiés le 14 octobre 2026
+
+- Le workerd utilisé avec la date de compatibilité `2026-09-11` rejette
+  `redirect: "error"` avant tout appel réseau. Utiliser `manual` et refuser
+  explicitement toute réponse 300–399 **avant** de lire son corps, sans suivre
+  `Location`. Le test OAuth exerce réellement la construction de Request dans
+  workerd, en plus des tests de non-suivi des redirections.
+- D1 peut inclure les écritures des triggers dans `meta.changes`. La rotation
+  ou la déconnexion modifie la connexion et déclenche aussi le nettoyage :
+  ce compteur ne prouve donc pas qu'une seule ligne principale a été modifiée.
+  L'accusé d'un UPDATE doit vérifier sa ligne `RETURNING`, en conservant les
+  prédicats CAS et les transactions. `changes()` dans SQL conserve son sens
+  distinct et ne doit pas être remplacé aveuglément par le compteur D1.
+- Les diagnostics de connexion ne journalisent que des catégories fixes et
+  des codes numériques explicitement autorisés. Ne jamais ajouter de corps
+  Microsoft, d'exception brute, de jeton ou de secret aux journaux.
+
+Ces contrôles concernent la connexion OAuth et sa récupération, pas encore
+le transport des messages. Voir aussi la définition du compteur dans
+la [documentation D1](https://developers.cloudflare.com/api/resources/d1/).
+
+### Protocoles et stockage
+
 - [Flux Microsoft code + PKCE, form_post](https://learn.microsoft.com/en-us/entra/identity-platform/v2-oauth2-auth-code-flow).
 - [Claims d'identité Microsoft](https://learn.microsoft.com/en-us/entra/identity-platform/id-token-claims-reference).
 - [Refresh tokens et révocation](https://learn.microsoft.com/en-us/entra/identity-platform/refresh-tokens).

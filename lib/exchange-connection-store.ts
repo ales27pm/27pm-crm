@@ -119,7 +119,7 @@ export async function commitConnectionFlow(
   now = new Date(),
 ): Promise<ExchangeConnection | null> {
   if (!validGuard(input) || !validGuid(input.credentialVersion) || !validGuid(input.flowId) || !validDate(now)) return null;
-  const results = await db.batch<ExchangeConnection>([
+  const results = await db.batch<ExchangeConnection | { id: string }>([
     db.prepare(`UPDATE exchange_connections
       SET status = 'connected', credential_version = ?, version = version + 1, updated_at = ?
       WHERE id = 'alexis' AND lease_owner = ? AND lease_expires_at > ?
@@ -134,10 +134,13 @@ export async function commitConnectionFlow(
         AND changes() = 1
         AND EXISTS (SELECT 1 FROM exchange_connections WHERE id = 'alexis'
           AND status = 'connected' AND credential_version = ? AND generation = ?
-          AND version = ? AND lease_owner = ? AND lease_expires_at > ?)`)
+          AND version = ? AND lease_owner = ? AND lease_expires_at > ?)
+      RETURNING id`)
       .bind(now.toISOString(), input.flowId, input.generation, now.toISOString(), input.credentialVersion, input.generation, input.version + 1, input.owner, now.toISOString()),
   ]);
-  return results.length === 2 && results.every(didChange) ? results[0].results?.[0] ?? null : null;
+  const connection = singleReturnedRow(results[0]);
+  return results.length === 2 && connection && "status" in connection &&
+    singleReturnedRow(results[1])?.id === input.flowId ? connection : null;
 }
 
 /** Fence old writers in D1 before tombstoning the old object; retain the caller's lease. */
@@ -161,7 +164,7 @@ export async function disconnectConnection(
           AND lease_owner = ? AND lease_expires_at > ?)`)
       .bind(now.toISOString(), input.generation, input.generation + 1, input.version + 1, input.owner, now.toISOString()),
   ]);
-  return results[0]?.success && results[0]?.meta?.changes === 1 ? results[0].results?.[0] ?? null : null;
+  return results.length === 2 && results.every((result) => result.success) ? singleReturnedRow(results[0]) : null;
 }
 
 export async function createFlow(
@@ -184,7 +187,7 @@ export async function createFlow(
       ON CONFLICT DO NOTHING RETURNING ${FLOW_COLUMNS}`)
       .bind(input.id, input.stateHash, input.binderHash, email, expiry.toISOString(), now.toISOString(), now.toISOString(), input.generation),
   ]);
-  return results[1]?.success && results[1]?.meta?.changes === 1 ? results[1].results?.[0] ?? null : null;
+  return results.length === 2 && results.every((result) => result.success) ? singleReturnedRow(results[1]) : null;
 }
 
 export async function claimCallback(
@@ -294,3 +297,8 @@ function normalizeOperator(value: string): string | null {
   return email.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email) ? email : null;
 }
 function didChange(result: { success: boolean; meta?: { changes?: number } }): boolean { return result.success && result.meta?.changes === 1; }
+
+/** D1 meta.changes includes trigger writes; RETURNING proves the guarded row itself changed. */
+function singleReturnedRow<T>(result: { success: boolean; results?: T[] } | undefined): T | null {
+  return result?.success && result.results?.length === 1 ? result.results[0] : null;
+}

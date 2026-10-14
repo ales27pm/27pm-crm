@@ -287,6 +287,156 @@ test("even an unexpectedly queued active pointer cannot be listed or completed f
   assert.equal(await countCredentialCleanup(db), 1);
 });
 
+test("native D1 acknowledges disconnect despite the cleanup trigger counting a second change", { timeout: 30000 }, async (t) => {
+  const { db, batches } = await setupD1(t);
+  await ensureConnection(db, config, NOW);
+  const owner = randomUUID();
+  const credentialVersion = randomUUID();
+  await acquireConnectionLease(db, { owner }, NOW);
+  await commitConnection(db, { owner, generation: 0, version: 0, status: "connected", credentialVersion }, NOW);
+  const input = flowInput();
+  await createFlow(db, input, NOW);
+  const guard = { owner, generation: 0, version: 1 };
+  for (const invalid of [{ ...guard, owner: randomUUID() }, { ...guard, generation: 1 }, { ...guard, version: 0 }]) {
+    assert.equal(await disconnectConnection(db, invalid, NOW), null);
+  }
+  assert.equal(await disconnectConnection(db, guard, later(60)), null);
+  assert.equal(await countCredentialCleanup(db), 0);
+  assert.equal((await getConnection(db)).credentialVersion, credentialVersion);
+  assert.equal((await db.prepare("SELECT status FROM exchange_oauth_flows WHERE id = ?").bind(input.id).first()).status, "pending");
+
+  const disconnected = await disconnectConnection(db, guard, later(1));
+  const result = batches.at(-1);
+  assert.equal(result[0].meta.changes, 2, "D1 counts the row update plus the cleanup trigger insert");
+  assert.equal(result[0].results.length, 1, "RETURNING counts only the guarded connection row");
+  assert.equal(disconnected?.status, "disconnected");
+  assert.equal(disconnected.generation, 1);
+  assert.equal(disconnected.version, 2);
+  assert.equal(disconnected.credentialVersion, null);
+  assert.equal((await db.prepare("SELECT status FROM exchange_oauth_flows WHERE id = ?").bind(input.id).first()).status, "failed");
+  assert.deepEqual((await listCredentialCleanup(db)).map((row) => row.credentialVersion), [credentialVersion]);
+  assert.equal(await disconnectConnection(db, guard, later(2)), null, "stale replay cannot acknowledge a second disconnect");
+  assert.equal((await getConnection(db)).version, 2);
+  assert.equal(await countCredentialCleanup(db), 1);
+});
+
+test("native D1 acknowledges OAuth credential rotation and completes only its successful CAS flow", { timeout: 30000 }, async (t) => {
+  const { db, batches } = await setupD1(t);
+  await ensureConnection(db, config, NOW);
+  const owner = randomUUID();
+  const oldCredential = randomUUID();
+  await acquireConnectionLease(db, { owner }, NOW);
+  await commitConnection(db, { owner, generation: 0, version: 0, status: "connected", credentialVersion: oldCredential }, NOW);
+  const input = flowInput();
+  await createFlow(db, input, NOW);
+  await claimCallback(db, { stateHash: input.stateHash }, NOW);
+  await finishCallback(db, { id: input.id, generation: 0 }, NOW);
+  await claimFinalize(db, { id: input.id, binderHash: input.binderHash, operatorEmail: input.operatorEmail }, NOW);
+  const commit = { owner, generation: 0, version: 1, credentialVersion: randomUUID(), flowId: input.id };
+  for (const invalid of [{ ...commit, owner: randomUUID() }, { ...commit, generation: 1 }, { ...commit, version: 0 }]) {
+    assert.equal(await commitConnectionFlow(db, invalid, NOW), null);
+  }
+  assert.equal(await commitConnectionFlow(db, commit, later(60)), null);
+  assert.equal((await db.prepare("SELECT status FROM exchange_oauth_flows WHERE id = ?").bind(input.id).first()).status, "consuming");
+  assert.equal(await countCredentialCleanup(db), 0);
+
+  const connected = await commitConnectionFlow(db, commit, later(1));
+  const result = batches.at(-1);
+  assert.equal(result[0].meta.changes, 2);
+  assert.equal(result[0].results.length, 1);
+  assert.equal(connected?.credentialVersion, commit.credentialVersion);
+  assert.equal(connected.version, 2);
+  assert.equal((await db.prepare("SELECT status FROM exchange_oauth_flows WHERE id = ?").bind(input.id).first()).status, "completed");
+  assert.deepEqual((await listCredentialCleanup(db)).map((row) => row.credentialVersion), [oldCredential]);
+  assert.equal(await commitConnectionFlow(db, commit, later(2)), null);
+  assert.equal((await getConnection(db)).version, 2);
+  assert.equal(await countCredentialCleanup(db), 1);
+
+  // A stale connection CAS must not complete a different consuming flow merely
+  // because the desired credential pointer already happens to be current.
+  const next = flowInput({ stateHash: "c".repeat(64) });
+  await createFlow(db, next, later(2));
+  await claimCallback(db, { stateHash: next.stateHash }, later(2));
+  await finishCallback(db, { id: next.id, generation: 0 }, later(2));
+  await claimFinalize(db, { id: next.id, binderHash: next.binderHash, operatorEmail: next.operatorEmail }, later(2));
+  assert.equal(await commitConnectionFlow(db, { ...commit, flowId: next.id }, later(2)), null);
+  assert.equal((await db.prepare("SELECT status FROM exchange_oauth_flows WHERE id = ?").bind(next.id).first()).status, "consuming");
+});
+
+test("batch acknowledgements require successful statements and exactly one RETURNING row", async (t) => {
+  const { db } = await setup(t);
+  const owner = randomUUID();
+  const commit = { owner, generation: 0, version: 0, credentialVersion: randomUUID(), flowId: randomUUID() };
+  const row = { id: "alexis", status: "connected" };
+  const valid = { ...db, async batch() {
+    return [{ success: true, results: [row], meta: { changes: 2 } }, { success: true, results: [{ id: commit.flowId }], meta: { changes: 1 } }];
+  } };
+  assert.deepEqual(await commitConnectionFlow(valid, commit, NOW), row);
+  assert.deepEqual(await disconnectConnection(valid, commit, NOW), row);
+  for (const returned of [undefined, [], [row, row]]) {
+    const invalid = { ...db, async batch() {
+      return [{ success: true, results: returned, meta: { changes: 1 } }, { success: true, results: [{ id: commit.flowId }], meta: { changes: 1 } }];
+    } };
+    assert.equal(await disconnectConnection(invalid, commit, NOW), null);
+    assert.equal(await commitConnectionFlow(invalid, commit, NOW), null);
+  }
+  for (const second of [
+    { success: false, results: [{ id: commit.flowId }], meta: { changes: 1 } },
+    { success: true, results: [], meta: { changes: 1 } },
+    { success: true, results: [{ id: commit.flowId }, { id: commit.flowId }], meta: { changes: 1 } },
+  ]) {
+    const invalid = { ...db, async batch() { return [{ success: true, results: [row], meta: { changes: 1 } }, second]; } };
+    assert.equal(await commitConnectionFlow(invalid, commit, NOW), null);
+    if (!second.success) assert.equal(await disconnectConnection(invalid, commit, NOW), null);
+  }
+});
+
+async function setupD1(t) {
+  const { Miniflare, convertV4MiniflareOptions } = await import("miniflare");
+  // Exercise the native Workers D1 binding and its trigger-aware metadata, not
+  // node:sqlite's changes() adapter. Everything is ephemeral and local.
+  const mf = new Miniflare(convertV4MiniflareOptions({
+    modules: true, compatibilityDate: "2026-09-11", compatibilityFlags: ["nodejs_compat"],
+    d1Databases: { DB: randomUUID() },
+    script: `export default { async fetch(request, env) {
+      const input = await request.json();
+      const statements = input.statements.map(({ query, values }) => env.DB.prepare(query).bind(...values));
+      return Response.json(input.batch ? await env.DB.batch(statements) : await statements[0][input.mode]());
+    } };`,
+  }));
+  t.after(() => mf.dispose());
+  const call = async (input) => {
+    const response = await mf.dispatchFetch("http://local.invalid", { method: "POST", body: JSON.stringify(input) });
+    assert.equal(response.status, 200);
+    return response.json();
+  };
+  const batches = [];
+  const db = {
+    prepare(query) {
+      const statement = {
+        query, values: [],
+        bind(...values) { statement.values = values; return statement; },
+        first() { return call({ statements: [statement], mode: "first" }); },
+        all() { return call({ statements: [statement], mode: "all" }); },
+        run() { return call({ statements: [statement], mode: "run" }); },
+      };
+      return statement;
+    },
+    async batch(statements) {
+      const results = await call({ statements, batch: true });
+      batches.push(results);
+      return results;
+    },
+  };
+  const directory = new URL("../drizzle/", import.meta.url);
+  for (const name of (await readdir(directory)).filter((name) => /^\d+_.+\.sql$/u.test(name)).sort()) {
+    for (const statement of (await readFile(new URL(name, directory), "utf8")).split("--> statement-breakpoint")) {
+      if (statement.trim()) assert.equal((await db.prepare(statement).run()).success, true);
+    }
+  }
+  return { db, batches };
+}
+
 async function setup(t) {
   const sqlite = new DatabaseSync(":memory:");
   t.after(() => sqlite.close());
