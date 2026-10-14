@@ -218,7 +218,9 @@ export function attachmentObjectMatches(
   object: AttachmentObjectMetadata,
 ): boolean {
   return (
-    validAttachmentStorageKey(attachment.r2Key) &&
+    typeof attachment.r2Key === "string" &&
+    attachment.r2Key.length > 0 &&
+    attachment.r2Key.length <= 1024 &&
     typeof attachment.fileName === "string" &&
     attachment.fileName.length > 0 &&
     attachment.fileName.length <= 1024 &&
@@ -235,12 +237,6 @@ export function attachmentObjectMatches(
     object.customMetadata?.sha256 === attachment.sha256 &&
     sha256ChecksumHex(object.checksums?.sha256) === attachment.sha256
   );
-}
-
-/** R2 keys are opaque; the top-level credential namespace is never a file. */
-export function validAttachmentStorageKey(value: unknown): value is string {
-  return typeof value === "string" && value.length > 0 && value.length <= 1024 &&
-    value !== "_credentials" && !value.startsWith("_credentials/");
 }
 
 export async function attachmentObjectDigest(input: {

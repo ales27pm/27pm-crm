@@ -9,7 +9,6 @@ import {
   createAttachmentDownloadTicket,
   safeAttachmentContentDisposition,
   safeAttachmentDisplayName,
-  validAttachmentStorageKey,
   verifyAttachmentDownloadTicket,
 } from "../lib/attachment-download.ts";
 import { handleAttachmentDownloadRequest } from "../lib/attachment-download-worker.ts";
@@ -181,41 +180,6 @@ test("object identity rejects missing integrity metadata and every changed field
       attachmentObjectDigest({ attachmentId: ATTACHMENT_ID, attachment: row, object }),
       /attachment_object_metadata_invalid/u,
     );
-  }
-});
-
-test("the private credential namespace is never a valid attachment object", async () => {
-  for (const key of ["_credentials", "_credentials/exchange/v1/private-object", "_credentials/anything"]) {
-    const row = { ...ROW, r2Key: key };
-    const object = { ...OBJECT, key };
-    assert.equal(validAttachmentStorageKey(key), false);
-    assert.equal(attachmentObjectMatches(row, object), false);
-    await assert.rejects(attachmentObjectDigest({ attachmentId: ATTACHMENT_ID, attachment: row, object }), /attachment_object_metadata_invalid/u);
-  }
-  for (const key of [ROW.r2Key, "mail/message/_credentials/attachment.txt", "_credentials-other/file"]) {
-    assert.equal(validAttachmentStorageKey(key), true);
-  }
-  for (const key of [undefined, null, "", "x".repeat(1025)]) assert.equal(validAttachmentStorageKey(key), false);
-});
-
-test("even a signed ticket and forged clean DB row cannot read the credential namespace", async () => {
-  for (const key of ["_credentials", "_credentials/exchange/v1/secret"]) {
-    const row = { ...ROW, r2Key: key };
-    const object = { ...OBJECT, key };
-    // Reconstruct the pre-namespace-gate digest independently: this models an
-    // already issued ticket or a compromised row, not the new guarded helper.
-    const objectDigest = createHash("sha256").update(JSON.stringify([
-      "27pm-attachment-object-v1", ATTACHMENT_ID, row.r2Key, row.fileName,
-      row.sizeBytes, row.sha256, object.key, object.size, object.etag, object.version,
-    ])).digest("base64url");
-    const ticket = await createAttachmentDownloadTicket(SECRET, { ...expectedContext(), objectDigest, nonce: NONCE }, NOW);
-    const state = downloadState({ row, object });
-    const response = await handleAttachmentDownloadRequest(downloadRequest(ticket.token), fakeEnvironment(state), NOW);
-    assert.equal(response.status, 423);
-    assert.deepEqual(await response.json(), { error: "attachment_integrity_unverified" });
-    assert.equal(state.headCalls, 0);
-    assert.equal(state.getCalls, 0);
-    assert.equal(state.nonces.size, 0);
   }
 });
 

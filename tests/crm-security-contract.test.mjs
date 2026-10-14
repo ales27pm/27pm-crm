@@ -6,6 +6,14 @@ import ts from "typescript";
 import { isSameOriginBrowserRequest } from "../lib/http.ts";
 
 const unsafeRouteInventory = [
+  {
+    route: "admin/d1-export/route.ts", method: "POST", boundary: "temporary-backup",
+    guard: /authorizePredeployBackupRequest\(request, configuration\)[\s\S]*if \(denied\) return denied/u,
+  },
+  {
+    route: "admin/r2-inventory/route.ts", method: "POST", boundary: "temporary-backup",
+    guard: /authorizePredeployBackupRequest\(request, configuration\)[\s\S]*if \(denied\) return denied/u,
+  },
   { route: "accounts/import/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/cakemail-send-resolution/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-canary/route.ts", method: "POST", boundary: "operator" },
@@ -19,13 +27,6 @@ const unsafeRouteInventory = [
   { route: "deals/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "intake/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "interactions/route.ts", method: "POST", boundary: "operator" },
-  { route: "integrations/exchange/route.ts", method: "POST", boundary: "operator" },
-  {
-    route: "integrations/exchange/callback/route.ts",
-    method: "POST",
-    boundary: "oauth-callback",
-    guard: /readExchangeCallback\(request, context\.oauth\.callbackOrigin\)[\s\S]*stageExchangeCallback/u,
-  },
   { route: "messages/send/route.ts", method: "POST", boundary: "operator" },
   { route: "mobile/authorize/route.ts", method: "POST", boundary: "operator" },
   { route: "mobile/sessions/route.ts", method: "DELETE", boundary: "operator" },

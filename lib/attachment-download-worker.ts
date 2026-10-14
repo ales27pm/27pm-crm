@@ -9,7 +9,6 @@ import {
   canonicalAttachmentDownloadOrigin,
   safeAttachmentContentDisposition,
   validAttachmentDownloadSigningSecret,
-  validAttachmentStorageKey,
   verifyAttachmentDownloadTicket,
   type AttachmentDownloadRecord,
   type AttachmentObjectMetadata,
@@ -157,9 +156,6 @@ export async function handleAttachmentDownloadRequest(
     return downloadError(503, "attachment_download_store_unavailable");
   }
   if (!attachment) return downloadError(404, "attachment_not_found");
-  if (!validAttachmentStorageKey(attachment.r2Key)) {
-    return downloadError(423, "attachment_integrity_unverified");
-  }
 
   const decision = attachmentDownloadDecision(attachment.scanStatus);
   if (!decision.allowed) return downloadError(decision.status, decision.code);

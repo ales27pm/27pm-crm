@@ -89,9 +89,6 @@ export async function prepareVercelApiRequest(
   const destination = backendDestination(request, configuration.apiOrigin);
   if (!destination) return proxyError(503, "api_backend_unavailable");
   const pathname = new URL(request.url).pathname;
-  if (pathname === "/api/integrations/exchange/callback" || pathname === "/api/integrations/exchange/callback/") {
-    return proxyError(403, "exchange_callback_requires_direct_worker");
-  }
   if (pathname === "/api/public/intake" || pathname === "/api/public/intake/") {
     return proxyError(503, "public_intake_requires_direct_worker");
   }

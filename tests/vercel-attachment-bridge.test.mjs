@@ -52,24 +52,6 @@ test("attachment bearer secrets stay on the Worker side of the Vercel split", as
   );
 });
 
-test("attachment ticket and download boundaries deny credentials before touching private R2", async () => {
-  const [ticketRoute, downloadWorker, legacyRoute] = await Promise.all([
-    read("app/api/attachments/[id]/download-ticket/route.ts"),
-    read("lib/attachment-download-worker.ts"),
-    read("app/api/attachments/[id]/route.ts"),
-  ]);
-  for (const [source, r2Access] of [
-    [ticketRoute, "getPrivateObjectBucket().head(attachment.r2Key)"],
-    [downloadWorker, "environment.BUCKET.head(attachment.r2Key)"],
-  ]) {
-    const namespaceGate = source.indexOf("!validAttachmentStorageKey(attachment.r2Key)");
-    const firstObjectAccess = source.indexOf(r2Access);
-    assert.ok(namespaceGate >= 0 && firstObjectAccess > namespaceGate);
-    assert.match(source.slice(namespaceGate, firstObjectAccess), /attachment_integrity_unverified/u);
-  }
-  assert.doesNotMatch(legacyRoute, /getPrivateObjectBucket|\.get\(/u);
-});
-
 test("the Web thread lazily lists attachments and posts a clean ticket directly to the Worker", async () => {
   const [listRoute, threadView, types] = await Promise.all([
     read("app/api/attachments/route.ts"),

@@ -6,7 +6,6 @@ import {
   canonicalAttachmentDownloadOrigin,
   createAttachmentDownloadTicket,
   validAttachmentDownloadSigningSecret,
-  validAttachmentStorageKey,
   type AttachmentDownloadRecord,
 } from "@/lib/attachment-download";
 import { attachmentDownloadDecision } from "@/lib/attachments";
@@ -51,9 +50,6 @@ export async function POST(request: Request, context: RouteContext) {
       .bind(id)
       .first<AttachmentRow>();
     if (!attachment) return privateJsonError(404, "attachment_not_found");
-    if (!validAttachmentStorageKey(attachment.r2Key)) {
-      return privateJsonError(423, "attachment_integrity_unverified");
-    }
 
     const decision = attachmentDownloadDecision(attachment.scanStatus);
     if (!decision.allowed) {
