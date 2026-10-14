@@ -32,6 +32,7 @@ export function exchangeRuntimeCapabilities(): {
   return {
     syncEnabled: runtimeString("CRM_EXCHANGE_SYNC_ENABLED") === "true",
     mailFlowEnabled: runtimeString("CRM_EXCHANGE_MAIL_ENABLED") === "true" &&
+      runtimeString("CRM_EXCHANGE_MESSAGE_SEND_ENABLED") === "true" &&
       runtimeString("CRM_OUTBOUND_PROVIDER") === "exchange",
   };
 }

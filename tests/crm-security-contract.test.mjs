@@ -455,7 +455,8 @@ test("outbound email and contact tasks enforce qualification guards", async () =
   assert.match(send, /loadOperationalReplyEvidence/u);
   assert.match(send, /advanceOperationalReplyAuthorization/u);
   assert.match(send, /operational_reply_confirmation_required/u);
-  assert.match(send, /requireOutboundOperationalConfig/u);
+  assert.match(send, /requireOutboundMessageOperationalConfig/u);
+  assert.doesNotMatch(send, /requireOutboundOperationalConfig/u);
   assert.doesNotMatch(send, /requireMailgunOperationalConfig/u);
   assert.match(send, /operationalReplyApprovalDigest/u);
   assert.match(send, /operationalReplyApprovalMatches/u);

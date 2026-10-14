@@ -40,7 +40,7 @@ import {
 } from "@/lib/outbound-message-snapshot";
 import { reconcileOutboundEventsBestEffort } from "@/lib/outbound-event-reconciliation";
 import {
-  requireOutboundOperationalConfig,
+  requireOutboundMessageOperationalConfig,
   type OutboundProvider,
   type OutboundTransportConfig,
 } from "@/lib/outbound-runtime";
@@ -120,7 +120,7 @@ export async function POST(request: Request) {
 
   let transport: OutboundTransportConfig;
   try {
-    transport = requireOutboundOperationalConfig();
+    transport = requireOutboundMessageOperationalConfig();
     if (
       command.mailbox.purpose === "operations" &&
       transport.provider !== "mailgun" &&

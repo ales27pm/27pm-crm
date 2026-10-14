@@ -63,9 +63,28 @@ export function requireOutboundOperationalConfig(): OutboundTransportConfig {
   return outboundTransportConfig();
 }
 
+/**
+ * Keeps ordinary CRM messages fail-closed while still allowing the dedicated,
+ * separately approved Exchange canary route to exercise the transport.
+ */
+export function exchangeMessageSendGateEnabled(
+  provider: OutboundProvider,
+): boolean {
+  return provider !== "exchange" ||
+    runtimeString("CRM_EXCHANGE_MESSAGE_SEND_ENABLED") === "true";
+}
+
+export function requireOutboundMessageOperationalConfig(): OutboundTransportConfig {
+  const transport = requireOutboundOperationalConfig();
+  if (!exchangeMessageSendGateEnabled(transport.provider)) {
+    throw new Error("CRM_EXCHANGE_MESSAGE_SEND_ENABLED is unavailable.");
+  }
+  return transport;
+}
+
 export function outboundTransportOperational(): boolean {
   try {
-    requireOutboundOperationalConfig();
+    requireOutboundMessageOperationalConfig();
     return true;
   } catch {
     return false;

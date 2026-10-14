@@ -38,7 +38,8 @@ them. Never commit a production value to `.env.example`.
 | `CRM_OUTBOUND_PROVIDER` | No | `mailgun` by default; `cakemail` and `exchange` remain fail-closed until their documented gates pass. Selecting a provider is not send authorization. |
 | `CRM_EXCHANGE_ENABLED` | No | Enables only the verified delegated Microsoft connection. It does not enable sync or sending. |
 | `CRM_EXCHANGE_SYNC_ENABLED` | No | Enables operator-triggered bounded delta reads of Inbox, Junk and Sent Items. Keep false until migration 0021 and the restore gate pass. |
-| `CRM_EXCHANGE_MAIL_ENABLED` | No | Second gate required with `CRM_OUTBOUND_PROVIDER=exchange`; it never bypasses the exact per-message approval and idempotency contracts. |
+| `CRM_EXCHANGE_MAIL_ENABLED` | No | Enables the Exchange transport for the dedicated canary and other server-side mail checks when `CRM_OUTBOUND_PROVIDER=exchange`; it does not authorize ordinary CRM messages. |
+| `CRM_EXCHANGE_MESSAGE_SEND_ENABLED` | No | Final independent gate for ordinary CRM compose/reply sends over Exchange. Keep false until the controlled canary is received and reviewed; the dedicated canary route does not require this gate. |
 | `MAILGUN_SENDING_KEY` | Yes | Domain-scoped sending key used by the CRM; do not use the account route-administration key here. |
 | `MAILGUN_WEBHOOK_SIGNING_KEY` | Yes | Verifies fresh Mailgun HMAC-SHA256 callbacks and rejects replay. |
 | `MAILGUN_API_BASE` | No | `https://api.mailgun.net` for US or `https://api.eu.mailgun.net` for EU. |

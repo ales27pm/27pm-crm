@@ -46,7 +46,9 @@ test("reports CRM recording from the outbound message row rather than a conversa
 test("repairs a sent command locally before returning an idempotent retry", async () => {
   const source = await readFile(routeUrl, "utf8");
   const existingLookup = source.indexOf("await loadSendCommand(db, idempotencyKey)");
-  const transportConfig = source.indexOf("requireOutboundOperationalConfig()");
+  const transportConfig = source.indexOf(
+    "requireOutboundMessageOperationalConfig()",
+  );
   const complianceLookup = source.indexOf("loadContactCompliance(");
   const sentBranch = source.indexOf('existing.status === "sent"');
   const repair = source.indexOf("await recordAcceptedOutboundMessage", sentBranch);
@@ -119,10 +121,41 @@ test("binds idempotency to stable transport fields rather than mailbox presentat
 test("requires the shared outbound and inbound operational boundary", async () => {
   const source = await readFile(routeUrl, "utf8");
 
-  assert.match(source, /requireOutboundOperationalConfig\(\)/u);
+  assert.match(source, /requireOutboundMessageOperationalConfig\(\)/u);
+  assert.doesNotMatch(source, /requireOutboundOperationalConfig\(\)/u);
   assert.doesNotMatch(source, /requireMailgunOperationalConfig/u);
   assert.match(source, /transport\.provider !== "mailgun"[\s\S]*transport\.provider !== "exchange"/u);
   assert.doesNotMatch(source, /transport = outboundTransportConfig\(\)/u);
+});
+
+test("keeps the dedicated Exchange canary outside the ordinary-message gate", async () => {
+  const source = await readFile(
+    new URL("../app/api/admin/exchange-canary/route.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(source, /requireOutboundOperationalConfig\(\)/u);
+  assert.doesNotMatch(source, /requireOutboundMessageOperationalConfig\(\)/u);
+});
+
+test("reports the ordinary-message gate to CRM send controls without changing the canary route", async () => {
+  const runtime = await readFile(
+    new URL("../lib/outbound-runtime.ts", import.meta.url),
+    "utf8",
+  );
+  const capabilities = await readFile(
+    new URL("../lib/exchange-runtime.ts", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(
+    runtime,
+    /export function outboundTransportOperational\(\)[\s\S]*requireOutboundMessageOperationalConfig\(\)/u,
+  );
+  assert.match(
+    capabilities,
+    /mailFlowEnabled:[\s\S]*CRM_EXCHANGE_MAIL_ENABLED[\s\S]*CRM_EXCHANGE_MESSAGE_SEND_ENABLED[\s\S]*CRM_OUTBOUND_PROVIDER/u,
+  );
 });
 
 test("formats a mirrored RFC Message-ID for Graph without changing approval evidence", async () => {

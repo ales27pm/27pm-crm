@@ -33,10 +33,12 @@ OIDC `openid profile offline_access` servent à vérifier l'identité immuable e
 - Le code Microsoft étant très bref, la finalisation est immédiate au retour.
   Un échec ou un résultat ambigu ne déclenche aucun rejeu automatique.
 
-Les trois portes sont indépendantes : `CRM_EXCHANGE_ENABLED` contrôle la
-connexion, `CRM_EXCHANGE_SYNC_ENABLED` les lectures delta déclenchées par un
-opérateur et `CRM_EXCHANGE_MAIL_ENABLED` l'éligibilité du transport sortant.
-Un envoi exige en plus `CRM_OUTBOUND_PROVIDER=exchange`, l'approbation exacte
+Les portes sont indépendantes : `CRM_EXCHANGE_ENABLED` contrôle la connexion,
+`CRM_EXCHANGE_SYNC_ENABLED` les lectures delta déclenchées par un opérateur,
+et `CRM_EXCHANGE_MAIL_ENABLED` l'éligibilité du transport sortant pour le
+canari contrôlé. Un message CRM ordinaire exige en plus
+`CRM_EXCHANGE_MESSAGE_SEND_ENABLED=true`. Tout envoi exige également
+`CRM_OUTBOUND_PROVIDER=exchange`, l'approbation exacte
 du message et son état durable; aucun de ces réglages n'autorise un envoi à lui
 seul.
 

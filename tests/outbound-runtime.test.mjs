@@ -21,8 +21,10 @@ register(
 );
 
 const {
+  exchangeMessageSendGateEnabled,
   outboundTransportConfig,
   outboundTransportOperational,
+  requireOutboundMessageOperationalConfig,
   requireOutboundOperationalConfig,
   selectedOutboundProvider,
 } = await import("../lib/outbound-runtime.ts");
@@ -61,6 +63,7 @@ function activationBinding({
 
 const MANAGED_ENV = [
   "CRM_OUTBOUND_PROVIDER",
+  "CRM_EXCHANGE_MESSAGE_SEND_ENABLED",
   "MAILGUN_API_BASE",
   "MAILGUN_DOMAIN",
   "MAILGUN_SENDING_KEY",
@@ -156,6 +159,35 @@ test("fails closed for an unknown outbound provider", async () => {
       assert.equal(outboundTransportOperational(), false);
     },
   );
+});
+
+test("keeps ordinary Exchange messages disabled behind a separate explicit gate", async () => {
+  await withEnvironment(
+    { CRM_OUTBOUND_PROVIDER: "exchange" },
+    () => {
+      assert.equal(exchangeMessageSendGateEnabled("exchange"), false);
+      assert.equal(exchangeMessageSendGateEnabled("mailgun"), true);
+      assert.equal(exchangeMessageSendGateEnabled("cakemail"), true);
+    },
+  );
+
+  await withEnvironment(
+    {
+      CRM_OUTBOUND_PROVIDER: "exchange",
+      CRM_EXCHANGE_MESSAGE_SEND_ENABLED: "TRUE",
+    },
+    () => assert.equal(exchangeMessageSendGateEnabled("exchange"), false),
+  );
+
+  await withEnvironment(
+    {
+      CRM_OUTBOUND_PROVIDER: "exchange",
+      CRM_EXCHANGE_MESSAGE_SEND_ENABLED: "true",
+    },
+    () => assert.equal(exchangeMessageSendGateEnabled("exchange"), true),
+  );
+
+  assert.equal(typeof requireOutboundMessageOperationalConfig, "function");
 });
 
 test("builds a pinned, gated Cakemail configuration", async () => {
