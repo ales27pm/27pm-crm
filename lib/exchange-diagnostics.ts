@@ -15,6 +15,14 @@ const ERROR_CODES = new Set([
   "exchange_identity_invalid",
   "exchange_scopes_missing",
 ]);
+const PROVIDER_ENDPOINTS = new Set(["token", "jwks"]);
+const PROVIDER_PHASES = new Set(["request", "http", "response_body"]);
+const PROVIDER_KINDS = new Set([
+  "timeout", "abort", "transport", "invalid_client", "invalid_request", "invalid_scope",
+  "unauthorized_client", "invalid_grant", "interaction_required", "forbidden",
+  "rate_limited", "server_error", "http_error", "invalid_response", "redirect",
+]);
+const MICROSOFT_ERROR_CODES = new Set([7000215, 7000222, 7000218, 700025, 700016]);
 
 /** Never accept error objects or coerce caller input into diagnostic strings. */
 export function reportExchangeFailure(action: unknown, errorCode: unknown): void {
@@ -23,4 +31,19 @@ export function reportExchangeFailure(action: unknown, errorCode: unknown): void
     ? errorCode
     : "exchange_connection_unavailable";
   console.warn("exchange_connection_failed", { action, code });
+}
+
+/** Backend-only literals. Never pass or inspect a provider body, URL or exception object. */
+export function reportExchangeProviderFailure(
+  endpoint: unknown, phase: unknown, kind: unknown, status?: unknown, aadsts?: unknown,
+): void {
+  if (typeof endpoint !== "string" || !PROVIDER_ENDPOINTS.has(endpoint) ||
+    typeof phase !== "string" || !PROVIDER_PHASES.has(phase) ||
+    typeof kind !== "string" || !PROVIDER_KINDS.has(kind)) return;
+  const details = {
+    endpoint, phase, kind,
+    ...(typeof status === "number" && Number.isInteger(status) && status >= 100 && status <= 599 ? { status } : {}),
+    ...(typeof aadsts === "number" && MICROSOFT_ERROR_CODES.has(aadsts) ? { aadsts } : {}),
+  };
+  console.warn("exchange_provider_failed", details);
 }

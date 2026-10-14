@@ -102,7 +102,7 @@ test("exchanges a code only at the pinned tenant, verifies the signed identity, 
   const request = remote.calls[0];
   assert.equal(request.url, `https://login.microsoftonline.com/${CONFIG.tenantId}/oauth2/v2.0/token`);
   assert.equal(request.init.method, "POST");
-  assert.equal(request.init.redirect, "error");
+  assert.equal(request.init.redirect, "manual");
   assert.equal(request.init.cache, "no-store");
   const body = new URLSearchParams(request.init.body);
   assert.equal(body.get("client_secret"), CONFIG.clientSecret);
@@ -207,4 +207,117 @@ test("returns only generic errors for invalid grants, provider bodies, transport
       ok: false, error: "exchange_provider_response_invalid",
     });
   }
+});
+
+test("provider diagnostics distinguish HTTP failures without exposing provider details or changing public errors", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const secret = "fixture-sensitive-provider-detail";
+  for (const [status, error, kind, aadsts] of [
+    [401, "invalid_client", "invalid_client", 7000215],
+    [401, "invalid_client", "invalid_client", 7000222],
+    [400, "invalid_request", "invalid_request", 7000218],
+    [400, "invalid_scope", "invalid_scope", undefined],
+    [400, "unauthorized_client", "unauthorized_client", 700025],
+    [403, secret, "forbidden", undefined],
+    [429, secret, "rate_limited", undefined],
+    [503, secret, "server_error", undefined],
+    [400, secret, "http_error", undefined],
+    [400, { message: secret }, "http_error", undefined],
+    [400, ["invalid_client", secret], "http_error", undefined],
+  ]) {
+    warn.mock.resetCalls();
+    const result = await refreshExchangeCredentials(CONFIG, secret, provider({
+      error, error_description: secret, trace_id: secret, correlation_id: secret,
+      error_codes: [secret, { message: secret }, 99999999, ...(aadsts ? [aadsts] : [])],
+      access_token: secret,
+    }, { status }));
+    assert.deepEqual(result, { ok: false, error: "exchange_provider_unavailable" });
+    assert.deepEqual(warn.mock.calls.map((call) => call.arguments), [["exchange_provider_failed", {
+      endpoint: "token", phase: "http", kind, status, ...(aadsts ? { aadsts } : {}),
+    }]]);
+    assert.equal(JSON.stringify(warn.mock.calls.map((call) => call.arguments)).includes(secret), false);
+  }
+});
+
+test("provider diagnostics separate transport timeouts and JWKS failures without logging exception text", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const secret = "fixture-secret-in-error-message";
+  for (const [error, kind] of [
+    [new DOMException(secret, "TimeoutError"), "timeout"],
+    [new DOMException(secret, "AbortError"), "abort"],
+    [new TypeError(secret), "transport"],
+    [{ name: "TimeoutError", message: secret }, "transport"],
+    [secret, "transport"],
+  ]) {
+    warn.mock.resetCalls();
+    assert.deepEqual(await refreshExchangeCredentials(CONFIG, "fixture", {
+      fetcher: async () => { throw error; },
+    }), { ok: false, error: "exchange_provider_unavailable" });
+    assert.deepEqual(warn.mock.calls.map((call) => call.arguments), [["exchange_provider_failed", {
+      endpoint: "token", phase: "request", kind,
+    }]]);
+  }
+  warn.mock.resetCalls();
+  const token = await idToken();
+  assert.deepEqual(await verifyExchangeIdToken(CONFIG, token, NONCE, {
+    now: NOW, fetcher: async () => Response.json({ error_description: secret }, { status: 503 }),
+  }), { ok: false, error: "exchange_provider_unavailable" });
+  assert.deepEqual(warn.mock.calls[0].arguments, ["exchange_provider_failed", {
+    endpoint: "jwks", phase: "http", kind: "server_error", status: 503,
+  }]);
+  assert.equal(JSON.stringify(warn.mock.calls.map((call) => call.arguments)).includes(secret), false);
+});
+
+test("provider diagnostics distinguish a response body stream failure from request transport", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const secret = "fixture-secret-in-stream";
+  const body = new ReadableStream({ start(controller) { controller.error(new Error(secret)); } });
+  assert.deepEqual(await refreshExchangeCredentials(CONFIG, "fixture", {
+    fetcher: async () => new Response(body),
+  }), { ok: false, error: "exchange_provider_unavailable" });
+  assert.deepEqual(warn.mock.calls[0].arguments, ["exchange_provider_failed", {
+    endpoint: "token", phase: "response_body", kind: "transport", status: 200,
+  }]);
+});
+
+test("rejects every provider redirect before touching its body and never follows its location", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  for (const status of [300, 301, 302, 303, 304, 305, 307, 308, 399]) {
+    warn.mock.resetCalls();
+    let calls = 0;
+    let bodyAccess = 0;
+    const response = new Response(null, { status, headers: { location: "https://attacker.example/fixture-secret" } });
+    Object.defineProperty(response, "body", { get() { bodyAccess++; throw new Error("redirect body must not be read"); } });
+    assert.deepEqual(await refreshExchangeCredentials(CONFIG, "fixture", {
+      fetcher: async (_url, init) => { calls++; assert.equal(init.redirect, "manual"); return response; },
+    }), { ok: false, error: "exchange_provider_response_invalid" });
+    assert.equal(calls, 1);
+    assert.equal(bodyAccess, 0);
+    assert.deepEqual(warn.mock.calls[0].arguments, ["exchange_provider_failed", {
+      endpoint: "token", phase: "http", kind: "redirect", status,
+    }]);
+    assert.equal(JSON.stringify(warn.mock.calls.map((call) => call.arguments)).includes("attacker.example"), false);
+  }
+});
+
+test("actual Worker Request accepts the OAuth fetch options at the deployed compatibility date", async (t) => {
+  const { Miniflare, convertV4MiniflareOptions } = await import("miniflare");
+  const remote = provider(tokenResponse(await idToken()));
+  assert.equal((await exchangeAuthorizationCode(CONFIG, INPUT, remote)).ok, true);
+  const init = remote.calls[0].init;
+  const serialized = JSON.stringify({ ...init, body: init.body.toString(), signal: undefined });
+  // Local workerd only: no provider request, credentials, persistent bindings or external mutations.
+  const mf = new Miniflare(convertV4MiniflareOptions({
+    modules: true, compatibilityDate: "2026-09-11", compatibilityFlags: ["nodejs_compat"],
+    script: `export default { fetch() {
+      const init = ${serialized};
+      init.signal = AbortSignal.timeout(10000);
+      const request = new Request("https://fixture.example/token", init);
+      return Response.json({ method: request.method, redirect: request.redirect });
+    } };`,
+  }));
+  t.after(() => mf.dispose());
+  const response = await mf.dispatchFetch("http://local.invalid");
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { method: "POST", redirect: "manual" });
 });

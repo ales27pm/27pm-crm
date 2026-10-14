@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { reportExchangeFailure } from "../lib/exchange-diagnostics.ts";
+import { reportExchangeFailure, reportExchangeProviderFailure } from "../lib/exchange-diagnostics.ts";
 
 const actions = ["connect", "finalize", "check", "disconnect", "callback"];
 const knownCodes = [
@@ -64,4 +64,32 @@ test("unrecognized actions emit nothing and never inspect request or error objec
   assert.deepEqual(warn.mock.calls.at(-1)?.arguments, ["exchange_connection_failed", {
     action: "callback", code: "exchange_connection_unavailable",
   }]);
+});
+
+test("provider diagnostics admit only closed labels and bounded nonsecret numbers", (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  reportExchangeProviderFailure("token", "http", "invalid_client", 401, 7000215);
+  assert.deepEqual(warn.mock.calls[0].arguments, ["exchange_provider_failed", {
+    endpoint: "token", phase: "http", kind: "invalid_client", status: 401, aadsts: 7000215,
+  }]);
+  const secret = "fixture-sensitive-provider-secret";
+  const hostile = new Proxy({}, { get() { throw new Error("must not inspect " + secret); } });
+  const badValues = [undefined, null, false, secret, Symbol(secret), hostile, [401], Object(401), NaN, Infinity, 99, 600, 401.5];
+  for (const value of badValues) {
+    warn.mock.resetCalls();
+    assert.doesNotThrow(() => reportExchangeProviderFailure(value, "http", "http_error", 400));
+    assert.doesNotThrow(() => reportExchangeProviderFailure("token", value, "http_error", 400));
+    assert.doesNotThrow(() => reportExchangeProviderFailure("token", "http", value, 400));
+    assert.equal(warn.mock.callCount(), 0);
+    assert.doesNotThrow(() => reportExchangeProviderFailure("jwks", "request", "transport", value, value));
+    assert.deepEqual(warn.mock.calls[0].arguments, ["exchange_provider_failed", {
+      endpoint: "jwks", phase: "request", kind: "transport",
+    }]);
+  }
+  warn.mock.resetCalls();
+  reportExchangeProviderFailure("token", "http", "http_error", 400, 99999999);
+  assert.deepEqual(warn.mock.calls[0].arguments, ["exchange_provider_failed", {
+    endpoint: "token", phase: "http", kind: "http_error", status: 400,
+  }]);
+  assert.equal(JSON.stringify(warn.mock.calls.map((call) => call.arguments)).includes(secret), false);
 });

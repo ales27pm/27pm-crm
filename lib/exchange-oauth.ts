@@ -1,4 +1,5 @@
 import { decodeProtectedHeader, importJWK, jwtVerify, type JWK } from "jose";
+import { reportExchangeProviderFailure } from "./exchange-diagnostics";
 
 export const EXCHANGE_OAUTH_CALLBACK_PATH = "/api/integrations/exchange/callback";
 export const EXCHANGE_OAUTH_FLOW_TTL_SECONDS = 5 * 60;
@@ -193,7 +194,7 @@ async function verifyIdentity(
     ) return failure("exchange_identity_invalid");
 
     const jwksUrl = `https://login.microsoftonline.com/${config.tenantId}/discovery/v2.0/keys`;
-    const jwks = await fetchJson(jwksUrl, { method: "GET", headers: { accept: "application/json" } }, options);
+    const jwks = await fetchJson("jwks", jwksUrl, { method: "GET", headers: { accept: "application/json" } }, options);
     if (!jwks.ok) return jwks;
     if (!Array.isArray(jwks.value.keys) || jwks.value.keys.length > 64) {
       return failure("exchange_identity_invalid");
@@ -243,7 +244,7 @@ async function tokenRequest(
     client_id: config.clientId, client_secret: config.clientSecret,
     scope: EXCHANGE_OAUTH_SCOPES.join(" "), ...parameters,
   });
-  return fetchJson(`https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`, {
+  return fetchJson("token", `https://login.microsoftonline.com/${config.tenantId}/oauth2/v2.0/token`, {
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded", accept: "application/json" },
     body,
@@ -251,28 +252,77 @@ async function tokenRequest(
 }
 
 async function fetchJson(
+  endpoint: "token" | "jwks",
   url: string,
   init: RequestInit,
   options: ExchangeOAuthOptions,
 ): Promise<ExchangeOAuthResult<Record<string, unknown>>> {
+  let response: Response;
   try {
-    const response = await (options.fetcher ?? fetch)(url, {
-      ...init, redirect: "error", cache: "no-store", referrerPolicy: "no-referrer",
+    response = await (options.fetcher ?? fetch)(url, {
+      // workerd does not support redirect:"error". Never follow a redirect with credentials.
+      ...init, redirect: "manual", cache: "no-store", referrerPolicy: "no-referrer",
       signal: AbortSignal.timeout(NETWORK_TIMEOUT_MS),
     });
-    if (response.redirected) return failure("exchange_provider_response_invalid");
+  } catch (error) {
+    reportExchangeProviderFailure(endpoint, "request", transportFailureKind(error));
+    return failure("exchange_provider_unavailable");
+  }
+  try {
+    if (response.redirected || (response.status >= 300 && response.status <= 399)) {
+      reportExchangeProviderFailure(endpoint, "http", "redirect", response.status);
+      return failure("exchange_provider_response_invalid");
+    }
     const value = await boundedJson(response);
     if (!response.ok) {
+      // Only fixed enums and explicitly allowed numeric AADSTS codes may leave this boundary.
+      reportExchangeProviderFailure(endpoint, "http", httpFailureKind(value?.error, response.status),
+        response.status, knownMicrosoftErrorCode(value?.error_codes));
       if (value && (value.error === "invalid_grant" || value.error === "interaction_required")) {
         return failure("exchange_reauthentication_required");
       }
       return failure("exchange_provider_unavailable");
     }
-    if (response.status !== 200 || !value) return failure("exchange_provider_response_invalid");
+    if (response.status !== 200 || !value) {
+      reportExchangeProviderFailure(endpoint, "response_body", "invalid_response", response.status);
+      return failure("exchange_provider_response_invalid");
+    }
     return { ok: true, value };
-  } catch {
+  } catch (error) {
+    reportExchangeProviderFailure(endpoint, "response_body", transportFailureKind(error), response.status);
     return failure("exchange_provider_unavailable");
   }
+}
+
+function transportFailureKind(error: unknown): "timeout" | "abort" | "transport" {
+  if (error instanceof DOMException) {
+    if (error.name === "TimeoutError") return "timeout";
+    if (error.name === "AbortError") return "abort";
+  }
+  return "transport";
+}
+
+function httpFailureKind(error: unknown, status: number): string {
+  switch (error) {
+    case "invalid_client": return "invalid_client";
+    case "invalid_request": return "invalid_request";
+    case "invalid_scope": return "invalid_scope";
+    case "unauthorized_client": return "unauthorized_client";
+    case "invalid_grant": return "invalid_grant";
+    case "interaction_required": return "interaction_required";
+    default: return status === 403 ? "forbidden" : status === 429 ? "rate_limited"
+      : status >= 500 && status <= 599 ? "server_error" : "http_error";
+  }
+}
+
+function knownMicrosoftErrorCode(value: unknown): number | undefined {
+  if (!Array.isArray(value) || value.length > 16) return undefined;
+  for (const code of value) {
+    switch (code) {
+      case 7000215: case 7000222: case 7000218: case 700025: case 700016: return code;
+    }
+  }
+  return undefined;
 }
 
 async function boundedJson(response: Response): Promise<Record<string, unknown> | null> {
