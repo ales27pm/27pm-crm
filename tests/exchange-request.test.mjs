@@ -205,6 +205,10 @@ test("callback redirects contain only completion markers, never submitted secret
       "@/lib/exchange-request": { readExchangeCallback },
       "@/lib/exchange-runtime": { exchangeRuntimeContext() { return { oauth: { publicOrigin: PUBLIC_ORIGIN, callbackOrigin: BACKEND_ORIGIN } }; } },
       "@/lib/http": http,
+      "@/lib/exchange-diagnostics": { reportExchangeFailure(action, code) {
+        assert.equal(action, "callback");
+        assert.equal(code, "exchange_authorization_invalid");
+      } },
     });
     const response = await route.POST(callbackRequest());
     assert.equal(response.status, 303);
@@ -272,6 +276,7 @@ async function operatorRoute() {
     "@/lib/exchange-runtime": { exchangeRuntimeContext() { events.push("runtime"); return {}; } },
     "@/lib/exchange-request": { async readExchangeAction(request) { events.push("parse"); return readExchangeAction(request); } },
     "@/lib/http": http,
+    "@/lib/exchange-diagnostics": { reportExchangeFailure() { throw new Error("unexpected diagnostic on successful request"); } },
   });
   return { route, events };
 }

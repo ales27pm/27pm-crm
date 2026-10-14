@@ -2,6 +2,7 @@ import { stageExchangeCallback } from "@/lib/exchange-connection-service";
 import { readExchangeCallback } from "@/lib/exchange-request";
 import { exchangeRuntimeContext } from "@/lib/exchange-runtime";
 import { privateJsonError, privateNoStoreHeaders } from "@/lib/http";
+import { reportExchangeFailure } from "@/lib/exchange-diagnostics";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,10 @@ export async function POST(request: Request) {
     try {
       await stageExchangeCallback(context, input);
       complete = true;
-    } catch { /* Provider descriptions and submitted codes must never enter logs or responses. */ }
+    } catch {
+      // Log a fixed category only, never the provider description or submitted code.
+      reportExchangeFailure("callback", "exchange_authorization_invalid");
+    }
     const destination = new URL("/settings/exchange", context.oauth.publicOrigin);
     destination.searchParams.set(complete ? "complete" : "denied", "1");
     return new Response(null, { status: 303, headers: {

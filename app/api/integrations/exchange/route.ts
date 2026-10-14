@@ -5,6 +5,7 @@ import {
 } from "@/lib/exchange-connection-service";
 import { exchangeRuntimeContext } from "@/lib/exchange-runtime";
 import { readExchangeAction } from "@/lib/exchange-request";
+import { reportExchangeFailure } from "@/lib/exchange-diagnostics";
 import { privateJsonError, privateNoStoreHeaders } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +36,7 @@ export async function POST(request: Request) {
     if (!result) return privateJsonError(400, "invalid_request");
     return Response.json(result, { headers: privateNoStoreHeaders() });
   } catch (error) {
+    reportExchangeFailure(input.action, error instanceof ExchangeConnectionError ? error.code : undefined);
     return error instanceof ExchangeConnectionError
       ? privateJsonError(error.status, error.code)
       : privateJsonError(503, "exchange_connection_unavailable");
