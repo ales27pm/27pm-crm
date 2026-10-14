@@ -23,11 +23,12 @@ export interface PrivateObjectBucket {
     key: string,
     value: ArrayBuffer | ArrayBufferView | Blob | ReadableStream,
     options?: {
-      httpMetadata?: { contentType?: string };
+      httpMetadata?: { contentType?: string; cacheControl?: string };
       customMetadata?: Record<string, string>;
       sha256?: ArrayBuffer | string;
+      onlyIf?: { etagMatches: string } | { etagDoesNotMatch: string };
     },
-  ): Promise<unknown>;
+  ): Promise<PrivateObjectMetadata | null | void>;
   head(key: string): Promise<PrivateObjectMetadata | null>;
   get(
     key: string,

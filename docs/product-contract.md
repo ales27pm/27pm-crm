@@ -19,6 +19,13 @@ or inbound storage. Vercel hosts the separately deployed public 27PM site,
 whose Turnstile form posts the bounded intake contract to the CRM. The public
 site stores no CRM data.
 
+The optional Exchange connection is a separate, disabled-by-default preparation
+slice: `/settings/exchange` links one tenant-pinned mailbox through delegated
+OAuth, with recoverable credentials encrypted only in the private R2 credential
+namespace. D1 contains non-secret connection/lease/cleanup metadata only.
+Neither message synchronization nor Exchange sending is enabled by connecting.
+See [the connection contract](exchange-connection.md) for its activation gates.
+
 ## Primary workflow
 
 1. Open **Réception** and filter by mailbox, unread state, or follow-up state.
@@ -79,8 +86,18 @@ site stores no CRM data.
 - `POST /api/webhooks/mailgun/events` — signed delivery-event callback.
 - `POST /api/webhooks/cakemail/events` — signed outbound delivery-event
   callback; never an inbound email route.
+- `POST /api/integrations/exchange/callback` — direct Worker only, bounded
+  Microsoft `form_post`; stages an encrypted code after consuming a known
+  one-time state, then requires the initiating authenticated browser to finalize.
+  It does not connect the mailbox by itself and is refused by the Vercel proxy.
 
 ## Protected HTTP seams
+
+- `GET /api/integrations/exchange` — operator-only stored connection status,
+  never a refresh side effect or proof of current mailbox delivery.
+- `POST /api/integrations/exchange` — same-origin Web operator only: connect,
+  one-time finalize, explicit refresh check, or local disconnect. No mobile
+  bearer access, automated sends, message deletion, or MX changes.
 
 - `GET /api/dashboard` — mailbox, conversation, lead, and task summary.
 - `GET /api/attachments?conversationId=:id` — operator-only attachment

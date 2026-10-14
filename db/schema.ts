@@ -1056,3 +1056,70 @@ export const internalApiNonces = sqliteTable(
     ),
   ],
 );
+
+// These tables contain metadata and one-way hashes only. OAuth credentials
+// remain encrypted in private object storage, addressed by an opaque version.
+export const exchangeConnections = sqliteTable(
+  "exchange_connections",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    mailboxId: text("mailbox_id").notNull(),
+    clientId: text("client_id").notNull(),
+    generation: integer("generation").notNull().default(0),
+    version: integer("version").notNull().default(0),
+    status: text("status").notNull().default("disconnected"),
+    credentialVersion: text("credential_version"),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: text("lease_expires_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    check("exchange_connections_singleton_check", sql`${table.id} = 'alexis'`),
+    check("exchange_connections_generation_check", sql`${table.generation} >= 0 and ${table.version} >= 0`),
+    check("exchange_connections_status_check", sql`${table.status} in ('connected', 'disconnected', 'reauth_required')`),
+    check("exchange_connections_credential_check", sql`(${table.status} != 'connected' or ${table.credentialVersion} is not null) and (${table.status} != 'disconnected' or ${table.credentialVersion} is null)`),
+    check("exchange_connections_lease_check", sql`(${table.leaseOwner} is null) = (${table.leaseExpiresAt} is null)`),
+  ],
+);
+
+export const exchangeOauthFlows = sqliteTable(
+  "exchange_oauth_flows",
+  {
+    id: text("id").primaryKey(),
+    connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+    generation: integer("generation").notNull(),
+    stateHash: text("state_hash").notNull(),
+    binderHash: text("binder_hash").notNull(),
+    operatorEmail: text("operator_email").notNull(),
+    status: text("status").notNull().default("pending"),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("exchange_oauth_flows_state_unique").on(table.stateHash),
+    uniqueIndex("exchange_oauth_flows_active_operator_unique").on(table.operatorEmail).where(sql`${table.status} in ('pending', 'staging', 'ready', 'consuming')`),
+    index("exchange_oauth_flows_expiry_idx").on(table.expiresAt),
+    check("exchange_oauth_flows_generation_check", sql`${table.generation} >= 0`),
+    check("exchange_oauth_flows_status_check", sql`${table.status} in ('pending', 'staging', 'ready', 'consuming', 'completed', 'failed')`),
+    check("exchange_oauth_flows_state_hash_check", sql`length(${table.stateHash}) = 64 and ${table.stateHash} not glob '*[^0-9a-f]*'`),
+    check("exchange_oauth_flows_binder_hash_check", sql`length(${table.binderHash}) = 64 and ${table.binderHash} not glob '*[^0-9a-f]*'`),
+    check("exchange_oauth_flows_lifetime_check", sql`julianday(${table.expiresAt}) > julianday(${table.createdAt}) and julianday(${table.expiresAt}) <= julianday(${table.createdAt}, '+5 minutes')`),
+  ],
+);
+
+// The trigger in migration 0020 enqueues obsolete object versions in the same
+// transaction that replaces/revokes the active pointer. No credential is stored.
+export const exchangeCredentialCleanup = sqliteTable(
+  "exchange_credential_cleanup",
+  {
+    credentialVersion: text("credential_version").primaryKey(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("exchange_credential_cleanup_created_idx").on(table.createdAt),
+    check("exchange_credential_cleanup_version_check", sql`length(${table.credentialVersion}) = 36 and ${table.credentialVersion} not glob '*[^0-9a-f-]*'`),
+  ],
+);
