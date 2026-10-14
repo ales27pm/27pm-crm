@@ -1,5 +1,5 @@
 import type { CrmDatabase } from "./d1";
-import type { ExchangeGraphMessage } from "./exchange-graph";
+import { isTrustedExchangeDeltaCursor, type ExchangeGraphMessage } from "./exchange-graph";
 
 export type ExchangeMailScope = { tenantId: string; mailboxId: string };
 export type ExchangeMailGuard = { owner: string; generation: number };
@@ -192,12 +192,7 @@ function validWrite(input: WriteContext, now: Date): boolean {
 }
 function leaseValues(input: WriteContext, now: Date) { return [input.scope.tenantId, input.scope.mailboxId, input.guard.owner, input.guard.generation, now.toISOString()]; }
 function validCursor(value: string | null, mailboxId: string, folderId: string): boolean {
-  if (typeof value !== "string" || value.length > 16384 || CONTROL.test(value)) return false;
-  try {
-    const url = new URL(value);
-    return url.origin === "https://graph.microsoft.com" && !url.username && !url.password && !url.hash &&
-      url.pathname === `/v1.0/users/${mailboxId}/mailFolders/${encodeURIComponent(folderId)}/messages/delta`;
-  } catch { return false; }
+  return isTrustedExchangeDeltaCursor(value, mailboxId, folderId);
 }
 function validProjection(value: { mailboxId: string | null; crmMessageId: string | null; classification: ExchangeMessageClassification } | undefined): boolean {
   if (value === undefined) return true;

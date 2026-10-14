@@ -379,20 +379,56 @@ function normalizeMessage(raw: unknown, phase: ExchangeGraphPhase): ExchangeGrap
 
 function validateCursor(value: unknown, mailboxId: string, folderId: string, code: ExchangeGraphErrorCode): string {
   const bad = (): never => { throw failure(code, "read"); };
-  const parsed = cursorUrl(value, code);
-  let segments: string[];
-  try { segments = parsed.pathname.split("/").map(decodeURIComponent); } catch { return bad(); }
-  if (segments.length !== 8 || segments[0] !== "" || segments[1] !== "v1.0" || segments[2] !== "users" ||
-      segments[3].toLowerCase() !== mailboxId.toLowerCase() || segments[4].toLowerCase() !== "mailfolders" ||
-      segments[5] !== folderId || segments[6] !== "messages" || segments[7] !== "delta") return bad();
+  if (!isTrustedExchangeDeltaCursor(value, mailboxId, folderId)) return bad();
+  return value;
+}
+
+/**
+ * Graph can canonicalize delta links from slash segments to documented OData
+ * key segments such as `mailFolders('id')`. Accept only those two equivalent
+ * spellings while keeping the origin, mailbox, folder and operation pinned.
+ */
+export function isTrustedExchangeDeltaCursor(
+  value: unknown,
+  mailboxId: string,
+  folderId: string,
+): value is string {
+  if (typeof value !== "string" || value.length > MAX_CURSOR_LENGTH || CONTROL.test(value) ||
+      value.includes("\\") || value.trim() !== value || !UUID.test(mailboxId) || !opaqueId(folderId)) return false;
+  let parsed: URL;
+  try { parsed = new URL(value); } catch { return false; }
+  if (parsed.origin !== ORIGIN || parsed.username || parsed.password || parsed.hash || parsed.port || parsed.protocol !== "https:" ||
+      !deltaPathMatches(parsed.pathname, mailboxId, folderId)) return false;
   const allowed = new Set(["$select", "$top", "$skiptoken", "$deltatoken"]);
   const seen = new Set<string>();
   for (const [key, token] of parsed.searchParams) {
-    if (!allowed.has(key) || seen.has(key) || !token || CONTROL.test(token)) return bad();
+    if (!allowed.has(key) || seen.has(key) || !token || CONTROL.test(token)) return false;
     seen.add(key);
   }
-  if (seen.has("$skiptoken") === seen.has("$deltatoken")) return bad();
-  return value as string;
+  return seen.has("$skiptoken") !== seen.has("$deltatoken");
+}
+
+function deltaPathMatches(pathname: string, mailboxId: string, folderId: string): boolean {
+  let segments: string[];
+  try { segments = pathname.split("/").map(decodeURIComponent); } catch { return false; }
+  if (segments[0] !== "" || segments[1] !== "v1.0") return false;
+  let index = 2;
+  const slashMailbox = segments[index]?.toLowerCase() === "users";
+  const selectedMailbox = slashMailbox ? segments[index + 1] : odataKey(segments[index], "users");
+  if (typeof selectedMailbox !== "string" || selectedMailbox.toLowerCase() !== mailboxId.toLowerCase()) return false;
+  index += slashMailbox ? 2 : 1;
+  const slashFolder = segments[index]?.toLowerCase() === "mailfolders";
+  const selectedFolder = slashFolder ? segments[index + 1] : odataKey(segments[index], "mailfolders");
+  if (selectedFolder !== folderId) return false;
+  index += slashFolder ? 2 : 1;
+  return segments.length === index + 2 && segments[index]?.toLowerCase() === "messages" && segments[index + 1]?.toLowerCase() === "delta";
+}
+
+function odataKey(segment: string | undefined, collection: string): string | null {
+  if (typeof segment !== "string") return null;
+  const match = /^([a-z]+)\('((?:[^']|'')*)'\)$/iu.exec(segment);
+  if (!match || match[1].toLowerCase() !== collection) return null;
+  return match[2].replaceAll("''", "'");
 }
 
 function cursorUrl(value: unknown, code: ExchangeGraphErrorCode): URL {

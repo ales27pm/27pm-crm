@@ -50,6 +50,14 @@ test("cursor targets are pinned to exact Graph mailbox and folder; invalid point
   assert.ok(await saveExchangeSyncCursor(db, input, NOW));
 });
 
+test("cursor persistence accepts Graph's documented OData-key canonical link", async t => {
+  const { db, context } = await setup(t);
+  const folder = "inbox-id";
+  const canonical = `https://graph.microsoft.com/v1.0/users('${scope.mailboxId}')/mailFolders('${folder}')/messages/delta?$deltatoken=opaque`;
+  const saved = await saveExchangeSyncCursor(db, { ...cursorInput(context), folderId: folder, deltaLink: canonical }, NOW);
+  assert.equal(saved?.deltaLink, canonical);
+});
+
 test("all writers are fenced by owner, generation, identity, status and strict lease expiry", async t => {
   const { db, sqlite, context } = await setup(t);
   const commandId = seedCommand(sqlite);

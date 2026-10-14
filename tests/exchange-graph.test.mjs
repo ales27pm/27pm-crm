@@ -75,6 +75,27 @@ test("delta preserves absent fields, returns tombstones separately and keeps the
   assert.match(new Headers(calls[0].init.headers).get("Prefer"), /odata.maxpagesize=4/u);
 });
 
+test("delta accepts Graph's documented OData-key cursor spelling without weakening mailbox or folder pinning", async () => {
+  const folderKey = encodeURIComponent(`mailFolders('${folder.replaceAll("'", "''")}')`);
+  const canonical = `https://graph.microsoft.com/v1.0/users('${MAILBOX}')/${folderKey}/messages/delta?$skiptoken=opaque%2Btoken%2F%3D`;
+  const mixed = `https://graph.microsoft.com/v1.0/users/${MAILBOX}/${folderKey}/messages/delta?$deltatoken=opaque%2Btoken%2F%3D`;
+  for (const cursor of [canonical, mixed]) {
+    const { access, calls } = makeAccess(() => json({ value: [], "@odata.deltaLink": mixed }));
+    const first = await readExchangeDelta(access, folder, cursor);
+    assert.equal(calls[0].url, cursor);
+    assert.equal(first.deltaLink, mixed);
+  }
+  for (const cursor of [
+    canonical.replace(MAILBOX, "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+    canonical.replace(folderKey, encodeURIComponent("mailFolders('different-folder')")),
+    canonical.replace("/messages/delta", "/messages"),
+  ]) {
+    const { access, calls } = makeAccess(() => { throw new Error("must not fetch"); });
+    await rejects(readExchangeDelta(access, folder, cursor), "exchange_graph_request_invalid", "read");
+    assert.equal(calls.length, 0);
+  }
+});
+
 test("hostile, cross-mailbox, cross-folder and non-Graph cursors fail before any bearer request", async () => {
   for (const cursor of [
     "http://graph.microsoft.com/v1.0/me/messages", "https://graph.microsoft.com.evil.invalid/test",
