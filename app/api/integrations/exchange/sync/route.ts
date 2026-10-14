@@ -1,5 +1,6 @@
 import { requireSameOriginOperatorRequest } from "@/lib/api-auth";
 import { ExchangeConnectionError } from "@/lib/exchange-connection-service";
+import { reportExchangeFailure } from "@/lib/exchange-diagnostics";
 import { ExchangeGraphError, type ExchangeGraphFolder } from "@/lib/exchange-graph";
 import { exchangeRuntimeContext } from "@/lib/exchange-runtime";
 import { privateJsonError, privateNoStoreHeaders, readJsonObject } from "@/lib/http";
@@ -27,6 +28,10 @@ export async function POST(request: Request) {
     const result = await syncExchangeFolder(context, body.folder as ExchangeGraphFolder);
     return Response.json({ ok: true, ...result }, { headers: privateNoStoreHeaders() });
   } catch (error) {
+    reportExchangeFailure("sync",
+      error instanceof ExchangeConnectionError || error instanceof ExchangeGraphError
+        ? error.code
+        : "exchange_sync_unavailable");
     if (error instanceof ExchangeConnectionError) {
       return privateJsonError(error.status, error.code);
     }

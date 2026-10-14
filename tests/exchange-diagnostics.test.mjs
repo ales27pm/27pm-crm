@@ -3,13 +3,19 @@ import test from "node:test";
 
 import { reportExchangeFailure, reportExchangeProviderFailure } from "../lib/exchange-diagnostics.ts";
 
-const actions = ["connect", "finalize", "check", "disconnect", "callback"];
+const actions = ["connect", "finalize", "check", "disconnect", "callback", "sync"];
 const knownCodes = [
   "exchange_configuration_mismatch", "exchange_already_connected", "exchange_flow_busy",
   "exchange_connection_unavailable", "exchange_authorization_invalid", "exchange_connection_busy",
   "exchange_connection_changed", "exchange_reauthentication_required", "exchange_storage_unavailable",
   "exchange_configuration_invalid", "exchange_provider_unavailable", "exchange_provider_response_invalid",
   "exchange_identity_invalid", "exchange_scopes_missing",
+  "exchange_graph_configuration_invalid", "exchange_graph_request_invalid",
+  "exchange_graph_connection_changed", "exchange_graph_response_invalid",
+  "exchange_graph_unavailable", "exchange_graph_timeout",
+  "exchange_graph_reauthentication_required", "exchange_graph_forbidden",
+  "exchange_graph_not_found", "exchange_graph_delta_reset", "exchange_graph_throttled",
+  "exchange_graph_request_rejected", "exchange_sync_unavailable",
 ];
 
 test("Exchange diagnostics retain only known literal action and error labels", (t) => {
