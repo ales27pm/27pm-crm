@@ -40,6 +40,15 @@ export type CrmMessage = {
   deliveryEvents: CrmDeliveryEvent[];
 };
 
+export type CrmAttachment = {
+  id: string;
+  messageId: string;
+  fileName: string;
+  sizeBytes: number;
+  scanStatus: "unscanned" | "clean" | "infected" | "rejected";
+  downloadable: boolean;
+};
+
 export type CrmDeliveryEvent = {
   state: OutboundDeliveryState;
   occurredAt: string;

@@ -29,10 +29,10 @@ function conversationWith(messages) {
   };
 }
 
-function renderThread(messages, contextOpen = false) {
+function renderThread(messages, contextOpen = false, conversationId = "conversation-test") {
   return renderToStaticMarkup(
     createElement(ThreadView, {
-      conversation: conversationWith(messages),
+      conversation: { ...conversationWith(messages), id: conversationId },
       sendEnabled: false,
       contextOpen,
       contextTriggerRef: null,
@@ -44,6 +44,12 @@ function renderThread(messages, contextOpen = false) {
     }),
   );
 }
+
+test("opens a server-generated accepted conversation without crashing Reception", () => {
+  const html = renderThread([], false, `accepted-conversation:${"a".repeat(64)}`);
+  assert.match(html, /Cycle de livraison/u);
+  assert.match(html, /Répondre à Marie/u);
+});
 
 test("renders every delivery state with timestamp and operator guidance", () => {
   const messages = OUTBOUND_DELIVERY_STATES.map((state, index) => ({

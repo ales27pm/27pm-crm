@@ -12,7 +12,6 @@ import {
   validMobileIosAppId,
   validMobileIssuer,
   validMobileRedirectUri,
-  validMobileSigningSecret,
 } from "@/lib/mobile-auth";
 import { runtimeString } from "@/lib/runtime";
 
@@ -37,7 +36,6 @@ export default async function MobileAuthorizePage({
   );
   if (
     !configuredRedirectUri ||
-    !validMobileSigningSecret(runtimeString("CRM_MOBILE_TOKEN_SIGNING_KEY")) ||
     !validMobileIosAppId(runtimeString("CRM_IOS_APP_ID")) ||
     !validMobileIssuer(runtimeString("CRM_PUBLIC_ORIGIN"))
   ) {

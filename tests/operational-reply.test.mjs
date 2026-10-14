@@ -45,6 +45,7 @@ test("authorizes one recent exact operational reply and records its inbound evid
     contactComplianceVersion: 1,
     recipient: "isabel@example.com",
     inboundMessageId: "message-isabel-inbound",
+    inboundTransportProvider: "mailgun",
     inboundExternalMessageId: "inbound-isabel@example.com",
     inboundOccurredAt: "2026-09-14T22:19:08.000Z",
     inboundCreatedAt: "2026-09-14 22:19:22",
@@ -280,6 +281,18 @@ test("binds authorization to the operator and exact inbound snapshot", async (t)
     "UPDATE send_commands SET status='cancelled' WHERE id='command-wrong-evidence'",
   ).run();
 
+  insertPendingCommand(database, "command-wrong-inbound-provider", evidence, {
+    approvalDigest,
+    inboundTransportProvider: "exchange",
+  });
+  assert.equal(await advanceOperationalReplyAuthorization(
+    db, "command-wrong-inbound-provider", evidence, approvalDigest, operatorEmail,
+    "pending", "authorized", now,
+  ), false);
+  database.prepare(
+    "UPDATE send_commands SET status='cancelled' WHERE id='command-wrong-inbound-provider'",
+  ).run();
+
   insertPendingCommand(database, "command-wrong-digest", evidence, {
     approvalDigest: "f".repeat(64),
   });
@@ -336,6 +349,101 @@ test("authorizes only the oldest pending command for one inbound, then allows a 
     db, "command-follow-up", laterEvidence, laterDigest, operatorEmail,
     "pending", "authorized", now,
   ), true);
+});
+
+test("resolves an Exchange RFC Message-ID only through the exact scoped CRM mirror", async (t) => {
+  const database = await migratedDatabase();
+  t.after(() => database.close());
+  seedOperationalConversation(database);
+  seedExchangeMirror(database);
+  const db = d1Adapter(database);
+
+  const evidence = await loadEvidence(db);
+  assert.deepEqual(evidence, {
+    conversationId: "conversation-operations",
+    conversationSubject: "Aide",
+    mailboxId: "mailbox_admin",
+    mailboxAddress: "admin@27pm.org",
+    contactId: "contact-isabel",
+    contactComplianceVersion: 1,
+    recipient: "isabel@example.com",
+    inboundMessageId: "message-isabel-inbound",
+    inboundTransportProvider: "exchange",
+    inboundExternalMessageId: "exchange-inbound@example.com",
+    inboundOccurredAt: "2026-09-14T22:19:08.000Z",
+    inboundCreatedAt: "2026-09-14 22:19:22",
+  });
+
+  const approvalDigest = await digestFor(evidence);
+  insertPendingCommand(database, "command-exchange", evidence, {
+    approvalDigest,
+    transportProvider: "exchange",
+  });
+  assert.equal(await advanceOperationalReplyAuthorization(
+    db, "command-exchange", evidence, approvalDigest, operatorEmail,
+    "pending", "authorized", now,
+  ), true);
+
+  database.prepare(`UPDATE exchange_message_links
+    SET internet_message_id='<different@example.com>'
+    WHERE crm_message_id='message-isabel-inbound'`).run();
+  assert.equal(await advanceOperationalReplyAuthorization(
+    db, "command-exchange", evidence, approvalDigest, operatorEmail,
+    "authorized", "dispatching", now,
+  ), false, "the provider RFC thread identity is rechecked immediately before dispatch");
+});
+
+test("rejects unscoped or incomplete Exchange mirrors", async (t) => {
+  for (const [label, mutate] of [
+    ["missing link", (database) => database.prepare(
+      "DELETE FROM exchange_message_links WHERE crm_message_id='message-isabel-inbound'",
+    ).run()],
+    ["wrong logical mailbox", (database) => database.prepare(
+      "UPDATE exchange_message_links SET logical_mailbox_id='mailbox_alexis' WHERE crm_message_id='message-isabel-inbound'",
+    ).run()],
+    ["not mapped", (database) => database.prepare(
+      "UPDATE exchange_message_links SET classification='ambiguous',crm_message_id=NULL WHERE graph_message_id='graph-message-isabel'",
+    ).run()],
+    ["missing RFC id", (database) => database.prepare(
+      "UPDATE exchange_message_links SET internet_message_id=NULL WHERE crm_message_id='message-isabel-inbound'",
+    ).run()],
+  ]) {
+    const database = await migratedDatabase();
+    t.after(() => database.close());
+    seedOperationalConversation(database);
+    seedExchangeMirror(database);
+    mutate(database);
+    assert.equal(await loadEvidence(d1Adapter(database)), null, label);
+  }
+});
+
+test("prevents one inbound reply from being authorized twice across providers", async (t) => {
+  const database = await migratedDatabase();
+  t.after(() => database.close());
+  seedOperationalConversation(database);
+  const db = d1Adapter(database);
+  const evidence = await loadEvidence(db);
+  assert.ok(evidence);
+  const approvalDigest = await digestFor(evidence);
+
+  insertPendingCommand(database, "command-exchange-first", evidence, {
+    approvalDigest,
+    transportProvider: "exchange",
+    createdAt: "2026-09-14 23:20:00",
+  });
+  insertPendingCommand(database, "command-mailgun-second", evidence, {
+    approvalDigest,
+    transportProvider: "mailgun",
+    createdAt: "2026-09-14 23:21:00",
+  });
+  assert.equal(await advanceOperationalReplyAuthorization(
+    db, "command-exchange-first", evidence, approvalDigest, operatorEmail,
+    "pending", "authorized", now,
+  ), true);
+  assert.equal(await advanceOperationalReplyAuthorization(
+    db, "command-mailgun-second", evidence, approvalDigest, operatorEmail,
+    "pending", "authorized", now,
+  ), false);
 });
 
 test("approval digest deterministically binds every operational reply field", async () => {
@@ -443,6 +551,27 @@ function seedOperationalConversation(database) {
       '2026-09-14 22:19:22')`).run();
 }
 
+function seedExchangeMirror(database) {
+  database.prepare(`INSERT INTO exchange_connections
+    (id,tenant_id,mailbox_id,client_id,status)
+    VALUES ('alexis','a1234567-1234-1234-1234-123456789abc',
+      'b1234567-1234-1234-1234-123456789abc',
+      'c1234567-1234-1234-1234-123456789abc','disconnected')`).run();
+  database.prepare(`UPDATE messages SET
+      transport_provider='exchange',provider_message_id='graph-message-isabel',
+      external_message_id=NULL
+    WHERE id='message-isabel-inbound'`).run();
+  database.prepare(`INSERT INTO exchange_message_links
+    (id,connection_id,tenant_id,physical_mailbox_id,graph_message_id,
+     crm_message_id,logical_mailbox_id,internet_message_id,folder_id,
+     classification,message_json)
+    VALUES ('exchange-link-isabel','alexis',
+      'a1234567-1234-1234-1234-123456789abc',
+      'b1234567-1234-1234-1234-123456789abc','graph-message-isabel',
+      'message-isabel-inbound','mailbox_admin','<Exchange-Inbound@Example.COM>',
+      'inbox-id','mapped','{}')`).run();
+}
+
 async function loadEvidence(db) {
   return loadOperationalReplyEvidence(db, {
     conversationId: "conversation-operations",
@@ -480,6 +609,8 @@ function insertPendingCommand(database, id, evidence, options = {}) {
         ...evidence,
         inboundMessageId:
           options.inboundMessageId ?? evidence.inboundMessageId,
+        inboundTransportProvider:
+          options.inboundTransportProvider ?? evidence.inboundTransportProvider,
       },
     },
   };
@@ -487,9 +618,10 @@ function insertPendingCommand(database, id, evidence, options = {}) {
     (id, transport_provider, idempotency_key, request_hash, mailbox_id,
      conversation_id, status, contact_id, contact_compliance_version,
      operator_confirmed_at, compliance_snapshot_json, created_at)
-    VALUES (?, 'mailgun', ?, ?, 'mailbox_admin', 'conversation-operations',
+    VALUES (?, ?, ?, ?, 'mailbox_admin', 'conversation-operations',
       'pending', 'contact-isabel', 1, ?, ?, ?)`).run(
     id,
+    options.transportProvider ?? "mailgun",
     `${id}-key`,
     `${id}-hash`,
     now.toISOString(),

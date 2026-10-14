@@ -432,8 +432,8 @@ export const messages = sqliteTable(
       sql`${table.direction} in ('inbound', 'outbound')`,
     ),
     check(
-      "messages_transport_provider_check",
-      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
+      "messages_transport_provider_exchange_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail', 'exchange')`,
     ),
     check(
       "messages_status_check",
@@ -882,8 +882,8 @@ export const sendCommands = sqliteTable(
       table.providerMessageId,
     ),
     check(
-      "send_commands_transport_provider_check",
-      sql`${table.transportProvider} in ('mailgun', 'cakemail')`,
+      "send_commands_transport_provider_exchange_check",
+      sql`${table.transportProvider} in ('mailgun', 'cakemail', 'exchange')`,
     ),
     check(
       "send_commands_status_check",
@@ -1040,3 +1040,148 @@ export const mobileRefreshTokens = sqliteTable(
     ),
   ],
 );
+
+export const internalApiNonces = sqliteTable(
+  "internal_api_nonces",
+  {
+    nonce: text("nonce").primaryKey(),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("internal_api_nonces_expiry_idx").on(table.expiresAt),
+    check(
+      "internal_api_nonces_format_check",
+      sql`length(${table.nonce}) between 22 and 86 and ${table.nonce} not glob '*[^A-Za-z0-9_-]*'`,
+    ),
+  ],
+);
+
+// These tables contain metadata and one-way hashes only. OAuth credentials
+// remain encrypted in private object storage, addressed by an opaque version.
+export const exchangeConnections = sqliteTable(
+  "exchange_connections",
+  {
+    id: text("id").primaryKey(),
+    tenantId: text("tenant_id").notNull(),
+    mailboxId: text("mailbox_id").notNull(),
+    clientId: text("client_id").notNull(),
+    generation: integer("generation").notNull().default(0),
+    version: integer("version").notNull().default(0),
+    status: text("status").notNull().default("disconnected"),
+    credentialVersion: text("credential_version"),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: text("lease_expires_at"),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    check("exchange_connections_singleton_check", sql`${table.id} = 'alexis'`),
+    check("exchange_connections_generation_check", sql`${table.generation} >= 0 and ${table.version} >= 0`),
+    check("exchange_connections_status_check", sql`${table.status} in ('connected', 'disconnected', 'reauth_required')`),
+    check("exchange_connections_credential_check", sql`(${table.status} != 'connected' or ${table.credentialVersion} is not null) and (${table.status} != 'disconnected' or ${table.credentialVersion} is null)`),
+    check("exchange_connections_lease_check", sql`(${table.leaseOwner} is null) = (${table.leaseExpiresAt} is null)`),
+  ],
+);
+
+export const exchangeOauthFlows = sqliteTable(
+  "exchange_oauth_flows",
+  {
+    id: text("id").primaryKey(),
+    connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+    generation: integer("generation").notNull(),
+    stateHash: text("state_hash").notNull(),
+    binderHash: text("binder_hash").notNull(),
+    operatorEmail: text("operator_email").notNull(),
+    status: text("status").notNull().default("pending"),
+    expiresAt: text("expires_at").notNull(),
+    createdAt: timestamp("created_at"),
+    updatedAt: timestamp("updated_at"),
+  },
+  (table) => [
+    uniqueIndex("exchange_oauth_flows_state_unique").on(table.stateHash),
+    uniqueIndex("exchange_oauth_flows_active_operator_unique").on(table.operatorEmail).where(sql`${table.status} in ('pending', 'staging', 'ready', 'consuming')`),
+    index("exchange_oauth_flows_expiry_idx").on(table.expiresAt),
+    check("exchange_oauth_flows_generation_check", sql`${table.generation} >= 0`),
+    check("exchange_oauth_flows_status_check", sql`${table.status} in ('pending', 'staging', 'ready', 'consuming', 'completed', 'failed')`),
+    check("exchange_oauth_flows_state_hash_check", sql`length(${table.stateHash}) = 64 and ${table.stateHash} not glob '*[^0-9a-f]*'`),
+    check("exchange_oauth_flows_binder_hash_check", sql`length(${table.binderHash}) = 64 and ${table.binderHash} not glob '*[^0-9a-f]*'`),
+    check("exchange_oauth_flows_lifetime_check", sql`julianday(${table.expiresAt}) > julianday(${table.createdAt}) and julianday(${table.expiresAt}) <= julianday(${table.createdAt}, '+5 minutes')`),
+  ],
+);
+
+// The trigger in migration 0020 enqueues obsolete object versions in the same
+// transaction that replaces/revokes the active pointer. No credential is stored.
+export const exchangeCredentialCleanup = sqliteTable(
+  "exchange_credential_cleanup",
+  {
+    credentialVersion: text("credential_version").primaryKey(),
+    createdAt: timestamp("created_at"),
+  },
+  (table) => [
+    index("exchange_credential_cleanup_created_idx").on(table.createdAt),
+    check("exchange_credential_cleanup_version_check", sql`length(${table.credentialVersion}) = 36 and ${table.credentialVersion} not glob '*[^0-9a-f-]*'`),
+  ],
+);
+
+// A physical Exchange mailbox is synchronized once. The three CRM mailboxes
+// remain logical projections; ambiguous recipient headers never select one.
+export const exchangeSyncCursors = sqliteTable("exchange_sync_cursors", {
+  id: text("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+  tenantId: text("tenant_id").notNull(),
+  physicalMailboxId: text("physical_mailbox_id").notNull(),
+  folderId: text("folder_id").notNull(),
+  generation: integer("generation").notNull(),
+  version: integer("version").notNull().default(0),
+  nextLink: text("next_link"),
+  deltaLink: text("delta_link"),
+  updatedAt: timestamp("updated_at"),
+}, (table) => [
+  uniqueIndex("exchange_sync_cursors_scope_unique").on(table.tenantId, table.physicalMailboxId, table.folderId),
+  check("exchange_sync_cursors_version_check", sql`${table.generation} >= 0 and ${table.version} >= 0`),
+  check("exchange_sync_cursors_pointer_check", sql`(${table.nextLink} is null) != (${table.deltaLink} is null)`),
+]);
+
+export const exchangeMessageLinks = sqliteTable("exchange_message_links", {
+  id: text("id").primaryKey(),
+  connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+  tenantId: text("tenant_id").notNull(),
+  physicalMailboxId: text("physical_mailbox_id").notNull(),
+  graphMessageId: text("graph_message_id").notNull(),
+  crmMessageId: text("crm_message_id").references(() => messages.id, { onDelete: "set null" }),
+  logicalMailboxId: text("logical_mailbox_id").references(() => mailboxes.id, { onDelete: "restrict" }),
+  internetMessageId: text("internet_message_id"),
+  folderId: text("folder_id"),
+  classification: text("classification").notNull().default("unclassified"),
+  messageJson: text("message_json").notNull().default("{}"),
+  remoteRemoved: integer("remote_removed", { mode: "boolean" }).notNull().default(false),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+}, (table) => [
+  uniqueIndex("exchange_message_links_scope_unique").on(table.tenantId, table.physicalMailboxId, table.graphMessageId),
+  uniqueIndex("exchange_message_links_crm_message_unique").on(table.crmMessageId),
+  index("exchange_message_links_classification_idx").on(table.classification, table.updatedAt),
+  index("exchange_message_links_internet_id_idx").on(table.internetMessageId),
+  check("exchange_message_links_classification_check", sql`${table.classification} in ('unclassified','mapped','ambiguous','external_sent','draft')`),
+  check("exchange_message_links_json_check", sql`json_valid(${table.messageJson}) and json_type(${table.messageJson}) = 'object'`),
+]);
+
+export const exchangeSendState = sqliteTable("exchange_send_state", {
+  commandId: text("command_id").primaryKey().references(() => sendCommands.id, { onDelete: "restrict" }),
+  connectionId: text("connection_id").notNull().references(() => exchangeConnections.id, { onDelete: "restrict" }),
+  tenantId: text("tenant_id").notNull(),
+  physicalMailboxId: text("physical_mailbox_id").notNull(),
+  correlationId: text("correlation_id").notNull(),
+  graphMessageId: text("graph_message_id"),
+  phase: text("phase").notNull().default("prepared"),
+  version: integer("version").notNull().default(0),
+  createdAt: timestamp("created_at"),
+  updatedAt: timestamp("updated_at"),
+}, (table) => [
+  uniqueIndex("exchange_send_state_correlation_unique").on(table.correlationId),
+  uniqueIndex("exchange_send_state_graph_id_unique").on(table.tenantId, table.physicalMailboxId, table.graphMessageId),
+  check("exchange_send_state_phase_check", sql`${table.phase} in ('prepared','drafted','send_requested','accepted','unknown','manual_review','rejected')`),
+  check("exchange_send_state_version_check", sql`${table.version} >= 0`),
+  check("exchange_send_state_draft_check", sql`${table.phase} not in ('drafted','send_requested','accepted') or ${table.graphMessageId} is not null`),
+]);

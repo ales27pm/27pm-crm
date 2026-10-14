@@ -1,4 +1,14 @@
 import { headers } from "next/headers";
+import { normalizeEmailAddress } from "@/lib/mailboxes";
+import {
+  authJsSignInPath,
+  authJsSignOutPath,
+  safeRelativeReturnPath,
+  webIdentityProvider,
+  type WebIdentityProvider,
+} from "@/lib/web-identity";
+
+export { webIdentityProvider } from "@/lib/web-identity";
 
 export type ChatGPTUser = {
   displayName: string;
@@ -13,9 +23,12 @@ const USER_FULL_NAME_ENCODING_HEADER =
 const PERCENT_ENCODED_UTF8 = "percent-encoded-utf-8";
 const SIGN_IN_PATH = "/signin-with-chatgpt";
 const SIGN_OUT_PATH = "/signout-with-chatgpt";
-const CALLBACK_PATH = "/callback";
 
 export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
+  const provider = webIdentityProvider();
+  if (provider === "google") return getAuthJsUser();
+  if (provider === "disabled") return null;
+
   const requestHeaders = await headers();
   const email = requestHeaders.get(USER_EMAIL_HEADER);
   if (!email) return null;
@@ -34,6 +47,24 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
   };
 }
 
+export function webSignInPath(
+  returnTo: string,
+  provider: WebIdentityProvider = webIdentityProvider(),
+): string {
+  if (provider === "google") return authJsSignInPath(returnTo);
+  if (provider === "sites") return chatGPTSignInPath(returnTo);
+  return "/";
+}
+
+export function webSignOutPath(
+  returnTo = "/",
+  provider: WebIdentityProvider = webIdentityProvider(),
+): string {
+  if (provider === "google") return authJsSignOutPath(returnTo);
+  if (provider === "sites") return chatGPTSignOutPath(returnTo);
+  return "/";
+}
+
 export function chatGPTSignInPath(returnTo: string): string {
   const safeReturnTo = safeRelativeReturnPath(returnTo);
   return `${SIGN_IN_PATH}?return_to=${encodeURIComponent(safeReturnTo)}`;
@@ -44,27 +75,18 @@ export function chatGPTSignOutPath(returnTo = "/"): string {
   return `${SIGN_OUT_PATH}?return_to=${encodeURIComponent(safeReturnTo)}`;
 }
 
-function safeRelativeReturnPath(value: string): string {
-  if (!value.startsWith("/") || value.startsWith("//")) return "/";
+async function getAuthJsUser(): Promise<ChatGPTUser | null> {
+  const { auth } = await import("../auth");
+  const session = await auth();
+  const email = normalizeEmailAddress(session?.user?.email ?? "");
+  if (!email) return null;
 
-  let url: URL;
-  try {
-    url = new URL(value, "https://app.local");
-  } catch {
-    return "/";
-  }
-  if (url.origin !== "https://app.local") return "/";
-  if (isReservedAuthPath(url.pathname)) return "/";
-
-  return `${url.pathname}${url.search}${url.hash}`;
-}
-
-function isReservedAuthPath(pathname: string): boolean {
-  return (
-    pathname === SIGN_IN_PATH ||
-    pathname === SIGN_OUT_PATH ||
-    pathname === CALLBACK_PATH
-  );
+  const fullName = session?.user?.name?.trim() || null;
+  return {
+    displayName: fullName ?? email,
+    email,
+    fullName,
+  };
 }
 
 function safeDecodeURIComponent(value: string): string | null {

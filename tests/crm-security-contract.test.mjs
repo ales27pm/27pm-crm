@@ -8,8 +8,10 @@ import { isSameOriginBrowserRequest } from "../lib/http.ts";
 const unsafeRouteInventory = [
   { route: "accounts/import/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/cakemail-send-resolution/route.ts", method: "POST", boundary: "operator" },
+  { route: "admin/exchange-send-reconciliation/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-canary/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-handoff/route.ts", method: "POST", boundary: "operator" },
+  { route: "attachments/[id]/download-ticket/route.ts", method: "POST", boundary: "operator" },
   { route: "compliance/route.ts", method: "PATCH", boundary: "operator" },
   { route: "contacts/[id]/route.ts", method: "DELETE", boundary: "operator" },
   { route: "contacts/[id]/route.ts", method: "PATCH", boundary: "operator" },
@@ -18,6 +20,14 @@ const unsafeRouteInventory = [
   { route: "deals/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "intake/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "interactions/route.ts", method: "POST", boundary: "operator" },
+  { route: "integrations/exchange/route.ts", method: "POST", boundary: "operator" },
+  { route: "integrations/exchange/sync/route.ts", method: "POST", boundary: "operator" },
+  {
+    route: "integrations/exchange/callback/route.ts",
+    method: "POST",
+    boundary: "oauth-callback",
+    guard: /readExchangeCallback\(request, context\.oauth\.callbackOrigin\)[\s\S]*stageExchangeCallback/u,
+  },
   { route: "messages/send/route.ts", method: "POST", boundary: "operator" },
   { route: "mobile/authorize/route.ts", method: "POST", boundary: "operator" },
   { route: "mobile/sessions/route.ts", method: "DELETE", boundary: "operator" },
@@ -208,6 +218,7 @@ test("mobile bearer scope is limited to dashboard and ordinary CRM work", async 
     "admin/mailgun-canary/route.ts",
     "admin/mailgun-handoff/route.ts",
     "admin/cakemail-send-resolution/route.ts",
+    "admin/exchange-send-reconciliation/route.ts",
     "compliance/route.ts",
     "privacy-requests/route.ts",
     "accounts/import/route.ts",
@@ -343,6 +354,26 @@ test("Cakemail unknown outcomes require bounded same-origin evidence and never r
   );
 });
 
+test("Exchange unknown outcomes are operator-only, bounded and read-only upstream", async () => {
+  const route = await readFile(
+    new URL("../app/api/admin/exchange-send-reconciliation/route.ts", import.meta.url),
+    "utf8",
+  );
+  const implementation = await readFile(
+    new URL("../lib/exchange-send-reconciliation.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(route, /requireSameOriginOperatorRequest\(request\)/u);
+  assert.match(route, /boundedRequest\(request, MAX_BODY_BYTES\)/u);
+  assert.match(implementation, /findExchangeDraftsByCommand/u);
+  assert.match(implementation, /findExchangeSentItemsByCommand/u);
+  assert.match(implementation, /manual_review/u);
+  assert.doesNotMatch(
+    `${route}\n${implementation}`,
+    /sendApprovedExchangeMessage|createExchangeDraft|submitExchangeDraft|sendMail|sendOutboundMessage/u,
+  );
+});
+
 test("the Mailgun canary is operator-only and pinned to configured controlled seeds", async () => {
   const source = await readFile(new URL("../app/api/admin/mailgun-canary/route.ts", import.meta.url), "utf8");
   assert.match(source, /CRM_CANARY_RECIPIENT/u);
@@ -395,6 +426,8 @@ test("public Mailgun webhooks reject oversized bodies before parsing", async () 
   const inboundStorage = await readFile(new URL("../lib/webhook-store.ts", import.meta.url), "utf8");
   assert.match(inboundStorage, /contacts\.validated_at IS NULL/u);
   assert.match(inboundStorage, /ELSE contacts\.display_name/u);
+  assert.match(inboundStorage, /safeAttachmentDisplayName/u);
+  assert.match(inboundStorage, /sha256: digest/u);
 });
 
 test("outbound email and contact tasks enforce qualification guards", async () => {
@@ -408,7 +441,8 @@ test("outbound email and contact tasks enforce qualification guards", async () =
   assert.match(send, /loadOperationalReplyEvidence/u);
   assert.match(send, /advanceOperationalReplyAuthorization/u);
   assert.match(send, /operational_reply_confirmation_required/u);
-  assert.match(send, /requireMailgunOperationalConfig/u);
+  assert.match(send, /requireOutboundOperationalConfig/u);
+  assert.doesNotMatch(send, /requireMailgunOperationalConfig/u);
   assert.match(send, /operationalReplyApprovalDigest/u);
   assert.match(send, /operationalReplyApprovalMatches/u);
   assert.match(send, /runtimeString\("CRM_OPERATIONAL_REPLY_APPROVAL_SHA256"\)/u);
@@ -426,7 +460,10 @@ test("outbound email and contact tasks enforce qualification guards", async () =
   assert.match(operationalReply, /mailbox\.purpose='operations'/u);
   assert.match(operationalReply, /inbound\.direction='inbound'/u);
   assert.match(operationalReply, /inbound\.status='received'/u);
-  assert.match(operationalReply, /inbound\.transport_provider='mailgun'/u);
+  assert.match(operationalReply, /inbound\.transport_provider=\?/u);
+  assert.match(operationalReply, /exchange_message_links exchange_link/u);
+  assert.match(operationalReply, /exchange_link\.crm_message_id=inbound\.id/u);
+  assert.match(operationalReply, /candidate\.transport_provider IN \('mailgun','exchange'\)/u);
   assert.match(operationalReply, /FROM contact_suppressions suppression/u);
   assert.match(operationalReply, /operator_confirmed_at IS NOT NULL/u);
   assert.match(

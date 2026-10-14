@@ -3,6 +3,7 @@ import {
   requireSameOriginOperatorOrMobileRequest,
 } from "@/lib/api-auth";
 import { changedRows, crmDatabase } from "@/lib/d1";
+import { isConversationId } from "@/lib/conversation-id";
 import { jsonError, readJsonObject, validIsoTimestamp } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +14,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   const auth = await requireSameOriginOperatorOrMobileRequest(request, "crm:work");
   if (auth.response) return auth.response;
   const { id } = await context.params;
-  if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(id)) {
+  if (!isConversationId(id)) {
     return jsonError(400, "conversation_id_invalid");
   }
 

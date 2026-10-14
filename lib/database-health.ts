@@ -15,6 +15,8 @@ export const MOBILE_AUTH_HEALTH_TABLES = [
 
 export type MobileAuthHealthTable = (typeof MOBILE_AUTH_HEALTH_TABLES)[number];
 
+export const INTERNAL_API_NONCE_HEALTH_TABLE = "internal_api_nonces" as const;
+
 export type DatabaseColumnEvidence = {
   name: string;
   notNull: boolean;
@@ -46,6 +48,22 @@ export type MobileAuthForeignKeyEvidence = {
   onDelete: string;
 };
 
+export type InternalApiNonceIndexEvidence = {
+  name: string;
+  table: typeof INTERNAL_API_NONCE_HEALTH_TABLE;
+  unique: boolean;
+  partial: boolean;
+  columns: string[];
+};
+
+export type InternalApiNonceColumnEvidence = {
+  name: string;
+  type: string;
+  notNull: boolean;
+  defaultValue: string | null;
+  primaryKeyPosition: number;
+};
+
 export type DatabaseHealthEvidence = {
   quickCheck: string[];
   foreignKeyViolations: number;
@@ -59,6 +77,9 @@ export type DatabaseHealthEvidence = {
   mobileAuthIndexes: MobileAuthIndexEvidence[];
   mobileAuthTableSql: Record<MobileAuthHealthTable, string>;
   mobileAuthForeignKeys: MobileAuthForeignKeyEvidence[];
+  internalApiNonceColumns: InternalApiNonceColumnEvidence[];
+  internalApiNonceIndexes: InternalApiNonceIndexEvidence[];
+  internalApiNonceTableSql: string;
 };
 
 export const DATABASE_HEALTH_INDEX_REQUIREMENTS = [
@@ -103,8 +124,8 @@ export const DATABASE_HEALTH_INTEGRITY_QUERIES = [
   {
     name: "invalidTransportProviders",
     sql: `SELECT
-      (SELECT COUNT(*) FROM messages WHERE transport_provider NOT IN ('mailgun','cakemail')) +
-      (SELECT COUNT(*) FROM send_commands WHERE transport_provider NOT IN ('mailgun','cakemail')) +
+      (SELECT COUNT(*) FROM messages WHERE transport_provider NOT IN ('mailgun','cakemail','exchange')) +
+      (SELECT COUNT(*) FROM send_commands WHERE transport_provider NOT IN ('mailgun','cakemail','exchange')) +
       (SELECT COUNT(*) FROM message_events WHERE transport_provider NOT IN ('mailgun','cakemail')) +
       (SELECT COUNT(*) FROM webhook_receipts WHERE transport_provider NOT IN ('mailgun','cakemail'))
       AS count`,
@@ -120,7 +141,8 @@ export const DATABASE_HEALTH_INTEGRITY_QUERIES = [
     sql: `SELECT COUNT(*) AS count FROM send_commands
       WHERE status = 'sent'
         AND (provider_message_id IS NULL OR trim(provider_message_id) = ''
-          OR external_message_id IS NULL OR trim(external_message_id) = '')`,
+          OR (transport_provider <> 'exchange' AND
+            (external_message_id IS NULL OR trim(external_message_id) = '')))`,
   },
   {
     name: "eventMessageProviderMismatches",
@@ -277,6 +299,14 @@ export const MOBILE_AUTH_INDEX_REQUIREMENTS = [
   columns: readonly string[];
 })[];
 
+export const INTERNAL_API_NONCE_INDEX_REQUIREMENT = {
+  table: INTERNAL_API_NONCE_HEALTH_TABLE,
+  name: "internal_api_nonces_expiry_idx",
+  unique: false,
+  partial: false,
+  columns: ["expires_at"],
+} as const;
+
 const MOBILE_AUTH_FOREIGN_KEY_REQUIREMENTS = [
   {
     table: "mobile_sessions",
@@ -295,6 +325,30 @@ const MOBILE_AUTH_FOREIGN_KEY_REQUIREMENTS = [
     onDelete: "RESTRICT",
   },
 ] as const satisfies readonly MobileAuthForeignKeyEvidence[];
+
+const INTERNAL_API_NONCE_COLUMN_REQUIREMENTS = [
+  {
+    name: "nonce",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 1,
+  },
+  {
+    name: "expires_at",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: null,
+    primaryKeyPosition: 0,
+  },
+  {
+    name: "created_at",
+    type: "TEXT",
+    notNull: true,
+    defaultValue: "CURRENT_TIMESTAMP",
+    primaryKeyPosition: 0,
+  },
+] as const satisfies readonly InternalApiNonceColumnEvidence[];
 
 export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
   const schemaChecks = {
@@ -341,6 +395,31 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     ),
   };
   const migration0017 = Object.values(mobileAuthSchemaChecks).every(Boolean);
+  const internalApiNonceIndex = evidence.internalApiNonceIndexes.find(
+    ({ name, table }) =>
+      name === INTERNAL_API_NONCE_INDEX_REQUIREMENT.name &&
+      table === INTERNAL_API_NONCE_INDEX_REQUIREMENT.table,
+  );
+  const internalApiNonceSchemaChecks = {
+    columns: internalApiNonceColumnsAreExact(
+      evidence.internalApiNonceColumns,
+    ),
+    index:
+      internalApiNonceIndex?.unique ===
+        INTERNAL_API_NONCE_INDEX_REQUIREMENT.unique &&
+      internalApiNonceIndex.partial ===
+        INTERNAL_API_NONCE_INDEX_REQUIREMENT.partial &&
+      arraysEqual(
+        internalApiNonceIndex.columns,
+        INTERNAL_API_NONCE_INDEX_REQUIREMENT.columns,
+      ),
+    constraint: internalApiNonceConstraintIsPresent(
+      evidence.internalApiNonceTableSql,
+    ),
+  };
+  const migration0018 = Object.values(internalApiNonceSchemaChecks).every(
+    Boolean,
+  );
   const dataConsistent = Object.values(evidence.violations).every(
     (count) => Number.isSafeInteger(count) && count === 0,
   );
@@ -350,6 +429,7 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     evidence.foreignKeyViolations === 0 &&
     migration0014 &&
     migration0017 &&
+    migration0018 &&
     dataConsistent;
 
   return {
@@ -359,9 +439,11 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     foreignKeyViolations: evidence.foreignKeyViolations,
     migration0014,
     migration0017,
+    migration0018,
     dataConsistent,
     schemaChecks,
     mobileAuthSchemaChecks,
+    internalApiNonceSchemaChecks,
     counts: evidence.counts,
     columns: Object.fromEntries(
       DATABASE_HEALTH_TABLES.map((table) => [
@@ -371,9 +453,55 @@ export function buildDatabaseHealthReport(evidence: DatabaseHealthEvidence) {
     ),
     indexes: evidence.indexes.map(({ name }) => name),
     mobileAuthIndexes: evidence.mobileAuthIndexes.map(({ name }) => name),
+    internalApiNonceIndexes: evidence.internalApiNonceIndexes.map(
+      ({ name }) => name,
+    ),
     forbiddenIndexesPresent: evidence.forbiddenIndexesPresent,
     violations: evidence.violations,
   };
+}
+
+function internalApiNonceColumnsAreExact(
+  columns: readonly InternalApiNonceColumnEvidence[],
+): boolean {
+  return (
+    columns.length === INTERNAL_API_NONCE_COLUMN_REQUIREMENTS.length &&
+    INTERNAL_API_NONCE_COLUMN_REQUIREMENTS.every((requirement) => {
+      const actual = columns.find(({ name }) => name === requirement.name);
+      return (
+        actual?.type.trim().toUpperCase() === requirement.type &&
+        actual.notNull === requirement.notNull &&
+        normalizeColumnDefault(actual.defaultValue) ===
+          requirement.defaultValue &&
+        actual.primaryKeyPosition === requirement.primaryKeyPosition
+      );
+    })
+  );
+}
+
+function normalizeColumnDefault(value: string | null): string | null {
+  if (value === null) return null;
+  let normalized = value.trim();
+  while (normalized.startsWith("(") && normalized.endsWith(")")) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  if (
+    (normalized.startsWith("'") && normalized.endsWith("'")) ||
+    (normalized.startsWith('"') && normalized.endsWith('"'))
+  ) {
+    normalized = normalized.slice(1, -1).trim();
+  }
+  return normalized.toUpperCase();
+}
+
+function internalApiNonceConstraintIsPresent(tableSql: string): boolean {
+  const sql = normalizeTableSql(tableSql);
+  return (
+    sql.includes("internal_api_nonces_format_check") &&
+    sql.includes(
+      "check(length(nonce) between 22 and 86 and nonce not glob '*[^a-za-z0-9_-]*')",
+    )
+  );
 }
 
 function containsEvery(
@@ -435,7 +563,10 @@ function normalizeTableSql(value: string | undefined): string {
     .toLowerCase()
     .replaceAll("`", "")
     .replaceAll('"', "")
-    .replace(/\bmobile_(?:authorization_grants|sessions|refresh_tokens)\./gu, "")
+    .replace(
+      /\b(?:mobile_(?:authorization_grants|sessions|refresh_tokens)|internal_api_nonces)\./gu,
+      "",
+    )
     .replace(/\s+/gu, " ")
     .trim();
 }
@@ -492,9 +623,12 @@ function providerChecksArePresent(
       .replaceAll("`", "")
       .replaceAll('"', "")
       .replace(/\s+/gu, " ");
-    const constraint = `${table}_transport_provider_check`;
-    const providerCheck =
-      /check\s*\(\s*transport_provider\s+in\s*\(\s*'mailgun'\s*,\s*'cakemail'\s*\)\s*\)/u;
+    const constraint = ["messages", "send_commands"].includes(table)
+      ? `${table}_transport_provider_exchange_check`
+      : `${table}_transport_provider_check`;
+    const providerCheck = ["messages", "send_commands"].includes(table)
+      ? /check\s*\(\s*transport_provider\s+in\s*\(\s*'mailgun'\s*,\s*'cakemail'\s*,\s*'exchange'\s*\)\s*\)/u
+      : /check\s*\(\s*transport_provider\s+in\s*\(\s*'mailgun'\s*,\s*'cakemail'\s*\)\s*\)/u;
     return normalized.includes(constraint) && providerCheck.test(normalized);
   });
 }

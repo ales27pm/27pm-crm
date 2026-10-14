@@ -5,6 +5,7 @@ import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
 
 import { recordAcceptedOutboundMessage } from "../lib/accepted-outbound-message.ts";
+import { replyFrozenDraftSlot } from "../lib/frozen-send-draft.ts";
 
 test("repairs an accepted send after a partial CRM write and remains idempotent", async (t) => {
   const database = await migratedDatabase();
@@ -75,6 +76,7 @@ test("repairs an accepted send after a partial CRM write and remains idempotent"
 
   assert.equal(repairedConversationId, partialConversation.id);
   assert.equal(idempotentConversationId, repairedConversationId);
+  assert.equal(replyFrozenDraftSlot(repairedConversationId), `reply:${repairedConversationId}`);
   assert.equal(failure.batchCalls, 2);
   assert.equal(repairConversationCount(database), 1);
   assert.equal(repairDealCount(database), 1);

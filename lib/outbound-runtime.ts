@@ -6,9 +6,10 @@ import {
   parseCakemailWebhookSecrets,
 } from "./cakemail-webhook";
 import { mailgunConfig } from "./mailgun-runtime";
+import { exchangeRuntimeContext } from "./exchange-runtime";
 import { runtimeString } from "./runtime";
 
-export type OutboundProvider = "mailgun" | "cakemail";
+export type OutboundProvider = "mailgun" | "cakemail" | "exchange";
 
 export type OutboundTransportConfig =
   | {
@@ -18,11 +19,15 @@ export type OutboundTransportConfig =
   | {
       readonly provider: "cakemail";
       readonly config: ReturnType<typeof cakemailConfig>;
+    }
+  | {
+      readonly provider: "exchange";
+      readonly config: NonNullable<ReturnType<typeof exchangeRuntimeContext>>;
     };
 
 export function selectedOutboundProvider(): OutboundProvider {
   const value = runtimeString("CRM_OUTBOUND_PROVIDER") ?? "mailgun";
-  if (value !== "mailgun" && value !== "cakemail") {
+  if (value !== "mailgun" && value !== "cakemail" && value !== "exchange") {
     throw new Error("CRM_OUTBOUND_PROVIDER is invalid.");
   }
   return value;
@@ -39,24 +44,23 @@ export function outboundTransportConfig(): OutboundTransportConfig {
     }
     return { provider, config: cakemailConfig() };
   }
+  if (provider === "exchange") {
+    if (runtimeString("CRM_EXCHANGE_MAIL_ENABLED") !== "true") {
+      throw new Error("CRM_EXCHANGE_MAIL_ENABLED is unavailable.");
+    }
+    const context = exchangeRuntimeContext();
+    if (!context) throw new Error("Exchange configuration is invalid.");
+    return { provider, config: context };
+  }
   return { provider, config: mailgunConfig() };
 }
 
 export function requireOutboundOperationalConfig(): OutboundTransportConfig {
-  if (!runtimeString("MAILGUN_WEBHOOK_SIGNING_KEY")) {
+  const provider = selectedOutboundProvider();
+  if (provider !== "exchange" && !runtimeString("MAILGUN_WEBHOOK_SIGNING_KEY")) {
     throw new Error("MAILGUN_WEBHOOK_SIGNING_KEY is unavailable.");
   }
   return outboundTransportConfig();
-}
-
-export function requireMailgunOperationalConfig(): Extract<
-  OutboundTransportConfig,
-  { provider: "mailgun" }
-> {
-  if (!runtimeString("MAILGUN_WEBHOOK_SIGNING_KEY")) {
-    throw new Error("MAILGUN_WEBHOOK_SIGNING_KEY is unavailable.");
-  }
-  return { provider: "mailgun", config: mailgunConfig() };
 }
 
 export function outboundTransportOperational(): boolean {

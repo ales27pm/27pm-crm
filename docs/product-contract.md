@@ -19,6 +19,13 @@ or inbound storage. Vercel hosts the separately deployed public 27PM site,
 whose Turnstile form posts the bounded intake contract to the CRM. The public
 site stores no CRM data.
 
+The optional Exchange connection is a separate, disabled-by-default preparation
+slice: `/settings/exchange` links one tenant-pinned mailbox through delegated
+OAuth, with recoverable credentials encrypted only in the private R2 credential
+namespace. D1 contains non-secret connection/lease/cleanup metadata only.
+Neither message synchronization nor Exchange sending is enabled by connecting.
+See [the connection contract](exchange-connection.md) for its activation gates.
+
 ## Primary workflow
 
 1. Open **Réception** and filter by mailbox, unread state, or follow-up state.
@@ -55,7 +62,15 @@ site stores no CRM data.
 - Received HTML is stored for audit only and is never rendered unsanitized.
 - Attachment bytes remain private in R2. New attachments are marked
   `unscanned` and cannot be downloaded until a malware-scanning decision is
-  implemented.
+  implemented. A clean attachment requires an operator-only, same-origin ticket
+  request; the `ad2` 45-second HMAC ticket is bound to `POST`, the exact Worker
+  origin/path and object version, and is consumed once in D1. The browser sends
+  that bearer only in a direct URL-encoded POST body, never in a URL, redirect,
+  client log, or persisted browser storage. D1, R2 custom metadata, and R2's
+  native SHA-256 checksum must agree before issuance and again before streaming.
+  The Worker rechecks the scan state and streams the R2 object directly as
+  `application/octet-stream`, so attachment bytes never pass through Vercel.
+  Mobile bearer tokens cannot list attachments or issue tickets.
 - All message, pipeline, task, and audit state is authoritative in D1, not
   browser storage.
 - Duplicate provider callbacks and duplicate send commands are idempotent.
@@ -71,10 +86,34 @@ site stores no CRM data.
 - `POST /api/webhooks/mailgun/events` — signed delivery-event callback.
 - `POST /api/webhooks/cakemail/events` — signed outbound delivery-event
   callback; never an inbound email route.
+- `POST /api/integrations/exchange/callback` — direct Worker only, bounded
+  Microsoft `form_post`; stages an encrypted code after consuming a known
+  one-time state, then requires the initiating authenticated browser to finalize.
+  It does not connect the mailbox by itself and is refused by the Vercel proxy.
 
 ## Protected HTTP seams
 
+- `GET /api/integrations/exchange` — operator-only stored connection status,
+  never a refresh side effect or proof of current mailbox delivery.
+- `POST /api/integrations/exchange` — same-origin Web operator only: connect,
+  one-time finalize, explicit refresh check, or local disconnect. No mobile
+  bearer access, automated sends, message deletion, or MX changes.
+
 - `GET /api/dashboard` — mailbox, conversation, lead, and task summary.
+- `GET /api/attachments?conversationId=:id` — operator-only attachment
+  metadata for the selected Web conversation; object keys and hashes are never
+  returned.
+- `POST /api/attachments/:id/download-ticket` — operator-only, same-origin
+  issuance of a one-time direct-Worker download ticket for a verified clean
+  object. The private no-store response contains a query-free `downloadAction`,
+  an `ad2` ticket, `method: "POST"`, and its expiry.
+- `POST /downloads/attachments/:id` — exact Worker origin only, with
+  `Content-Type: application/x-www-form-urlencoded` and exactly one non-empty
+  `ticket` field in a body of at most 8192 bytes. It verifies and consumes the
+  POST-bound ticket, rechecks D1/R2 integrity, and streams the object without
+  Vercel. Any query string, `GET`, `HEAD`, `Range`, content encoding, invalid or
+  oversized length/body, duplicate or extra form field, empty ticket, and
+  replay fail before D1 or R2 access.
 - `POST /api/messages/send` — send or reply from an allowed 27PM mailbox.
 - `PATCH /api/conversations/:id` — read/follow-up state.
 - `PATCH /api/deals/:id` — pipeline stage, project type, and next action.

@@ -127,6 +127,34 @@
       "when": 1790858997222,
       "tag": "0017_wonderful_nomad",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790926344240,
+      "tag": "0018_married_praxagora",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1791949075397,
+      "tag": "0019_shiny_lethal_legion",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1791949711752,
+      "tag": "0020_cynical_the_order",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1791962369378,
+      "tag": "0021_furry_the_anarchist",
+      "breakpoints": true
     }
   ]
 }

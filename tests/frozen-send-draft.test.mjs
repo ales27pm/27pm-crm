@@ -51,6 +51,31 @@ const payload = {
   complianceConfirmed: true,
 };
 
+test("namespaced accepted conversations retain isolated persistent anti-duplicate slots", async () => {
+  const storage = memoryStorage();
+  const coordinator = serialCoordinator();
+  const conversationId = `accepted-conversation:${"a".repeat(64)}`;
+  const slot = replyFrozenDraftSlot(conversationId);
+  assert.equal(slot, `reply:${conversationId}`);
+  assert.equal(replyFrozenDraftSlot("conversation-one"), "reply:conversation-one");
+  const reply = { ...payload, conversationId };
+  const registry = createFrozenSendDraftRegistry(storage, coordinator, true);
+  const reservation = await registry.reserve(slot, reply);
+  await registry.settle(reservation, "outcome_unknown");
+  const restored = createFrozenSendDraftRegistry(storage, coordinator, true);
+  assert.deepEqual(await restored.restore(slot), { outcome: "outcome_unknown", payload: reply });
+  await assert.rejects(restored.reserve(slot, reply), (error) => error.code === "blocked");
+  assert.equal(await restored.restore(replyFrozenDraftSlot(`accepted-conversation:${"b".repeat(64)}`)), null);
+});
+
+test("reply slots still reject malformed identifiers and arbitrary namespaces", async () => {
+  const registry = createFrozenSendDraftRegistry(memoryStorage(), serialCoordinator(), true);
+  for (const id of ["", "a".repeat(129), "../conversation", "a/b", "a?b", "a\nb", "accepted-conversation:short", `accepted-conversation:${"g".repeat(64)}`, `other:${"a".repeat(64)}`]) {
+    assert.throws(() => replyFrozenDraftSlot(id), (error) => error.code === "invalid");
+    await assert.rejects(registry.restore(`reply:${id}`), (error) => error.code === "invalid");
+  }
+});
+
 test("restores an unknown frozen draft after remount and blocks every retry", async () => {
   const storage = memoryStorage();
   const coordinator = serialCoordinator();

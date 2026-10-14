@@ -6,6 +6,7 @@ import { open } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 
 import { normalizeMessageId } from "../lib/mailgun.ts";
+import { isConversationId } from "../lib/conversation-id.ts";
 import { mailboxForAddress, normalizeEmailAddress } from "../lib/mailboxes.ts";
 import { operationalReplyApprovalDigest } from "../lib/operational-reply.ts";
 import { isWellFormedUnicode } from "../lib/unicode.ts";
@@ -113,7 +114,7 @@ function validatedApproval(value) {
     }
   }
 
-  if (!/^[a-zA-Z0-9_-]{1,128}$/u.test(value.conversationId)) {
+  if (!isConversationId(value.conversationId)) {
     throw new OperationalReplyApprovalError("conversation_id_invalid");
   }
   if (

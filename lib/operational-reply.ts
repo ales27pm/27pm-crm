@@ -12,6 +12,7 @@ export type OperationalReplyEvidence = {
   contactComplianceVersion: number;
   recipient: string;
   inboundMessageId: string;
+  inboundTransportProvider: "mailgun" | "exchange";
   inboundExternalMessageId: string;
   inboundOccurredAt: string;
   inboundCreatedAt: string;
@@ -52,6 +53,9 @@ type OperationalReplyRow = {
   inboundTransportProvider: string;
   inboundSender: string;
   inboundExternalMessageId: string | null;
+  inboundExchangeLinkMessageId: string | null;
+  inboundExchangeLinkMailboxId: string | null;
+  inboundExchangeLinkClassification: string | null;
   inboundOccurredAt: string;
   inboundCreatedAt: string;
   inboundReplyTo: string | null;
@@ -96,7 +100,14 @@ export async function loadOperationalReplyEvidence(
             inbound.status AS inboundStatus,
             inbound.transport_provider AS inboundTransportProvider,
             lower(trim(inbound.sender)) AS inboundSender,
-            inbound.external_message_id AS inboundExternalMessageId,
+            lower(trim(CASE
+              WHEN inbound.transport_provider='exchange'
+                THEN exchange_link.internet_message_id
+              ELSE inbound.external_message_id
+            END, '<> ')) AS inboundExternalMessageId,
+            exchange_link.crm_message_id AS inboundExchangeLinkMessageId,
+            exchange_link.logical_mailbox_id AS inboundExchangeLinkMailboxId,
+            exchange_link.classification AS inboundExchangeLinkClassification,
             inbound.occurred_at AS inboundOccurredAt,
             inbound.created_at AS inboundCreatedAt,
             lower(trim(inbound.reply_to)) AS inboundReplyTo,
@@ -115,6 +126,8 @@ export async function loadOperationalReplyEvidence(
           ORDER BY datetime(message.created_at) DESC, message.rowid DESC
           LIMIT 1
        )
+       LEFT JOIN exchange_message_links exchange_link
+         ON exchange_link.crm_message_id=inbound.id
       WHERE conversation.id=? LIMIT 1`,
   ).bind(input.conversationId).first<OperationalReplyRow>();
 
@@ -128,6 +141,7 @@ export async function loadOperationalReplyEvidence(
     contactComplianceVersion: row.contactComplianceVersion,
     recipient: row.recipient,
     inboundMessageId: row.inboundMessageId,
+    inboundTransportProvider: row.inboundTransportProvider as "mailgun" | "exchange",
     inboundExternalMessageId: row.inboundExternalMessageId!,
     inboundOccurredAt: row.inboundOccurredAt,
     inboundCreatedAt: row.inboundCreatedAt,
@@ -156,7 +170,7 @@ export async function advanceOperationalReplyAuthorization(
             authorized_at=COALESCE(authorized_at, ?),
             dispatched_at=CASE WHEN ?='dispatching' THEN ? ELSE dispatched_at END,
             updated_at=CURRENT_TIMESTAMP
-      WHERE id=? AND status=? AND transport_provider='mailgun'
+      WHERE id=? AND status=? AND transport_provider IN ('mailgun','exchange')
         AND mailbox_id=? AND conversation_id=? AND contact_id=?
         AND contact_compliance_version=?
         AND operator_confirmed_at IS NOT NULL
@@ -166,11 +180,18 @@ export async function advanceOperationalReplyAuthorization(
           compliance_snapshot_json,
           '$.evidence.operationalReply.inboundMessageId'
         )=?
+        AND json_extract(
+          compliance_snapshot_json,
+          '$.evidence.operationalReply.inboundTransportProvider'
+        )=?
+        AND json_extract(
+          compliance_snapshot_json,
+          '$.evidence.operationalReply.inboundExternalMessageId'
+        )=?
         AND json_extract(compliance_snapshot_json, '$.approvalDigest')=?
         AND NOT EXISTS (
           SELECT 1 FROM send_commands other
            WHERE other.id<>send_commands.id
-             AND other.transport_provider='mailgun'
              AND other.mailbox_id=send_commands.mailbox_id
              AND other.conversation_id=send_commands.conversation_id
              AND other.status IN ('authorized','dispatching','sent')
@@ -181,7 +202,7 @@ export async function advanceOperationalReplyAuthorization(
         )
         AND send_commands.id=(
           SELECT candidate.id FROM send_commands candidate
-           WHERE candidate.transport_provider='mailgun'
+           WHERE candidate.transport_provider IN ('mailgun','exchange')
              AND candidate.mailbox_id=send_commands.mailbox_id
              AND candidate.conversation_id=send_commands.conversation_id
              AND candidate.status=?
@@ -199,6 +220,8 @@ export async function advanceOperationalReplyAuthorization(
             JOIN contacts contact ON contact.id=conversation.contact_id
             LEFT JOIN organizations organization ON organization.id=contact.organization_id
             JOIN messages inbound ON inbound.id=?
+            LEFT JOIN exchange_message_links exchange_link
+              ON exchange_link.crm_message_id=inbound.id
            WHERE conversation.id=?
              AND conversation.mailbox_id=?
              AND lower(trim(mailbox.address))=?
@@ -220,9 +243,19 @@ export async function advanceOperationalReplyAuthorization(
              AND inbound.mailbox_id=conversation.mailbox_id
              AND inbound.direction='inbound'
              AND inbound.status='received'
-             AND inbound.transport_provider='mailgun'
+             AND inbound.transport_provider=?
              AND lower(trim(inbound.sender))=?
-             AND inbound.external_message_id=?
+             AND (
+               (?='mailgun'
+                 AND lower(trim(inbound.external_message_id, '<> '))=?)
+               OR
+               (?='exchange'
+                 AND inbound.external_message_id IS NULL
+                 AND exchange_link.crm_message_id=inbound.id
+                 AND exchange_link.logical_mailbox_id=conversation.mailbox_id
+                 AND exchange_link.classification='mapped'
+                 AND lower(trim(exchange_link.internet_message_id, '<> '))=?)
+             )
              AND inbound.occurred_at=?
              AND inbound.created_at=?
              AND (inbound.reply_to IS NULL OR lower(trim(inbound.reply_to))=?)
@@ -255,6 +288,8 @@ export async function advanceOperationalReplyAuthorization(
     evidence.contactComplianceVersion,
     operatorEmail,
     evidence.inboundMessageId,
+    evidence.inboundTransportProvider,
+    evidence.inboundExternalMessageId,
     approvalDigest,
     evidence.inboundMessageId,
     fromStatus,
@@ -267,7 +302,11 @@ export async function advanceOperationalReplyAuthorization(
     evidence.contactId,
     evidence.contactComplianceVersion,
     evidence.recipient,
+    evidence.inboundTransportProvider,
     evidence.recipient,
+    evidence.inboundTransportProvider,
+    evidence.inboundExternalMessageId,
+    evidence.inboundTransportProvider,
     evidence.inboundExternalMessageId,
     evidence.inboundOccurredAt,
     evidence.inboundCreatedAt,
@@ -336,10 +375,15 @@ function validOperationalReplyRow(
     row.recipient === recipient &&
     row.inboundDirection === "inbound" &&
     row.inboundStatus === "received" &&
-    row.inboundTransportProvider === "mailgun" &&
+    ["mailgun", "exchange"].includes(row.inboundTransportProvider) &&
     row.inboundSender === recipient &&
     (!row.inboundReplyTo || row.inboundReplyTo === recipient) &&
     Boolean(row.inboundExternalMessageId) &&
+    (row.inboundTransportProvider === "mailgun" || (
+      row.inboundExchangeLinkMessageId === row.inboundMessageId &&
+      row.inboundExchangeLinkMailboxId === row.mailboxId &&
+      row.inboundExchangeLinkClassification === "mapped"
+    )) &&
     Boolean(row.inboundText?.trim() || row.inboundHtml?.trim()) &&
     Number.isFinite(createdAt.valueOf()) &&
     age >= 0 &&

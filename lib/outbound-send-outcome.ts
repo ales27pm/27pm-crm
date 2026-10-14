@@ -1,12 +1,12 @@
 export type OutboundSendFailureKind = "rejected" | "outcome_unknown";
 
 export class OutboundSendError extends Error {
-  readonly provider: "mailgun" | "cakemail";
+  readonly provider: "mailgun" | "cakemail" | "exchange";
   readonly status: number;
   readonly kind: OutboundSendFailureKind;
 
   constructor(
-    provider: "mailgun" | "cakemail",
+    provider: "mailgun" | "cakemail" | "exchange",
     status: number,
     kind: OutboundSendFailureKind,
   ) {
