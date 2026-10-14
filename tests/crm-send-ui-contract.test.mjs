@@ -186,7 +186,7 @@ test("compose and reply clear drafts only after a typed accepted result", async 
   }
 });
 
-test("the compose dialog routes controlled seeds through the administrative canary endpoint", async () => {
+test("the compose dialog routes controlled seeds through the Exchange canary endpoint", async () => {
   const app = await readFile(
     new URL("../app/components/crm-app.tsx", import.meta.url),
     "utf8",
@@ -203,12 +203,13 @@ test("the compose dialog routes controlled seeds through the administrative cana
   assert.match(config, /DELIVERABILITY_CANARY_RECIPIENT = "27pmorg@gmail\.com"/u);
   assert.match(app, /DELIVERABILITY_CANARY_RECIPIENT/u);
   assert.match(app, /requestsControlledCanary/u);
-  assert.match(app, /fetch\("\/api\/admin\/mailgun-canary"/u);
+  assert.match(app, /fetch\("\/api\/admin\/exchange-canary"/u);
   assert.match(app, /confirmed: payload\.complianceConfirmed/u);
   assert.match(app, /to: payload\.to/u);
   assert.match(app, /subject: payload\.subject/u);
   assert.match(app, /text: payload\.body/u);
   assert.match(app, /result\.recipient !== canaryRecipient/u);
+  assert.match(app, /result\.provider !== "exchange"/u);
   assert.match(dialog, /Test de délivrabilité 27PM/u);
   assert.match(dialog, /Envoyer le test/u);
   assert.match(dialog, /Cette adresse est une boîte témoin que je contrôle/u);

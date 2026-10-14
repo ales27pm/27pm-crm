@@ -462,7 +462,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
     }
     if (isDeliverabilityCanary) {
       try {
-        const response = await fetch("/api/admin/mailgun-canary", {
+        const response = await fetch("/api/admin/exchange-canary", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
@@ -475,19 +475,21 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         const result = (await response.json().catch(() => ({}))) as {
           accepted?: unknown;
           error?: unknown;
+          provider?: unknown;
           recipient?: unknown;
         };
         const outcome = classifyCanarySendHttpResponse(response.status, result);
         if (
           outcome === "accepted" &&
-          result.recipient !== canaryRecipient
+          (result.recipient !== canaryRecipient ||
+            result.provider !== "exchange")
         ) {
           setSyncMessage(UNKNOWN_SEND_MESSAGE);
           return sendUiResult("outcome_unknown", UNKNOWN_SEND_MESSAGE);
         }
         const message =
           outcome === "accepted"
-            ? "Test de délivrabilité accepté par Mailgun."
+            ? "Test de délivrabilité accepté par Microsoft Exchange."
             : outcome === "outcome_unknown"
               ? UNKNOWN_SEND_MESSAGE
               : typeof result.error === "string"

@@ -9,6 +9,7 @@ const unsafeRouteInventory = [
   { route: "accounts/import/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/cakemail-send-resolution/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/exchange-send-reconciliation/route.ts", method: "POST", boundary: "operator" },
+  { route: "admin/exchange-canary/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-canary/route.ts", method: "POST", boundary: "operator" },
   { route: "admin/mailgun-handoff/route.ts", method: "POST", boundary: "operator" },
   { route: "attachments/[id]/download-ticket/route.ts", method: "POST", boundary: "operator" },
@@ -388,6 +389,19 @@ test("the Mailgun canary is operator-only and pinned to configured controlled se
   assert.match(source, /requireSameOriginOperatorJsonRequest\(/u);
   assert.match(source, /DELIVERABILITY_CANARY_SENDER/u);
   assert.match(source, /recipient,/u);
+  assert.doesNotMatch(source, /loadContactCompliance|canEmail|appendComplianceFooter/u);
+});
+
+test("the Exchange canary is operator-only, seed-pinned and durably reserved before Graph", async () => {
+  const source = await readFile(new URL("../app/api/admin/exchange-canary/route.ts", import.meta.url), "utf8");
+  assert.match(source, /CRM_CANARY_RECIPIENT/u);
+  assert.match(source, /resolveDeliverabilityCanaryRecipient\(/u);
+  assert.match(source, /reserveExchangeDeliverabilityCanary\(/u);
+  assert.ok(source.indexOf("reserveExchangeDeliverabilityCanary(") < source.indexOf("sendApprovedExchangeMessage("));
+  assert.match(source, /confirmed !== true/u);
+  assert.match(source, /requireSameOriginOperatorJsonRequest\(/u);
+  assert.match(source, /transport\.provider !== "exchange"/u);
+  assert.match(source, /DELIVERABILITY_CANARY_SENDER/u);
   assert.doesNotMatch(source, /loadContactCompliance|canEmail|appendComplianceFooter/u);
 });
 
