@@ -440,12 +440,6 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   async function sendMessage(
     payload: Record<string, string | boolean>,
   ): Promise<SendUiResult> {
-    if (!sendEnabled) {
-      return sendUiResult(
-        "definitive_failure",
-        "Configurez le transport de courriel avant l’envoi.",
-      );
-    }
     const requestsControlledCanary = payload.controlledCanary === true;
     const canaryRecipient =
       typeof payload.to === "string" ? payload.to.trim().toLowerCase() : null;
@@ -501,6 +495,13 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         setSyncMessage(UNKNOWN_SEND_MESSAGE);
         return sendUiResult("outcome_unknown", UNKNOWN_SEND_MESSAGE);
       }
+    }
+
+    if (!sendEnabled) {
+      return sendUiResult(
+        "definitive_failure",
+        "Configurez le transport de courriel avant l’envoi.",
+      );
     }
 
     const attempts = sendAttemptRegistryRef.current;

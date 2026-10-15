@@ -128,7 +128,7 @@ export function ComposeDialog({ open, mailboxes, sendEnabled, onClose, onSend }:
 
   async function submit() {
     if (!draftReady || sendingRef.current || presentation.unknownFrozen) return;
-    if (!sendEnabled) {
+    if (!sendEnabled && !presentation.isDeliverabilityCanary) {
       setStatus("Configurez le transport de courriel avant l’envoi.");
       return;
     }

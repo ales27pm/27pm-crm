@@ -215,3 +215,26 @@ test("the compose dialog routes controlled seeds through the Exchange canary end
   assert.match(dialog, /Cette adresse est une boîte témoin que je contrôle/u);
   assert.match(dialog, /test interne vers la boîte témoin indiquée/u);
 });
+
+test("ordinary-send gating does not block the dedicated Exchange canary", async () => {
+  const app = await readFile(
+    new URL("../app/components/crm-app.tsx", import.meta.url),
+    "utf8",
+  );
+  const dialog = await readFile(
+    new URL("../app/components/compose-dialog.tsx", import.meta.url),
+    "utf8",
+  );
+
+  const canaryBranch = app.indexOf("if (isDeliverabilityCanary)");
+  const ordinarySendGate = app.indexOf("if (!sendEnabled)");
+  const ordinarySendRegistry = app.indexOf("const attempts = sendAttemptRegistryRef.current");
+
+  assert.ok(canaryBranch >= 0);
+  assert.ok(ordinarySendGate > canaryBranch);
+  assert.ok(ordinarySendRegistry > ordinarySendGate);
+  assert.match(
+    dialog,
+    /if \(!sendEnabled && !presentation\.isDeliverabilityCanary\)/u,
+  );
+});
