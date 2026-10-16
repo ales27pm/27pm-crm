@@ -13,6 +13,7 @@ function dashboard(overrides = {}) {
   return {
     mailboxes: [],
     transportState: "configuration",
+    transportProvider: "unknown",
     live: false,
     organizations: [
       {

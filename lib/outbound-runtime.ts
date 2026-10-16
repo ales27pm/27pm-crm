@@ -33,6 +33,19 @@ export function selectedOutboundProvider(): OutboundProvider {
   return value;
 }
 
+/**
+ * Non-secret provider identity safe to expose to an authenticated operator UI.
+ * Invalid runtime configuration stays explicit instead of breaking dashboard
+ * reads or silently claiming that a different provider is active.
+ */
+export function selectedOutboundProviderStatus(): OutboundProvider | "unknown" {
+  try {
+    return selectedOutboundProvider();
+  } catch {
+    return "unknown";
+  }
+}
+
 export function outboundTransportConfig(): OutboundTransportConfig {
   const provider = selectedOutboundProvider();
   if (provider === "cakemail") {

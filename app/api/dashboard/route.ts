@@ -10,7 +10,10 @@ import {
   type DeliveryTimelineEvent,
 } from "@/lib/mailgun-lifecycle";
 import { providerDeliveryState } from "@/lib/outbound-delivery-state";
-import { outboundTransportOperational } from "@/lib/outbound-runtime";
+import {
+  outboundTransportOperational,
+  selectedOutboundProviderStatus,
+} from "@/lib/outbound-runtime";
 import { runtimeString } from "@/lib/runtime";
 
 export const dynamic = "force-dynamic";
@@ -553,6 +556,7 @@ export async function GET(request: Request) {
           unreadCount: Number(mailbox.unreadCount ?? 0),
         })),
         transportState: transportState(),
+        transportProvider: selectedOutboundProviderStatus(),
         conversations: conversations.results.map((conversation) => {
           const contact = conversation.contactId
             ? contactById.get(conversation.contactId)

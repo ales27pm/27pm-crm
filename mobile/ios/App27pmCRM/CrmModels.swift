@@ -21,6 +21,58 @@ enum TransportState: String {
   }
 }
 
+enum TransportProvider: String {
+  case mailgun
+  case cakemail
+  case exchange
+  case unknown
+
+  func settingsTitle(for state: TransportState) -> String {
+    let providerName = switch self {
+    case .mailgun: "Mailgun"
+    case .cakemail: "Cakemail"
+    case .exchange: "Microsoft Exchange"
+    case .unknown: ""
+    }
+    guard !providerName.isEmpty else { return state.label }
+    let stateLabel = switch state {
+    case .operational: "envoi activé"
+    case .configuration: "envoi désactivé"
+    case .degraded: "envoi à vérifier"
+    }
+    return "\(providerName) — \(stateLabel)"
+  }
+
+  func settingsDescription(for state: TransportState) -> String {
+    switch (self, state) {
+    case (.exchange, .operational):
+      "Microsoft Exchange est configuré pour synchroniser les boîtes et envoyer les courriels."
+    case (.exchange, .configuration):
+      "Microsoft Exchange synchronise les boîtes. L'envoi reste désactivé pendant la validation du transport sortant."
+    case (.exchange, .degraded):
+      "Microsoft Exchange doit être vérifié avant tout nouvel envoi."
+    case (.mailgun, .operational):
+      "Mailgun est configuré pour envoyer les courriels."
+    case (.mailgun, .configuration):
+      "Mailgun doit être configuré avant tout nouvel envoi."
+    case (.mailgun, .degraded):
+      "Mailgun doit être vérifié avant tout nouvel envoi."
+    case (.cakemail, .operational):
+      "Cakemail est configuré pour envoyer les courriels."
+    case (.cakemail, .configuration):
+      "Cakemail doit être configuré avant tout nouvel envoi."
+    case (.cakemail, .degraded):
+      "Cakemail doit être vérifié avant tout nouvel envoi."
+    case (.unknown, .operational):
+      "Le transport courriel est configuré pour l'envoi."
+    case (.unknown, .configuration):
+      "Le transport sortant n'est pas encore activé. Aucun nouveau courriel ne sera envoyé."
+    case (.unknown, .degraded):
+      "Le transport courriel doit être vérifié avant tout nouvel envoi."
+    }
+  }
+}
+
 enum Priority: String {
   case veryHigh = "very_high"
   case high
@@ -378,6 +430,7 @@ struct OutreachStrategy: Identifiable {
 struct DashboardData {
   let mailboxes: [Mailbox]
   var transportState: TransportState
+  var transportProvider: TransportProvider = .unknown
   var conversations: [Conversation]
   var organizations: [Organization]
   var contacts: [Contact]

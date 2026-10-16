@@ -27,6 +27,7 @@ const {
   requireOutboundMessageOperationalConfig,
   requireOutboundOperationalConfig,
   selectedOutboundProvider,
+  selectedOutboundProviderStatus,
 } = await import("../lib/outbound-runtime.ts");
 const { cakemailConfig } = await import("../lib/cakemail-runtime.ts");
 
@@ -134,6 +135,7 @@ test("defaults to the existing Mailgun outbound transport", async () => {
     },
     () => {
       assert.equal(selectedOutboundProvider(), "mailgun");
+      assert.equal(selectedOutboundProviderStatus(), "mailgun");
       assert.deepEqual(outboundTransportConfig(), {
         provider: "mailgun",
         config: {
@@ -155,6 +157,7 @@ test("fails closed for an unknown outbound provider", async () => {
     },
     () => {
       assert.throws(selectedOutboundProvider, /CRM_OUTBOUND_PROVIDER is invalid/u);
+      assert.equal(selectedOutboundProviderStatus(), "unknown");
       assert.throws(outboundTransportConfig, /CRM_OUTBOUND_PROVIDER is invalid/u);
       assert.equal(outboundTransportOperational(), false);
     },

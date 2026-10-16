@@ -22,6 +22,7 @@ export const emptyDashboard: DashboardData = {
     },
   ],
   transportState: "configuration",
+  transportProvider: "unknown",
   live: false,
   conversations: [],
   organizations: [],

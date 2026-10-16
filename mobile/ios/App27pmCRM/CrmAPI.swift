@@ -135,6 +135,7 @@ enum ApiDate {
 struct DashboardPayloadDTO: Decodable {
   let mailboxes: [MailboxDTO]
   let transportState: String
+  let transportProvider: String?
   let conversations: [ConversationDTO]
   let organizations: [OrganizationDTO]
   let contacts: [ContactDTO]
@@ -308,6 +309,7 @@ enum DashboardMapper {
         )
       },
       transportState: TransportState(rawValue: payload.transportState) ?? .configuration,
+      transportProvider: TransportProvider(rawValue: payload.transportProvider ?? "") ?? .unknown,
       conversations: payload.conversations.map { conversation in
         let messages = (conversation.messages ?? []).map { message in
           CrmMessage(

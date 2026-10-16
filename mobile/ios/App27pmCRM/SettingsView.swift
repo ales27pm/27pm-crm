@@ -72,16 +72,16 @@ struct SettingsView: View {
   private var transportCard: some View {
     Card {
       VStack(alignment: .leading, spacing: 6) {
-        Eyebrow("Transport courriel")
+        Eyebrow("Envoi depuis le CRM")
         HStack(spacing: 8) {
           Circle()
             .fill(transportColor)
             .frame(width: 9, height: 9)
-          Text(store.data.transportState.label)
+          Text(store.data.transportProvider.settingsTitle(for: store.data.transportState))
             .font(.system(size: 14, weight: .semibold))
             .foregroundStyle(Theme.ink)
         }
-        Text("Mailgun reste le transport de référence. Cakemail demeure désactivé tant que les preuves de politique, de préservation des en-têtes et d'alignement DKIM ne sont pas confirmées.")
+        Text(store.data.transportProvider.settingsDescription(for: store.data.transportState))
           .font(.system(size: 12))
           .foregroundStyle(Theme.muted)
           .fixedSize(horizontal: false, vertical: true)
@@ -149,7 +149,7 @@ struct SettingsView: View {
           .foregroundStyle(Theme.muted)
         if store.mode == .live {
           if let lastSync = store.lastSync {
-            Text("Synchronisé \(Fmt.relative(lastSync))")
+            Text("Synchronisé \(Fmt.syncRecency(lastSync))")
               .font(.system(size: 12, weight: .semibold))
               .foregroundStyle(Theme.blue)
           }

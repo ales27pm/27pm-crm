@@ -5,6 +5,7 @@ import type {
 
 export type MailboxKind = "sales" | "operations";
 export type TransportState = "operational" | "configuration" | "degraded";
+export type TransportProvider = "mailgun" | "cakemail" | "exchange" | "unknown";
 export type NavView =
   | "today"
   | "inbox"
@@ -232,6 +233,7 @@ export type ActivityEntry = {
 export type DashboardData = {
   mailboxes: Mailbox[];
   transportState: TransportState;
+  transportProvider: TransportProvider;
   conversations: Conversation[];
   organizations: Organization[];
   contacts: Contact[];

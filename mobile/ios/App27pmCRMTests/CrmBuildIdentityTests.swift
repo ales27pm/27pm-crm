@@ -1,7 +1,7 @@
 import Foundation
 import Testing
 
-/// Build-identity proofs for the TestFlight 9 round: the archived app must
+/// Build-identity proofs for the TestFlight 10 round: the archived app must
 /// carry the exact bundle identifiers the server's association file
 /// authorizes (org.27pm.crm.mobile family), the bumped build number, and the
 /// Associated Domains entitlements in both configurations.
@@ -36,9 +36,9 @@ struct CrmBuildIdentityTests {
             "L'app doit porter l'identifiant autorisé par l'AASA de crm.27pm.org")
   }
 
-  @Test func hostAppCarriesBuild9OfMarketingVersion100() {
-    #expect(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "9",
-            "CURRENT_PROJECT_VERSION doit être 9 pour le nouveau build TestFlight")
+  @Test func hostAppCarriesBuild10OfMarketingVersion100() {
+    #expect(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "10",
+            "CURRENT_PROJECT_VERSION doit être 10 pour le nouveau build TestFlight")
     #expect(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == "1.0.0")
   }
 
@@ -58,11 +58,11 @@ struct CrmBuildIdentityTests {
     #expect(count("PRODUCT_BUNDLE_IDENTIFIER = org.27pm.crm.mobile.uitests;", in: identity) == 2)
   }
 
-  @Test func currentProjectVersionIs9InAllSixConfigurations() throws {
+  @Test func currentProjectVersionIs10InAllSixConfigurations() throws {
     let identity = try bundledProof("BuildIdentity", extension: "txt")
-    #expect(count("CURRENT_PROJECT_VERSION = 9;", in: identity) == 6,
+    #expect(count("CURRENT_PROJECT_VERSION = 10;", in: identity) == 6,
             "Trois targets × deux configurations")
-    #expect(!identity.contains("CURRENT_PROJECT_VERSION = 2;"))
+    #expect(!identity.contains("CURRENT_PROJECT_VERSION = 9;"))
   }
 
   @Test func marketingVersionStaysAt100InEveryConfiguration() throws {

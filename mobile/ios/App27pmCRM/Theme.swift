@@ -112,6 +112,21 @@ enum Fmt {
     relativeFormatter.localizedString(for: date, relativeTo: now)
   }
 
+  /// Deterministic, past-tense recency for a locally completed sync. The
+  /// abbreviated system formatter may otherwise render elapsed time as a
+  /// signed duration (for example "-3 s") instead of a verbal French label.
+  static func syncRecency(_ date: Date, to now: Date = Date()) -> String {
+    let elapsed = max(0, now.timeIntervalSince(date))
+    if elapsed < 5 { return "à l'instant" }
+    if elapsed < 60 { return "il y a \(Int(elapsed)) s" }
+    if elapsed < 3_600 { return "il y a \(Int(elapsed / 60)) min" }
+    if elapsed < 86_400 { return "il y a \(Int(elapsed / 3_600)) h" }
+    if elapsed < 604_800 { return "il y a \(Int(elapsed / 86_400)) j" }
+    if elapsed < 2_592_000 { return "il y a \(Int(elapsed / 604_800)) sem" }
+    if elapsed < 31_536_000 { return "il y a \(Int(elapsed / 2_592_000)) mois" }
+    return "il y a \(Int(elapsed / 31_536_000)) an"
+  }
+
   static func currencyCents(_ cents: Int) -> String {
     currencyFormatter.string(from: NSNumber(value: Double(cents) / 100.0)) ?? "\(cents / 100) $"
   }
