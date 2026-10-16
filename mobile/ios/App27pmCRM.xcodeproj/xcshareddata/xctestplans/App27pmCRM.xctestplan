@@ -1,0 +1,37 @@
+{
+  "configurations" : [
+    {
+      "id" : "0A6A9C4E-4D19-4F2A-9C21-7E5D1B2A3F60",
+      "name" : "Configuration 0",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+
+  },
+  "testTargets" : [
+    {
+      "skippedTests" : [
+
+      ],
+      "target" : {
+        "containerPath" : "container:App27pmCRM.xcodeproj",
+        "identifier" : "105FC5882E9EAD3200EA8BCF",
+        "name" : "App27pmCRMTests"
+      }
+    },
+    {
+      "skippedTests" : [
+
+      ],
+      "target" : {
+        "containerPath" : "container:App27pmCRM.xcodeproj",
+        "identifier" : "105FC5922E9EAD3200EA8BCF",
+        "name" : "App27pmCRMUITests"
+      }
+    }
+  ],
+  "version" : 1
+}
