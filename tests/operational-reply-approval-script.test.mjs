@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -62,6 +62,7 @@ test("reads one bounded JSON file and rejects additional approval fields", async
     { mode: 0o600 },
   );
   await writeFile(exposedPath, JSON.stringify(approval), { mode: 0o644 });
+  await chmod(exposedPath, 0o644);
   await symlink(validPath, symlinkPath);
 
   assert.equal(
