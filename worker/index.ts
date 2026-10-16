@@ -5,13 +5,15 @@ import { handleAttachmentDownloadRequest } from "../lib/attachment-download-work
 import type { AttachmentDownloadEnvironment } from "../lib/attachment-download-worker";
 import { prepareInternalApiRequest } from "../lib/internal-api-edge";
 import type { InternalApiNonceDatabase } from "../lib/internal-api-nonce-store";
+import { handleAttachmentV2Request } from "../lib/attachment-v2-worker";
+import type { AttachmentV2Environment } from "../lib/attachment-v2-worker";
 
-interface Env {
+interface Env extends AttachmentV2Environment {
   ASSETS: Fetcher;
   DB: D1Database &
     InternalApiNonceDatabase &
-    AttachmentDownloadEnvironment["DB"];
-  BUCKET: AttachmentDownloadEnvironment["BUCKET"];
+    AttachmentDownloadEnvironment["DB"] & AttachmentV2Environment["DB"];
+  BUCKET: AttachmentDownloadEnvironment["BUCKET"] & AttachmentV2Environment["BUCKET"];
   IMAGES: {
     input(stream: ReadableStream): {
       transform(options: Record<string, unknown>): {
@@ -25,6 +27,7 @@ interface Env {
   CRM_INTERNAL_API_AUDIENCE?: string;
   CRM_INTERNAL_API_SIGNING_KEY?: string;
   CRM_SITES_TRUSTED_ORIGIN?: string;
+  CRM_SITES_MCP_ORIGIN?: string;
 }
 
 interface ExecutionContext {
@@ -47,6 +50,11 @@ const worker = {
       ctx,
     );
     if (attachmentDownload) return withSecurityHeaders(attachmentDownload);
+
+    // Each v2 route verifies its own narrow mobile or machine identity. It
+    // never converts a scanner credential into an operator identity.
+    const attachmentV2 = await handleAttachmentV2Request(request, env);
+    if (attachmentV2) return withSecurityHeaders(attachmentV2);
 
     const preparedRequest = await prepareInternalApiRequest(request, env, ctx);
     if (preparedRequest instanceof Response) {

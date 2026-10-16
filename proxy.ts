@@ -19,6 +19,7 @@ export const proxy = auth(async (request) => {
       audience: process.env.CRM_INTERNAL_API_AUDIENCE,
       operatorAllowlist: process.env.CRM_ADMIN_EMAILS,
       signingKey: process.env.CRM_INTERNAL_API_SIGNING_KEY,
+      attachmentV2Enabled: process.env.CRM_ATTACHMENT_V2_PROXY_ENABLED,
     },
   );
   if (prepared instanceof Response) return prepared;

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // MARK: - Configuration
@@ -472,13 +473,25 @@ enum DashboardMapper {
 
 // MARK: - Client
 
-struct AttachmentHTTPResult {
+nonisolated struct AttachmentHTTPResult: Sendable {
   let status: Int
   let body: Data
   let retryAfter: String?
   let contentType: String?
   let contentLength: Int?
   let effectiveURL: URL?
+  /// Required on every chunk so a concurrent replacement can never mix
+  /// object versions inside a single reconstructed download.
+  var objectVersion: String? = nil
+}
+
+/// A versioned wire contract, not a loose boolean capability. Older servers
+/// deliberately remain unavailable rather than receiving an oversized POST.
+enum ChunkedAttachmentContract {
+  nonisolated static let maxFileBytes = 20 * 1_024 * 1_024
+  nonisolated static let chunkBytes = 2 * 1_024 * 1_024
+  nonisolated static let maxMetadataBytes = 64 * 1_024
+  nonisolated static let maxCollectionBytes = 512 * 1_024
 }
 
 protocol AttachmentAPITransport: AnyObject {
@@ -512,18 +525,26 @@ nonisolated final class AttachmentRedirectDelegate: NSObject, URLSessionTaskDele
 /// HTTP client for the CRM backend. Every call carries the device's bearer
 /// token read at request time; no client-provided identity header is sent.
 final class CrmAPIClient: AttachmentAPITransport {
+  /// Injection seam for deterministic protocol tests. Production always uses
+  /// the bounded URLSession byte stream below; the seam never changes origin,
+  /// session-stability, response-size or acknowledgement validation.
+  typealias AttachmentResponseLoader = @MainActor (URLRequest, Int) async throws -> AttachmentHTTPResult
+
   /// nil while the build-time override is invalid — every call then fails closed.
   private let baseURL: URL?
   private let accessTokenProvider: () -> String?
   private let session: URLSession
+  private let attachmentResponseLoader: AttachmentResponseLoader?
 
   init(
     baseURL: URL?,
     accessTokenProvider: @escaping () -> String?,
-    session injectedSession: URLSession? = nil
+    session injectedSession: URLSession? = nil,
+    attachmentResponseLoader: AttachmentResponseLoader? = nil
   ) {
     self.baseURL = baseURL
     self.accessTokenProvider = accessTokenProvider
+    self.attachmentResponseLoader = attachmentResponseLoader
     if let injectedSession {
       session = injectedSession
     } else {
@@ -573,7 +594,51 @@ final class CrmAPIClient: AttachmentAPITransport {
   // MARK: Server contract — native capabilities (see docs/crm-27pm-org-api-contract.md)
 
   private struct CapabilitiesPayloadDTO: Decodable {
-    let attachments: Bool?
+    let attachments: Bool
+    let transport: String
+    let maxFileBytes: Int
+    let chunkBytes: Int
+
+    var supportsChunkedAttachments: Bool {
+      attachments && transport == "chunked-v2"
+        && maxFileBytes == ChunkedAttachmentContract.maxFileBytes
+        && chunkBytes == ChunkedAttachmentContract.chunkBytes
+    }
+  }
+
+  private struct UploadChunkDTO: Encodable {
+    let byteSize: Int
+    let sha256: String
+  }
+
+  private struct UploadManifestDTO: Encodable {
+    let ownerKind: String
+    let ownerId: String
+    let fileName: String
+    let contentType: String
+    let byteSize: Int
+    let sha256: String
+    let chunks: [UploadChunkDTO]
+  }
+
+  private struct UploadStatusDTO: Decodable {
+    let id: String
+    let state: String
+    let byteSize: Int
+    let chunkBytes: Int
+    let chunkCount: Int
+    let receivedChunks: [Int]
+    let attachmentId: String?
+  }
+
+  private struct DownloadManifestDTO: Decodable {
+    let id: String
+    let byteSize: Int
+    let sha256: String
+    let objectVersion: String
+    let chunkBytes: Int
+    let chunkCount: Int
+    let contentType: String
   }
 
   /// GET /api/mobile/capabilities — probes whether the deployed backend
@@ -581,61 +646,187 @@ final class CrmAPIClient: AttachmentAPITransport {
   /// authentication) conservatively reports false: the client then keeps
   /// every upload in its local outbox instead of sending anything.
   func probeAttachmentsSupport() async -> Bool {
-    guard baseURL != nil else { return false }
     do {
-      let raw = try await fetchData("api/mobile/capabilities")
-      return (try JSONDecoder().decode(CapabilitiesPayloadDTO.self, from: raw)).attachments ?? false
+      let token = try attachmentAccessToken()
+      var request = try attachmentRequest("api/mobile/capabilities", token: token)
+      request.setValue("chunked-v2", forHTTPHeaderField: "X-27PM-Attachment-Transport")
+      let result = try await attachmentResult(
+        for: request, token: token
+      )
+      guard result.status == 200 else { return false }
+      let capabilities: CapabilitiesPayloadDTO = try attachmentMetadata(result)
+      return capabilities.supportsChunkedAttachments
     } catch {
       return false
     }
   }
 
-  /// POST /api/mobile/attachments — multipart upload of one local file.
-  /// Requires an active device session; returns the server identifier.
+  /// Resumable, bounded upload. The caller's durable idempotency key is reused
+  /// after every interruption; server status alone decides which chunks exist.
+  /// No internal authentication refresh, retry loop or new upload key is used.
   func uploadAttachment(
     fileData: Data, fileName: String, mimeType: String,
     ownerKind: String, ownerId: String, idempotencyKey: String
   ) async throws -> AttachmentHTTPResult {
-    let boundary = "27pm-\(UUID().uuidString)"
-    var request = try securedRequest("api/mobile/attachments")
-    request.httpMethod = "POST"
-    request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
-    // The current server deduplicates on owner + SHA-256. Carry the stable
-    // local key as an additional correlation hint without placing it in the
-    // multipart body, whose accepted fields are intentionally exact.
-    request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
-    request.httpBody = Self.multipartBody(
-      fields: ["ownerKind": ownerKind, "ownerId": ownerId],
-      fileField: "file", fileName: fileName, mimeType: mimeType,
-      fileData: fileData, boundary: boundary
+    guard !fileData.isEmpty, fileData.count <= ChunkedAttachmentContract.maxFileBytes,
+      ["account", "deal", "conversation"].contains(ownerKind),
+      Self.isBoundedHeader(ownerId, maxBytes: 256),
+      ownerId == ownerId.trimmingCharacters(in: .whitespacesAndNewlines),
+      Self.isBoundedHeader(fileName, maxBytes: 255),
+      Self.isBoundedHeader(mimeType, maxBytes: 255),
+      Self.isIdempotencyKey(idempotencyKey)
+    else { throw CrmAPIError.http(status: 422, code: "invalid_upload_manifest") }
+    let token = try attachmentAccessToken()
+    let chunkSize = ChunkedAttachmentContract.chunkBytes
+    var chunks: [UploadChunkDTO] = []
+    for start in stride(from: 0, to: fileData.count, by: chunkSize) {
+      let bytes = fileData.subdata(in: start..<min(start + chunkSize, fileData.count))
+      chunks.append(UploadChunkDTO(byteSize: bytes.count, sha256: Self.sha256(bytes)))
+    }
+    let manifest = UploadManifestDTO(
+      ownerKind: ownerKind, ownerId: ownerId, fileName: fileName,
+      contentType: mimeType, byteSize: fileData.count,
+      sha256: Self.sha256(fileData), chunks: chunks
     )
-    return try await attachmentResult(for: request)
+    var request = try attachmentRequest("api/mobile/attachment-uploads", token: token)
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.setValue(idempotencyKey, forHTTPHeaderField: "Idempotency-Key")
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    request.httpBody = try encoder.encode(manifest)
+    let created = try await attachmentResult(for: request, token: token)
+    guard (200..<300).contains(created.status) else { return created }
+    var status = try uploadStatus(created, byteSize: fileData.count, chunkCount: chunks.count)
+    if status.state == "committed" { return try committedUpload(status, response: created) }
+    if status.state == "cancelled" { return Self.cancelledUpload(created) }
+
+    let uploadPath = "api/mobile/attachment-uploads/\(status.id)"
+    let current = try await attachmentResult(
+      for: attachmentRequest(uploadPath, token: token), token: token
+    )
+    guard (200..<300).contains(current.status) else { return current }
+    status = try uploadStatus(
+      current, byteSize: fileData.count, chunkCount: chunks.count, expectedID: status.id
+    )
+    if status.state == "committed" { return try committedUpload(status, response: current) }
+    if status.state == "cancelled" { return Self.cancelledUpload(current) }
+
+    var received = Set(status.receivedChunks)
+    if status.state == "uploading" {
+      for index in chunks.indices where !received.contains(index) {
+        try Task.checkCancellation()
+        let start = index * chunkSize
+        var put = try attachmentRequest("\(uploadPath)/chunks/\(index)", token: token)
+        put.httpMethod = "PUT"
+        put.setValue("application/octet-stream", forHTTPHeaderField: "Content-Type")
+        put.httpBody = fileData.subdata(in: start..<min(start + chunkSize, fileData.count))
+        let acknowledgement = try await attachmentResult(for: put, token: token)
+        guard (200..<300).contains(acknowledgement.status) else { return acknowledgement }
+        status = try uploadStatus(
+          acknowledgement, byteSize: fileData.count, chunkCount: chunks.count,
+          expectedID: status.id
+        )
+        if status.state == "committed" {
+          return try committedUpload(status, response: acknowledgement)
+        }
+        if status.state == "cancelled" { return Self.cancelledUpload(acknowledgement) }
+        let acknowledged = Set(status.receivedChunks)
+        guard acknowledged.contains(index), received.isSubset(of: acknowledged) else {
+          throw CrmAPIError.http(status: 502, code: "invalid_chunk_acknowledgement")
+        }
+        received = acknowledged
+        if status.state == "finalizing" { break }
+      }
+    }
+    guard received.count == chunks.count else {
+      throw CrmAPIError.http(status: 502, code: "incomplete_upload_acknowledgement")
+    }
+    var complete = try attachmentRequest("\(uploadPath)/complete", token: token)
+    complete.httpMethod = "POST"
+    let completed = try await attachmentResult(for: complete, token: token)
+    guard (200..<300).contains(completed.status) else { return completed }
+    status = try uploadStatus(
+      completed, byteSize: fileData.count, chunkCount: chunks.count, expectedID: status.id
+    )
+    if status.state == "committed" { return try committedUpload(status, response: completed) }
+    if status.state == "cancelled" { return Self.cancelledUpload(completed) }
+    // The coordinator owns backoff. A later pass repeats create with the same
+    // persisted key and recovers this same server upload, including all ACKs.
+    return AttachmentHTTPResult(
+      status: 503, body: Data(#"{"error":"attachment_upload_pending"}"#.utf8),
+      retryAfter: completed.retryAfter ?? "30", contentType: "application/json",
+      contentLength: nil, effectiveURL: completed.effectiveURL
+    )
   }
 
-  /// GET /api/mobile/attachments/{id}/file. A 423 is returned verbatim with
-  /// Retry-After so the policy can defer verification without re-uploading.
+  /// No signed R2 URLs or full-file responses. Each chunk is pinned to the
+  /// clean manifest version; only a length- and SHA-256-verified file escapes.
   func downloadAttachment(id: String) async throws -> AttachmentHTTPResult {
-    try await attachmentResult(for: securedRequest("api/mobile/attachments/\(id)/file"))
+    guard Self.isIdentifier(id) else {
+      throw CrmAPIError.http(status: 422, code: "invalid_attachment_identifier")
+    }
+    let token = try attachmentAccessToken()
+    let path = "api/mobile/attachments/\(id)"
+    let result = try await attachmentResult(
+      for: attachmentRequest("\(path)/manifest", token: token), token: token
+    )
+    guard result.status == 200 else { return result }
+    let manifest: DownloadManifestDTO = try attachmentMetadata(result)
+    guard manifest.id == id,
+      (1...ChunkedAttachmentContract.maxFileBytes).contains(manifest.byteSize),
+      manifest.chunkBytes == ChunkedAttachmentContract.chunkBytes,
+      manifest.chunkCount == (manifest.byteSize + manifest.chunkBytes - 1) / manifest.chunkBytes,
+      Self.isSHA256(manifest.sha256),
+      Self.isBoundedHeader(manifest.objectVersion, maxBytes: 256),
+      Self.isBoundedHeader(manifest.contentType, maxBytes: 255)
+    else { throw CrmAPIError.http(status: 502, code: "invalid_download_manifest") }
+    var data = Data()
+    data.reserveCapacity(manifest.byteSize)
+    for index in 0..<manifest.chunkCount {
+      try Task.checkCancellation()
+      let expectedSize = min(manifest.chunkBytes, manifest.byteSize - index * manifest.chunkBytes)
+      let chunk = try await attachmentResult(
+        for: attachmentRequest(
+          "\(path)/chunks/\(index)", token: token,
+          queryItems: [URLQueryItem(name: "version", value: manifest.objectVersion)]
+        ),
+        token: token,
+        maxResponseBytes: max(expectedSize, ChunkedAttachmentContract.maxMetadataBytes)
+      )
+      guard chunk.status == 200 else { return chunk }
+      guard chunk.objectVersion == manifest.objectVersion,
+        chunk.body.count == expectedSize,
+        chunk.contentLength == nil || chunk.contentLength == expectedSize,
+        chunk.contentType?.split(separator: ";").first?.trimmingCharacters(in: .whitespaces)
+          .lowercased() == "application/octet-stream"
+      else { throw CrmAPIError.http(status: 502, code: "attachment_chunk_mismatch") }
+      data.append(chunk.body)
+    }
+    guard data.count == manifest.byteSize, Self.sha256(data) == manifest.sha256 else {
+      throw CrmAPIError.http(status: 502, code: "attachment_integrity_mismatch")
+    }
+    return AttachmentHTTPResult(
+      status: 200, body: data, retryAfter: nil, contentType: manifest.contentType,
+      contentLength: data.count, effectiveURL: result.effectiveURL,
+      objectVersion: manifest.objectVersion
+    )
   }
 
   /// GET collection metadata for restart/reconciliation diagnostics. The
   /// backend deliberately never exposes private object keys or receipts.
   func listAttachments(ownerKind: String, ownerId: String) async throws -> AttachmentHTTPResult {
-    guard let baseURL else { throw CrmAPIError.invalidConfiguration }
-    var components = URLComponents(
-      url: baseURL.appending(path: "api/mobile/attachments"),
-      resolvingAgainstBaseURL: false
+    let token = try attachmentAccessToken()
+    let request = try attachmentRequest(
+      "api/mobile/attachments", token: token,
+      queryItems: [
+        URLQueryItem(name: "ownerKind", value: ownerKind),
+        URLQueryItem(name: "ownerId", value: ownerId),
+      ]
     )
-    components?.queryItems = [
-      URLQueryItem(name: "ownerKind", value: ownerKind),
-      URLQueryItem(name: "ownerId", value: ownerId),
-    ]
-    guard let url = components?.url else { throw CrmAPIError.invalidConfiguration }
-    var request = URLRequest(url: url)
-    if let token = accessTokenProvider(), !token.isEmpty {
-      request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-    }
-    return try await attachmentResult(for: request)
+    return try await attachmentResult(
+      for: request, token: token, maxResponseBytes: ChunkedAttachmentContract.maxCollectionBytes
+    )
   }
 
   /// DELETE /api/mobile/attachments/{id} — removes a server attachment.
@@ -643,27 +834,87 @@ final class CrmAPIClient: AttachmentAPITransport {
   /// server-side: it is treated as a success so the outbox never retries it
   /// forever.
   func deleteAttachment(id: String) async throws -> AttachmentHTTPResult {
-    var request = try securedRequest("api/mobile/attachments/\(id)")
+    guard Self.isIdentifier(id) else {
+      throw CrmAPIError.http(status: 422, code: "invalid_attachment_identifier")
+    }
+    let token = try attachmentAccessToken()
+    var request = try attachmentRequest("api/mobile/attachments/\(id)", token: token)
     request.httpMethod = "DELETE"
-    return try await attachmentResult(for: request)
+    return try await attachmentResult(for: request, token: token)
   }
 
-  nonisolated private static func multipartBody(
-    fields: [String: String], fileField: String, fileName: String,
-    mimeType: String, fileData: Data, boundary: String
-  ) -> Data {
-    var body = Data()
-    for (name, value) in fields {
-      append(&body, "--\(boundary)\r\n")
-      append(&body, "Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
-      append(&body, "\(value)\r\n")
+  private func uploadStatus(
+    _ result: AttachmentHTTPResult, byteSize: Int, chunkCount: Int, expectedID: String? = nil
+  ) throws -> UploadStatusDTO {
+    let status: UploadStatusDTO = try attachmentMetadata(result)
+    guard Self.isIdentifier(status.id), expectedID == nil || status.id == expectedID,
+      ["uploading", "finalizing", "committed", "cancelled"].contains(status.state),
+      status.byteSize == byteSize, status.chunkBytes == ChunkedAttachmentContract.chunkBytes,
+      status.chunkCount == chunkCount,
+      Set(status.receivedChunks).count == status.receivedChunks.count,
+      status.receivedChunks.allSatisfy({ (0..<chunkCount).contains($0) })
+    else { throw CrmAPIError.http(status: 503, code: "invalid_upload_status") }
+    return status
+  }
+
+  private func committedUpload(
+    _ status: UploadStatusDTO, response: AttachmentHTTPResult
+  ) throws -> AttachmentHTTPResult {
+    guard let id = status.attachmentId, UUID(uuidString: id) != nil else {
+      throw CrmAPIError.http(status: 502, code: "invalid_upload_acknowledgement")
     }
-    append(&body, "--\(boundary)\r\n")
-    append(&body, "Content-Disposition: form-data; name=\"\(fileField)\"; filename=\"\(fileName)\"\r\n")
-    append(&body, "Content-Type: \(mimeType)\r\n\r\n")
-    body.append(fileData)
-    append(&body, "\r\n--\(boundary)--\r\n")
-    return body
+    return AttachmentHTTPResult(
+      status: 200, body: try JSONEncoder().encode(["id": id]), retryAfter: nil,
+      contentType: "application/json", contentLength: nil, effectiveURL: response.effectiveURL
+    )
+  }
+
+  private func attachmentMetadata<Payload: Decodable>(
+    _ result: AttachmentHTTPResult
+  ) throws -> Payload {
+    guard let contentType = result.contentType,
+      contentType.split(separator: ";").first?.trimmingCharacters(in: .whitespaces)
+        .lowercased() == "application/json"
+    else { throw CrmAPIError.http(status: 502, code: "invalid_attachment_metadata") }
+    return try JSONDecoder().decode(Payload.self, from: result.body)
+  }
+
+  private static func cancelledUpload(_ response: AttachmentHTTPResult) -> AttachmentHTTPResult {
+    AttachmentHTTPResult(
+      status: 409, body: Data(#"{"error":"attachment_upload_cancelled"}"#.utf8),
+      retryAfter: nil, contentType: "application/json", contentLength: nil,
+      effectiveURL: response.effectiveURL
+    )
+  }
+
+  nonisolated private static func sha256(_ data: Data) -> String {
+    SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+  }
+
+  nonisolated private static func isSHA256(_ value: String) -> Bool {
+    value.utf8.count == 64 && value.utf8.allSatisfy {
+      (48...57).contains($0) || (97...102).contains($0)
+    }
+  }
+
+  nonisolated private static func isIdentifier(_ value: String) -> Bool {
+    !value.isEmpty && value.utf8.count <= 128 && value.utf8.allSatisfy {
+      (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
+        || $0 == 45 || $0 == 95
+    }
+  }
+
+  nonisolated private static func isIdempotencyKey(_ value: String) -> Bool {
+    (8...128).contains(value.utf8.count) && value.utf8.allSatisfy {
+      (48...57).contains($0) || (65...90).contains($0) || (97...122).contains($0)
+        || $0 == 45 || $0 == 46 || $0 == 58 || $0 == 95
+    }
+  }
+
+  nonisolated private static func isBoundedHeader(_ value: String, maxBytes: Int) -> Bool {
+    !value.isEmpty && value.utf8.count <= maxBytes && !value.unicodeScalars.contains {
+      CharacterSet.controlCharacters.contains($0)
+    }
   }
 
   // MARK: Plumbing
@@ -692,28 +943,124 @@ final class CrmAPIClient: AttachmentAPITransport {
     return data
   }
 
-  private func attachmentResult(for request: URLRequest) async throws -> AttachmentHTTPResult {
-    let (data, response) = try await session.data(for: request)
-    guard let http = response as? HTTPURLResponse else {
-      throw CrmAPIError.http(status: -1, code: "invalid_response")
+  private func attachmentAccessToken() throws -> String {
+    guard let baseURL,
+      CrmAPIConfig.isExactCanonicalOrigin(URLComponents(url: baseURL, resolvingAgainstBaseURL: false))
+    else { throw CrmAPIError.invalidConfiguration }
+    guard let token = accessTokenProvider(), !token.isEmpty else {
+      throw CrmAPIError.unauthorized
     }
-    guard let effective = http.url,
+    return token
+  }
+
+  private func attachmentRequest(
+    _ path: String, token: String, queryItems: [URLQueryItem] = []
+  ) throws -> URLRequest {
+    guard accessTokenProvider() == token else {
+      throw CrmAPIError.http(status: 401, code: "authentication_session_changed")
+    }
+    guard let baseURL,
+      CrmAPIConfig.isExactCanonicalOrigin(URLComponents(url: baseURL, resolvingAgainstBaseURL: false)),
+      var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false)
+    else { throw CrmAPIError.invalidConfiguration }
+    components.queryItems = queryItems.isEmpty ? nil : queryItems
+    guard let url = components.url else { throw CrmAPIError.invalidConfiguration }
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    request.setValue("identity", forHTTPHeaderField: "Accept-Encoding")
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    request.cachePolicy = .reloadIgnoringLocalCacheData
+    return request
+  }
+
+  private func attachmentResult(
+    for request: URLRequest, token: String,
+    maxResponseBytes: Int = ChunkedAttachmentContract.maxMetadataBytes
+  ) async throws -> AttachmentHTTPResult {
+    try Task.checkCancellation()
+    guard accessTokenProvider() == token else {
+      throw CrmAPIError.http(status: 401, code: "authentication_session_changed")
+    }
+    let result: AttachmentHTTPResult
+    if let attachmentResponseLoader {
+      result = try await attachmentResponseLoader(request, maxResponseBytes)
+    } else {
+      result = try await Self.boundedAttachmentResult(
+        session: session, request: request, maxResponseBytes: maxResponseBytes
+      )
+    }
+    // A logout or rotation while URLSession was suspended must stop the whole
+    // operation before any next chunk or acknowledgement is used. The existing
+    // coordinator remains the sole owner of a permitted refresh/retry.
+    try Task.checkCancellation()
+    guard accessTokenProvider() == token else {
+      throw CrmAPIError.http(status: 401, code: "authentication_session_changed")
+    }
+    guard let effective = result.effectiveURL,
       effective.scheme?.lowercased() == "https",
       effective.host?.lowercased() == "crm.27pm.org",
       effective.port == nil,
       effective.user == nil,
-      effective.password == nil
+      effective.password == nil,
+      effective == request.url,
+      !(300..<400).contains(result.status)
     else {
       throw CrmAPIError.http(status: 502, code: "redirect_forbidden")
     }
-    let length = http.value(forHTTPHeaderField: "Content-Length").flatMap(Int.init)
+    let validLength = result.contentLength.map {
+      (0...maxResponseBytes).contains($0) && $0 == result.body.count
+    } ?? true
+    guard result.body.count <= maxResponseBytes, validLength
+    else { throw CrmAPIError.http(status: 502, code: "attachment_response_too_large") }
+    return result
+  }
+
+  /// The cap is enforced while bytes arrive, not after data(for:) has already
+  /// buffered an untrusted response. A task-specific redirect delegate also
+  /// protects injected URLSessions; no bearer is replayed onto another URL.
+  nonisolated private static func boundedAttachmentResult(
+    session: URLSession, request: URLRequest, maxResponseBytes: Int
+  ) async throws -> AttachmentHTTPResult {
+    let (bytes, response) = try await session.bytes(
+      for: request, delegate: AttachmentRedirectDelegate()
+    )
+    guard let http = response as? HTTPURLResponse else {
+      throw CrmAPIError.http(status: -1, code: "invalid_response")
+    }
+    guard http.url == request.url, !(300..<400).contains(http.statusCode) else {
+      throw CrmAPIError.http(status: 502, code: "redirect_forbidden")
+    }
+    let length: Int?
+    if let raw = http.value(forHTTPHeaderField: "Content-Length") {
+      guard let parsed = Int(raw), (0...maxResponseBytes).contains(parsed) else {
+        throw CrmAPIError.http(status: 502, code: "attachment_response_too_large")
+      }
+      length = parsed
+    } else {
+      length = nil
+    }
+    if let encoding = http.value(forHTTPHeaderField: "Content-Encoding"),
+      encoding.lowercased() != "identity"
+    {
+      throw CrmAPIError.http(status: 502, code: "attachment_encoding_forbidden")
+    }
+    var data = Data()
+    data.reserveCapacity(length ?? min(maxResponseBytes, 64 * 1_024))
+    for try await byte in bytes {
+      guard data.count < maxResponseBytes else {
+        throw CrmAPIError.http(status: 502, code: "attachment_response_too_large")
+      }
+      data.append(byte)
+      if data.count.isMultiple(of: 64 * 1_024) { try Task.checkCancellation() }
+    }
     return AttachmentHTTPResult(
       status: http.statusCode,
       body: data,
       retryAfter: http.value(forHTTPHeaderField: "Retry-After"),
       contentType: http.value(forHTTPHeaderField: "Content-Type"),
       contentLength: length,
-      effectiveURL: effective
+      effectiveURL: http.url,
+      objectVersion: http.value(forHTTPHeaderField: "X-Attachment-Object-Version")
     )
   }
 
@@ -728,10 +1075,6 @@ final class CrmAPIClient: AttachmentAPITransport {
 
   private static func iso(_ date: Date) -> String {
     ISO8601DateFormatter().string(from: date)
-  }
-
-  nonisolated private static func append(_ body: inout Data, _ string: String) {
-    body.append(string.data(using: .utf8) ?? Data())
   }
 
   private static func validate(_ response: URLResponse, data: Data) throws {

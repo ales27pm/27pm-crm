@@ -26,6 +26,7 @@ export type InternalApiEdgeEnvironment = {
   CRM_INTERNAL_API_AUDIENCE?: string;
   CRM_INTERNAL_API_SIGNING_KEY?: string;
   CRM_SITES_TRUSTED_ORIGIN?: string;
+  CRM_SITES_MCP_ORIGIN?: string;
 };
 
 export type InternalApiExecutionContext = {
@@ -51,7 +52,9 @@ export async function prepareInternalApiRequest(
 
   const trustedSitesIdentity =
     (mode === "sites" || (mode === "hybrid" && !assertion)) &&
-    isTrustedSitesRequest(request, environment.CRM_SITES_TRUSTED_ORIGIN);
+    (isTrustedSitesRequest(request, environment.CRM_SITES_TRUSTED_ORIGIN) ||
+      (new URL(request.url).pathname === "/mcp" &&
+        isTrustedSitesRequest(request, environment.CRM_SITES_MCP_ORIGIN)));
   if (trustedSitesIdentity) {
     return assertion ? new Request(request, { headers }) : request;
   }

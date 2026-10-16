@@ -14,6 +14,16 @@ import {
 const SECRET = Buffer.alloc(32, 12).toString("base64url");
 const AUDIENCE = "27pm-sites-worker";
 
+test("MCP platform identity is confined to its exact configured Sites origin and path", async () => {
+  for (const [url, trusted] of [["https://site.example/mcp", true], ["https://site.example/api/messages/send", false], ["https://other.example/mcp", false]]) {
+    const env = environment("hybrid");
+    env.CRM_SITES_MCP_ORIGIN = "https://site.example";
+    const prepared = await prepareInternalApiRequest(new Request(url, { headers: { "oai-authenticated-user-email": "owner@example.com" } }), env);
+    assert.ok(prepared instanceof Request);
+    assert.equal(prepared.headers.get("oai-authenticated-user-email"), trusted ? "owner@example.com" : null);
+  }
+});
+
 test("internal mode strips spoofed identity when no assertion is present", async () => {
   const request = new Request("https://api.example.test/api/dashboard", {
     headers: { "oai-authenticated-user-email": "attacker@example.com" },

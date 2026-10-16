@@ -30,9 +30,10 @@ export interface PrivateObjectBucket {
     },
   ): Promise<PrivateObjectMetadata | null | void>;
   head(key: string): Promise<PrivateObjectMetadata | null>;
+  delete(key: string): Promise<void>;
   get(
     key: string,
-    options?: { onlyIf?: { etagMatches?: string } },
+    options?: { onlyIf?: { etagMatches?: string }; range?: { offset: number; length: number } },
   ): Promise<PrivateObjectBody | PrivateObjectMetadata | null>;
 }
 
