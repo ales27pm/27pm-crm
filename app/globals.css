@@ -739,6 +739,14 @@ h3 {
   opacity: 1;
 }
 
+.inbox-local-status {
+  padding: 0.7rem 1.15rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--red);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
 .conversation-list {
   display: grid;
 }
@@ -954,7 +962,7 @@ h3 {
   display: grid;
   align-items: center;
   gap: 0.75rem;
-  grid-template-columns: 2.55rem minmax(0, 1fr) auto auto;
+  grid-template-columns: 2.55rem minmax(0, 1fr) auto;
 }
 
 .avatar {
@@ -1017,7 +1025,7 @@ h3 {
   grid-template-columns: 1.35rem minmax(0, 1fr) auto;
   padding: 0.7rem 0.8rem;
   border: 1px solid var(--line);
-  border-radius: 0.65rem;
+  border-radius: 4px;
   background: color-mix(in srgb, var(--paper) 88%, var(--blue-soft));
 }
 
@@ -1048,7 +1056,7 @@ h3 {
 
 .message-attachments button {
   padding: 0.45rem 0.65rem;
-  border-radius: 0.45rem;
+  border-radius: 4px;
   background: var(--ink);
   color: var(--paper);
   font-size: 0.72rem;
@@ -1067,6 +1075,24 @@ h3 {
 .attachment-status {
   margin: 0.75rem 0 0;
   padding: 0 0 0.75rem 3.3rem;
+}
+
+.attachment-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem 0 0.9rem 3.3rem;
+}
+
+.attachment-status-row .attachment-status {
+  margin: 0;
+  padding: 0;
+}
+
+.attachment-status-row .secondary-action {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
 }
 
 .delivery-status {
@@ -1236,6 +1262,17 @@ h3 {
   padding: 0 0.85rem 0.35rem;
   color: var(--muted);
   font-size: 0.7rem;
+}
+
+.send-capability-notice {
+  margin: 0;
+  padding: 0.7rem 0.85rem;
+  border-top: 1px solid var(--line);
+  border-left: 3px solid var(--blue);
+  background: var(--blue-soft);
+  color: var(--ink);
+  font-size: 0.74rem;
+  line-height: 1.45;
 }
 
 .reply-confirmation {
@@ -3248,6 +3285,12 @@ h3 {
   background: rgb(23 23 20 / 38%);
 }
 
+.compose-dialog > form {
+  display: grid;
+  max-height: calc(100svh - 2rem);
+  overflow-y: auto;
+}
+
 .compose-dialog form > header {
   display: flex;
   min-height: 4.6rem;
@@ -3284,6 +3327,53 @@ h3 {
 .compose-dialog label > span {
   color: var(--muted);
   font-size: 0.78rem;
+}
+
+.compose-dialog form > .check-label {
+  display: flex;
+  min-height: 3.3rem;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.85rem 1.2rem;
+  color: var(--ink);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.compose-dialog form > .check-label input,
+.compose-admin-tools .check-label input {
+  width: 1rem;
+  min-width: 1rem;
+  margin-top: 0.12rem;
+}
+
+.compose-admin-tools {
+  padding: 0 1.2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.compose-admin-tools summary {
+  display: flex;
+  min-height: 2.75rem;
+  align-items: center;
+  color: var(--blue-deep);
+  cursor: pointer;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.compose-admin-tools .check-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0 0 0.85rem;
+  color: var(--ink);
+  font-size: 0.76rem;
+  line-height: 1.45;
+}
+
+.compose-dialog > form > .send-capability-notice {
+  border-bottom: 1px solid var(--line);
 }
 
 .compose-dialog input,
@@ -4299,6 +4389,12 @@ h3 {
 
   .delivery-status {
     margin-left: 0;
+  }
+
+  .message-attachments,
+  .attachment-status-row {
+    margin-left: 0;
+    padding-left: 0;
   }
 
   .message > p {

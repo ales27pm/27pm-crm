@@ -161,6 +161,7 @@ struct ConversationDTO: Decodable {
   let organization: String?
   let subject: String
   let preview: String?
+  let lastActivityAt: String?
   let unread: Bool
   let followUp: Bool
   let dealId: String?
@@ -311,6 +312,9 @@ enum DashboardMapper {
       transportState: TransportState(rawValue: payload.transportState) ?? .configuration,
       transportProvider: TransportProvider(rawValue: payload.transportProvider ?? "") ?? .unknown,
       conversations: payload.conversations.map { conversation in
+        let newestParsedMessageDate = (conversation.messages ?? [])
+          .compactMap { ApiDate.parse($0.sentAtIso) }
+          .max()
         let messages = (conversation.messages ?? []).map { message in
           CrmMessage(
             id: message.id,
@@ -320,11 +324,11 @@ enum DashboardMapper {
             recipientLabel: message.recipientLabel ?? "",
             sentAt: ApiDate.parse(message.sentAtIso) ?? now,
             body: message.body,
-            deliveryState: DeliveryState(rawValue: message.deliveryState ?? "") ?? .received,
+            deliveryState: DeliveryState.canonical(message.deliveryState),
             deliveryEvents: (message.deliveryEvents ?? []).map { event in
               DeliveryEvent(
                 id: "\(message.id)-\(event.state)-\(event.occurredAt ?? "")",
-                state: DeliveryState(rawValue: event.state) ?? .sent,
+                state: DeliveryState.canonical(event.state),
                 occurredAt: ApiDate.parse(event.occurredAt) ?? now
               )
             }
@@ -343,7 +347,9 @@ enum DashboardMapper {
           followUp: conversation.followUp,
           messages: messages,
           dealId: conversation.dealId,
-          lastActivity: messages.last?.sentAt ?? now
+          lastActivity: ApiDate.parse(conversation.lastActivityAt)
+            ?? newestParsedMessageDate
+            ?? .distantPast
         )
       },
       organizations: payload.organizations.map { organization in

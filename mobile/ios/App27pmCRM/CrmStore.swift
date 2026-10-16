@@ -155,7 +155,7 @@ final class CrmStore {
   let permissions = PermissionsCenter()
   let reminders = ReminderScheduler()
 
-  private let offlineCache = OfflineCache()
+  private let offlineCache: OfflineCache
 
   /// Date of the payload currently served when it comes from the offline
   /// cache — shown honestly in the offline banner.
@@ -165,22 +165,27 @@ final class CrmStore {
   private(set) var reminderSettings = ReminderSettings.load()
 
   init(
-    data: DashboardData = DemoData.dashboard(),
+    data injectedData: DashboardData? = nil,
     auth injectedAuth: DeviceAuth? = nil,
-    dashboardFetcher injectedDashboardFetcher: (() async throws -> DashboardFetchResult)? = nil
+    dashboardFetcher injectedDashboardFetcher: (() async throws -> DashboardFetchResult)? = nil,
+    offlineCache injectedOfflineCache: OfflineCache? = nil
   ) {
-    self.data = data
     let auth = injectedAuth ?? DeviceAuth()
-    self.auth = auth
     // Invalid build-time configuration fails closed: local tokens are purged,
     // the device must reconnect, and no authenticated request can be built.
-    if let configError = CrmAPIConfig.configurationError {
+    let configError = CrmAPIConfig.configurationError
+    if configError != nil {
       auth.purge()
-      syncError = configError
     }
+    let initialMode: DataMode = auth.isAuthenticated ? .live : .demo
+    self.data = injectedData
+      ?? (initialMode == .live ? DashboardData.emptyLive : DemoData.dashboard())
+    self.auth = auth
+    let offlineCache = injectedOfflineCache ?? OfflineCache()
+    self.offlineCache = offlineCache
     // Live mode only when a device session is restored from the Keychain;
     // otherwise the app starts in the explicit unauthenticated demo state.
-    mode = auth.isAuthenticated ? .live : .demo
+    mode = initialMode
     let outbox = OutboxQueue()
     self.outbox = outbox
     attachments = AttachmentStore(outbox: outbox)
@@ -190,6 +195,9 @@ final class CrmStore {
     self.apiClient = apiClient
     dashboardFetcher = injectedDashboardFetcher ?? {
       try await apiClient.fetchDashboard()
+    }
+    if let configError {
+      syncError = configError
     }
     attachmentSync = AttachmentSyncCoordinator(
       api: apiClient,
@@ -393,6 +401,18 @@ final class CrmStore {
     // including an explicit re-authentication while another session was live.
     authenticationEpoch &+= 1
     mode = .live
+    // Never carry the unauthenticated demo dashboard across the live boundary.
+    // A genuine cache may be replayed; otherwise the first live frame is empty
+    // until refresh returns authoritative server data.
+    if let cached = offlineCache.load(),
+      let payload = try? JSONDecoder().decode(DashboardPayloadDTO.self, from: cached.rawJSON)
+    {
+      data = DashboardMapper.map(payload)
+      cachedAt = cached.fetchedAt
+    } else {
+      data = .emptyLive
+      cachedAt = nil
+    }
     let expectedAuthenticationEpoch = authenticationEpoch
     Task { [weak self] in
       await self?.refresh(expectedAuthenticationEpoch: expectedAuthenticationEpoch)

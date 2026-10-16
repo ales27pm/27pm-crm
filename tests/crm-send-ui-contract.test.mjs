@@ -95,7 +95,7 @@ test("the reply path freezes the full request identity, not only its body", asyn
   );
   assert.match(
     source,
-    /setReplyConfirmation\(\{[\s\S]*draftSlot,[\s\S]*payload,[\s\S]*localRepair:[\s\S]*operationalReply,/u,
+    /setReplyConfirmation\(\{[\s\S]*draftSlot,[\s\S]*payload,[\s\S]*localRepair,[\s\S]*operationalReply,/u,
   );
   assert.doesNotMatch(source, /window\.confirm/u);
   assert.match(
@@ -124,7 +124,7 @@ test("thread replies require an accessible in-app review before dispatch", async
     guard,
   );
   const dispatch = source.indexOf(
-    "void dispatchReply(confirmation.draftSlot, confirmation.payload)",
+    "void dispatchReply(",
     slotGuard,
   );
   const lock = source.indexOf("sendingRef.current = true", dispatch);
@@ -227,7 +227,9 @@ test("ordinary-send gating does not block the dedicated Exchange canary", async 
   );
 
   const canaryBranch = app.indexOf("if (isDeliverabilityCanary)");
-  const ordinarySendGate = app.indexOf("if (!sendEnabled)");
+  const ordinarySendGate = app.indexOf(
+    "if (!sendEnabled && options.repairOnly !== true)",
+  );
   const ordinarySendRegistry = app.indexOf("const attempts = sendAttemptRegistryRef.current");
 
   assert.ok(canaryBranch >= 0);
@@ -235,6 +237,44 @@ test("ordinary-send gating does not block the dedicated Exchange canary", async 
   assert.ok(ordinarySendRegistry > ordinarySendGate);
   assert.match(
     dialog,
-    /if \(!sendEnabled && !presentation\.isDeliverabilityCanary\)/u,
+    /!sendEnabled &&[\s\S]*!presentation\.isDeliverabilityCanary &&[\s\S]*!presentation\.localRepair/u,
+  );
+});
+
+test("local CRM repair stays available with transport off and cannot mint a send key", async () => {
+  const [app, dialog, thread, registry] = await Promise.all([
+    readFile(new URL("../app/components/crm-app.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/compose-dialog.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../app/components/thread-view.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/send-attempt-registry.ts", import.meta.url), "utf8"),
+  ]);
+
+  assert.match(app, /options\.repairOnly[\s\S]*attempts\.existingKeyFor\(payload\)/u);
+  assert.match(
+    app,
+    /options\.repairOnly === true \? \{ repairOnly: true \} : \{\}/u,
+  );
+  assert.match(app, /if \(!idempotencyKey\)[\s\S]*LOCAL_REPAIR_KEY_MISSING_MESSAGE/u);
+  assert.match(
+    app,
+    /if \(outcome === "definitive_failure"\)[\s\S]*if \(options\.repairOnly !== true\)[\s\S]*attempts\.confirm/u,
+  );
+  assert.match(registry, /existingKeyFor:[\s\S]*Promise<string \| null>/u);
+  assert.match(
+    registry,
+    /async existingKeyFor\(payload\)[\s\S]*readExistingAttemptKey/u,
+  );
+  assert.match(
+    dialog,
+    /!sendEnabled &&[\s\S]*!presentation\.isDeliverabilityCanary &&[\s\S]*!presentation\.localRepair/u,
+  );
+  assert.match(dialog, /onSend\(exactPayload as ComposePayload, \{ repairOnly \}\)/u);
+  assert.match(
+    thread,
+    /if \(!sendEnabled && !localRepair\)[\s\S]*onSend\(exactPayload, \{ repairOnly \}\)/u,
+  );
+  assert.match(
+    thread,
+    /\(!view\.sendEnabled && view\.frozenDraft\?\.outcome !== "local_repair"\)/u,
   );
 });

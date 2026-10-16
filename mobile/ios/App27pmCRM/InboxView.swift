@@ -1,58 +1,81 @@
 import SwiftUI
 
-/// Réception — mailbox rail, filters and conversation list.
+/// Réception — mailbox selection, filters and a lazy conversation list.
 struct InboxView: View {
   @Environment(CrmStore.self) private var store
 
-  @State private var mailboxAddress = "bonjour@27pm.org"
+  @State private var requestedMailboxAddress: String? = nil
   @State private var filter: InboxFilter = .all
   @State private var search = ""
 
-  enum InboxFilter: String, CaseIterable, Identifiable {
-    case all = "Tous"
-    case unread = "Non lus"
-    case followUp = "Relances"
-
-    var id: String { rawValue }
+  private var mailboxAddresses: [String] {
+    store.data.mailboxes.map(\.address)
   }
 
-  private var filtered: [Conversation] {
-    store.data.conversations
-      .filter { $0.mailboxAddress == mailboxAddress }
-      .filter { conversation in
-        switch filter {
-        case .all: true
-        case .unread: conversation.unread
-        case .followUp: conversation.followUp
-        }
-      }
-      .filter { conversation in
-        let query = search.trimmed
-        guard !query.isEmpty else { return true }
-        return conversation.contactName.localizedStandardContains(query)
-          || conversation.organization.localizedStandardContains(query)
-          || conversation.subject.localizedStandardContains(query)
-      }
-      .sorted { $0.lastActivity > $1.lastActivity }
+  private var selectedMailboxAddress: String? {
+    InboxProjection.selectedMailboxAddress(
+      requested: requestedMailboxAddress,
+      mailboxes: store.data.mailboxes
+    )
+  }
+
+  private var conversations: [Conversation] {
+    InboxProjection.conversations(
+      store.data.conversations,
+      mailboxAddress: selectedMailboxAddress,
+      filter: filter,
+      query: search
+    )
+  }
+
+  private var isInitialLiveLoad: Bool {
+    store.mode == .live
+      && store.auth.isAuthenticated
+      && store.lastSync == nil
+      && store.cachedAt == nil
+      && store.syncError == nil
+      && store.data.conversations.isEmpty
   }
 
   var body: some View {
     NavigationStack {
       ScrollView {
-        VStack(alignment: .leading, spacing: 16) {
-          mailboxPicker
-          filterRow
-          if filtered.isEmpty {
-            Card {
-              Text("Aucune conversation ne correspond à ces filtres.")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.muted)
+        LazyVStack(alignment: .leading, spacing: 16) {
+          MailboxPickerView(
+            mailboxes: store.data.mailboxes,
+            selectedAddress: selectedMailboxAddress,
+            unreadCount: { store.unreadCount(mailbox: $0) },
+            onSelect: selectMailbox
+          )
+
+          InboxFilterBar(selection: $filter)
+
+          if (store.isSyncing && store.data.conversations.isEmpty) || isInitialLiveLoad {
+            InboxLoadingView()
+          } else if let syncError = store.syncError, store.data.conversations.isEmpty {
+            InboxSyncErrorView(message: syncError) {
+              Task { await store.refresh() }
             }
           } else {
-            VStack(spacing: 8) {
-              ForEach(filtered) { conversation in
-                conversationRow(conversation)
+            if let syncError = store.syncError {
+              InboxSyncErrorView(message: syncError) {
+                Task { await store.refresh() }
               }
+            }
+            if conversations.isEmpty {
+              InboxEmptyStateView(
+                state: InboxProjection.emptyState(
+                  mailboxes: store.data.mailboxes,
+                  mailboxAddress: selectedMailboxAddress,
+                  filter: filter,
+                  query: search
+                )
+              )
+            } else {
+              ConversationListView(
+                conversations: conversations,
+                onToggleRead: toggleRead
+              )
             }
           }
         }
@@ -60,133 +83,208 @@ struct InboxView: View {
         .padding(.top, 6)
         .padding(.bottom, 28)
       }
+      .scrollDismissesKeyboard(.interactively)
       .crmScreenChrome()
       .refreshable { await store.refresh() }
       .crmDestinations()
       .navigationTitle("Réception")
-    }
-  }
-
-  // MARK: Mailbox picker
-
-  private var mailboxPicker: some View {
-    HStack(spacing: 4) {
-      ForEach(store.data.mailboxes) { mailbox in
-        let selected = mailbox.address == mailboxAddress
-        Button {
-          withAnimation(.snappy) { mailboxAddress = mailbox.address }
-          Haptics.light()
-        } label: {
-          VStack(spacing: 2) {
-            Text(mailbox.address)
-              .font(.system(size: 11.5, weight: .semibold, design: .monospaced))
-              .lineLimit(1)
-              .minimumScaleFactor(0.6)
-            HStack(spacing: 3) {
-              Text(mailbox.label)
-              let unread = store.unreadCount(mailbox: mailbox.address)
-              if unread > 0 {
-                Text("· \(unread)")
-                  .fontWeight(.bold)
-              }
-            }
-            .font(.system(size: 10))
-            .foregroundStyle(selected ? Theme.ivory.opacity(0.75) : Theme.muted)
-            .lineLimit(1)
-          }
-          .padding(.vertical, 8)
-          .frame(maxWidth: .infinity)
-          .background(RoundedRectangle(cornerRadius: 3).fill(selected ? Theme.ink : Color.clear))
-          .foregroundStyle(selected ? Theme.ivory : Theme.ink)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Boîte \(mailbox.address)")
+      .searchable(
+        text: $search,
+        placement: .navigationBarDrawer(displayMode: .always),
+        prompt: "Contact, courriel, sujet ou message"
+      )
+      .onAppear(perform: reconcileMailboxSelection)
+      .onChange(of: mailboxAddresses) { _, _ in
+        reconcileMailboxSelection()
       }
     }
-    .padding(4)
-    .background(RoundedRectangle(cornerRadius: 4).fill(Theme.ivoryRaised))
-    .overlay(RoundedRectangle(cornerRadius: 4).strokeBorder(Theme.line, lineWidth: 1))
   }
 
-  // MARK: Filters
+  private func reconcileMailboxSelection() {
+    requestedMailboxAddress = InboxProjection.selectedMailboxAddress(
+      requested: requestedMailboxAddress,
+      mailboxes: store.data.mailboxes
+    )
+  }
 
-  private var filterRow: some View {
-    VStack(alignment: .leading, spacing: 10) {
-      HStack(spacing: 8) {
-        ForEach(InboxFilter.allCases) { filterCase in
-          let selected = filterCase == filter
-          Button {
-            withAnimation(.snappy) { filter = filterCase }
-            Haptics.light()
-          } label: {
-            Text(filterCase.rawValue)
-              .font(.system(size: 12, weight: .semibold))
+  private func selectMailbox(_ address: String) {
+    withAnimation(.snappy) {
+      requestedMailboxAddress = address
+    }
+    Haptics.light()
+  }
+
+  private func toggleRead(_ conversation: Conversation) {
+    if conversation.unread {
+      store.markRead(conversation.id)
+    } else {
+      store.markUnread(conversation.id)
+    }
+  }
+}
+
+// MARK: - Mailboxes
+
+struct MailboxPickerView: View {
+  let mailboxes: [Mailbox]
+  let selectedAddress: String?
+  let unreadCount: (String) -> Int
+  let onSelect: (String) -> Void
+
+  var body: some View {
+    if !mailboxes.isEmpty {
+      ScrollView(.horizontal, showsIndicators: false) {
+        HStack(spacing: 6) {
+          ForEach(mailboxes) { mailbox in
+            let selected = mailbox.address == selectedAddress
+            let unread = unreadCount(mailbox.address)
+
+            Button {
+              onSelect(mailbox.address)
+            } label: {
+              VStack(alignment: .leading, spacing: 2) {
+                Text(mailbox.address)
+                  .font(.caption.monospaced().weight(.semibold))
+                  .lineLimit(1)
+                Text(mailboxSummary(mailbox, unread: unread))
+                  .font(.caption2)
+                  .foregroundStyle(selected ? Theme.ivory.opacity(0.8) : Theme.muted)
+                  .lineLimit(1)
+              }
               .padding(.horizontal, 12)
-              .padding(.vertical, 6)
-              .background(Capsule().fill(selected ? Theme.ink : Theme.ivoryRaised))
+              .padding(.vertical, 9)
+              .frame(minHeight: 44, alignment: .leading)
+              .background(
+                RoundedRectangle(cornerRadius: 4)
+                  .fill(selected ? Theme.ink : Theme.ivoryRaised)
+              )
               .foregroundStyle(selected ? Theme.ivory : Theme.ink)
               .overlay(
-                Capsule().strokeBorder(selected ? Color.clear : Theme.line, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 4)
+                  .strokeBorder(selected ? Color.clear : Theme.line, lineWidth: 1)
               )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Boîte \(mailbox.address), \(mailbox.label)")
+            .accessibilityValue(accessibilityValue(selected: selected, unread: unread))
+            .accessibilityAddTraits(selected ? [.isSelected] : [])
           }
-          .buttonStyle(.plain)
         }
-        Spacer()
       }
-      searchField
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Boîtes courriel")
     }
   }
 
-  private var searchField: some View {
-    HStack(spacing: 8) {
-      Image(systemName: "magnifyingglass")
-        .font(.system(size: 13))
-        .foregroundStyle(Theme.muted)
-      TextField("Rechercher un contact, un sujet…", text: $search)
-        .font(.system(size: 14))
-        .autocorrectionDisabled()
-    }
-    .padding(.horizontal, 12)
-    .padding(.vertical, 10)
-    .background(RoundedRectangle(cornerRadius: 3).fill(Theme.ivoryRaised))
-    .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.line, lineWidth: 1))
+  private func mailboxSummary(_ mailbox: Mailbox, unread: Int) -> String {
+    unread > 0 ? "\(mailbox.label) · \(unread) non lu\(unread > 1 ? "s" : "")" : mailbox.label
   }
 
-  // MARK: Rows
+  private func accessibilityValue(selected: Bool, unread: Int) -> String {
+    let selection = selected ? "Sélectionnée" : "Non sélectionnée"
+    let count = unread == 0
+      ? "aucun message non lu"
+      : "\(unread) message\(unread > 1 ? "s" : "") non lu\(unread > 1 ? "s" : "")"
+    return "\(selection), \(count)"
+  }
+}
 
-  private func conversationRow(_ conversation: Conversation) -> some View {
+// MARK: - Filters
+
+struct InboxFilterBar: View {
+  @Binding var selection: InboxFilter
+
+  var body: some View {
+    ScrollView(.horizontal, showsIndicators: false) {
+      HStack(spacing: 8) {
+        ForEach(InboxFilter.allCases) { filter in
+          let selected = filter == selection
+          Button(filter.rawValue) {
+            withAnimation(.snappy) { selection = filter }
+            Haptics.light()
+          }
+          .font(.subheadline.weight(.semibold))
+          .padding(.horizontal, 12)
+          .frame(minHeight: 44)
+          .background(
+            RoundedRectangle(cornerRadius: 4)
+              .fill(selected ? Theme.ink : Theme.ivoryRaised)
+          )
+          .foregroundStyle(selected ? Theme.ivory : Theme.ink)
+          .overlay(
+            RoundedRectangle(cornerRadius: 4)
+              .strokeBorder(selected ? Color.clear : Theme.line, lineWidth: 1)
+          )
+          .buttonStyle(.plain)
+          .accessibilityValue(selected ? "Sélectionné" : "Non sélectionné")
+          .accessibilityAddTraits(selected ? [.isSelected] : [])
+        }
+      }
+    }
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Filtres de réception")
+  }
+}
+
+// MARK: - Conversation list
+
+struct ConversationListView: View {
+  let conversations: [Conversation]
+  let onToggleRead: (Conversation) -> Void
+
+  var body: some View {
+    LazyVStack(spacing: 8) {
+      ForEach(conversations) { conversation in
+        ConversationRow(
+          conversation: conversation,
+          onToggleRead: { onToggleRead(conversation) }
+        )
+      }
+    }
+  }
+}
+
+struct ConversationRow: View {
+  let conversation: Conversation
+  let onToggleRead: () -> Void
+
+  var body: some View {
     NavigationLink(value: Route.conversation(conversation.id)) {
-      VStack(alignment: .leading, spacing: 5) {
+      VStack(alignment: .leading, spacing: 6) {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
           if conversation.unread {
             Circle()
               .fill(Theme.blue)
-              .frame(width: 7, height: 7)
+              .frame(width: 8, height: 8)
+              .accessibilityHidden(true)
           }
           Text(conversation.contactName)
-            .font(.system(size: 14.5, weight: conversation.unread ? .bold : .semibold))
+            .font(.headline.weight(conversation.unread ? .bold : .semibold))
             .foregroundStyle(Theme.ink)
             .lineLimit(1)
           Spacer(minLength: 8)
           Text(Fmt.relative(conversation.lastActivity))
-            .font(.system(size: 11.5))
+            .font(.caption)
             .foregroundStyle(Theme.muted)
         }
         Text(conversation.subject)
-          .font(.system(size: 13.5, weight: conversation.unread ? .semibold : .regular))
+          .font(.subheadline.weight(conversation.unread ? .semibold : .regular))
           .foregroundStyle(Theme.ink)
-          .lineLimit(1)
+          .lineLimit(2)
         Text(conversation.preview)
-          .font(.system(size: 12.5))
+          .font(.footnote)
           .foregroundStyle(Theme.muted)
           .lineLimit(2)
           .multilineTextAlignment(.leading)
         HStack(spacing: 8) {
-          Text(conversation.organization)
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(Theme.blueDeep)
+          if !conversation.organization.trimmed.isEmpty {
+            Text(conversation.organization)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(Theme.blueDeep)
+          }
           if conversation.followUp {
             Chip("Relance", foreground: Theme.amber, background: Theme.amberSoft)
+              .accessibilityHidden(true)
           }
         }
       }
@@ -197,17 +295,93 @@ struct InboxView: View {
         RoundedRectangle(cornerRadius: 3)
           .strokeBorder(conversation.unread ? Theme.blue.opacity(0.35) : Theme.line, lineWidth: 1)
       )
+      .accessibilityElement(children: .ignore)
+      .accessibilityLabel(accessibilityLabel)
+      .accessibilityValue(accessibilityValue)
+      .accessibilityHint("Ouvre la conversation")
     }
     .buttonStyle(.plain)
     .simultaneousGesture(TapGesture().onEnded { Haptics.light() })
     .contextMenu {
-      Button(conversation.unread ? "Marquer comme lu" : "Marquer comme non lu") {
-        if conversation.unread {
-          store.markRead(conversation.id)
-        } else {
-          store.markUnread(conversation.id)
-        }
+      toggleReadButton
+    }
+    .accessibilityAction(named: Text(toggleReadTitle)) {
+      onToggleRead()
+    }
+    .accessibilityIdentifier("inbox-conversation-\(conversation.id)")
+  }
+
+  private var toggleReadTitle: String {
+    conversation.unread ? "Marquer comme lu" : "Marquer comme non lu"
+  }
+
+  private var toggleReadButton: some View {
+    Button(toggleReadTitle) {
+      onToggleRead()
+    }
+  }
+
+  private var accessibilityLabel: String {
+    [conversation.contactName, conversation.subject, conversation.preview]
+      .filter { !$0.trimmed.isEmpty }
+      .joined(separator: ", ")
+  }
+
+  private var accessibilityValue: String {
+    var values = [conversation.unread ? "Non lu" : "Lu"]
+    if conversation.followUp { values.append("Relance requise") }
+    if !conversation.organization.trimmed.isEmpty { values.append(conversation.organization) }
+    values.append(Fmt.relative(conversation.lastActivity))
+    return values.joined(separator: ", ")
+  }
+}
+
+// MARK: - Loading, error and empty states
+
+struct InboxLoadingView: View {
+  var body: some View {
+    HStack(spacing: 10) {
+      ProgressView()
+      Text("Chargement des conversations…")
+        .font(.body)
+        .foregroundStyle(Theme.muted)
+    }
+    .frame(maxWidth: .infinity, minHeight: 120)
+    .accessibilityElement(children: .combine)
+  }
+}
+
+struct InboxSyncErrorView: View {
+  let message: String
+  let retry: () -> Void
+
+  var body: some View {
+    Card {
+      VStack(alignment: .leading, spacing: 10) {
+        Label("Synchronisation incomplète", systemImage: "exclamationmark.triangle.fill")
+          .font(.headline)
+          .foregroundStyle(Theme.rust)
+        Text(message)
+          .font(.body)
+          .foregroundStyle(Theme.ink)
+        Button("Réessayer", action: retry)
+          .buttonStyle(.bordered)
+          .accessibilityHint("Relance la synchronisation des conversations")
       }
     }
+  }
+}
+
+struct InboxEmptyStateView: View {
+  let state: InboxEmptyState
+
+  var body: some View {
+    ContentUnavailableView {
+      Label(state.title, systemImage: "tray")
+    } description: {
+      Text(state.message)
+    }
+    .frame(maxWidth: .infinity, minHeight: 180)
+    .accessibilityElement(children: .combine)
   }
 }

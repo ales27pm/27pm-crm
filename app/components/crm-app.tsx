@@ -36,11 +36,18 @@ import {
 import {
   classifyCanarySendHttpResponse,
   classifyMessageSendHttpResponse,
+  LOCAL_REPAIR_KEY_MISSING_MESSAGE,
   LOCAL_REPAIR_MESSAGE,
+  type SendUiOptions,
   type SendUiOutcome,
   type SendUiResult,
   UNKNOWN_SEND_MESSAGE,
 } from "../../lib/send-ui-result";
+import {
+  filterInboxConversations,
+  resolveVisibleConversation,
+  transitionConversationUnreadState,
+} from "../../lib/mail-ui-state";
 import {
   ProjectsView,
   SettingsView,
@@ -83,6 +90,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   );
   const [filter, setFilter] = useState<InboxFilter>("all");
   const [search, setSearch] = useState("");
+  const [inboxStatus, setInboxStatus] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
   const [editingAccount, setEditingAccount] = useState<Organization | null>(null);
@@ -149,25 +157,19 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
   }, []);
 
   const visibleConversations = useMemo(() => {
-    const query = search.trim().toLocaleLowerCase("fr-CA");
-    return data.conversations.filter((conversation) => {
-      if (conversation.mailboxAddress !== mailboxAddress) return false;
-      if (filter === "unread" && !conversation.unread) return false;
-      if (filter === "follow-up" && !conversation.followUp) return false;
-      if (!query) return true;
-      return [
-        conversation.contactName,
-        conversation.organization,
-        conversation.subject,
-        conversation.preview,
-      ].some((value) => value.toLocaleLowerCase("fr-CA").includes(query));
+    return filterInboxConversations({
+      conversations: data.conversations,
+      filter,
+      mailboxAddress,
+      pinnedConversationId: selectedConversationId,
+      search,
     });
-  }, [data.conversations, filter, mailboxAddress, search]);
+  }, [data.conversations, filter, mailboxAddress, search, selectedConversationId]);
 
-  const selectedConversation =
-    data.conversations.find((item) => item.id === selectedConversationId) ??
-    visibleConversations[0] ??
-    null;
+  const selectedConversation = resolveVisibleConversation(
+    visibleConversations,
+    selectedConversationId,
+  );
   const selectedContact = selectedConversation
     ? data.contacts.find((item) => item.id === selectedConversation.contactId) ?? null
     : null;
@@ -210,12 +212,16 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
     setSelectedConversationId(id);
     setSelectedDealId(conversation?.dealId ?? null);
     setMobileThreadOpen(true);
+    setInboxStatus("");
     if (conversation?.unread) {
       setData((current) => ({
         ...current,
-        conversations: current.conversations.map((item) =>
-          item.id === id ? { ...item, unread: false } : item,
-        ),
+        ...transitionConversationUnreadState({
+          conversations: current.conversations,
+          mailboxes: current.mailboxes,
+          conversationId: id,
+          unread: false,
+        }),
       }));
       if (currentIsLive(data)) {
         void fetch(`/api/conversations/${encodeURIComponent(id)}`, {
@@ -223,10 +229,66 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify({ unread: false }),
         }).then((response) => {
-          if (!response.ok) setSyncMessage("La lecture n’a pas pu être synchronisée.");
-        }).catch(() => setSyncMessage("La lecture n’a pas pu être synchronisée."));
+          if (!response.ok) throw new Error("conversation_read_sync_failed");
+        }).catch(() => {
+          setData((current) => ({
+            ...current,
+            ...transitionConversationUnreadState({
+              conversations: current.conversations,
+              mailboxes: current.mailboxes,
+              conversationId: id,
+              unread: true,
+            }),
+          }));
+          setInboxStatus(
+            "Le message demeure non lu : la mise à jour n’a pas pu être synchronisée.",
+          );
+        });
       }
     }
+  }
+
+  function openConversationInInbox(id: string) {
+    const conversation = data.conversations.find((item) => item.id === id);
+    if (!conversation) return;
+    setMailboxAddress(conversation.mailboxAddress);
+    setFilter("all");
+    setSearch("");
+    selectConversation(id);
+    setContextOpen(false);
+    setActiveView("inbox");
+    focusWorkspaceTitle();
+  }
+
+  function conversationsForInbox(
+    address: string,
+    nextFilter: InboxFilter,
+    nextSearch: string,
+  ) {
+    return filterInboxConversations({
+      conversations: data.conversations,
+      filter: nextFilter,
+      mailboxAddress: address,
+      search: nextSearch,
+    });
+  }
+
+  function changeInboxFilter(nextFilter: InboxFilter) {
+    const nextVisible = conversationsForInbox(mailboxAddress, nextFilter, search);
+    setFilter(nextFilter);
+    setSelectedConversationId((current) =>
+      resolveVisibleConversation(nextVisible, current)?.id ?? null,
+    );
+    if (nextVisible.length === 0) setMobileThreadOpen(false);
+  }
+
+  function changeInboxSearch(nextSearch: string) {
+    const nextVisible = conversationsForInbox(mailboxAddress, filter, nextSearch);
+    setSearch(nextSearch);
+    setSelectedConversationId((current) =>
+      resolveVisibleConversation(nextVisible, current)?.id ?? null,
+    );
+    if (nextVisible.length === 0) setMobileThreadOpen(false);
   }
 
   function updateDeal(id: string, patch: Partial<Deal>) {
@@ -439,6 +501,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
 
   async function sendMessage(
     payload: Record<string, string | boolean>,
+    options: SendUiOptions = {},
   ): Promise<SendUiResult> {
     const requestsControlledCanary = payload.controlledCanary === true;
     const canaryRecipient =
@@ -497,7 +560,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       }
     }
 
-    if (!sendEnabled) {
+    if (!sendEnabled && options.repairOnly !== true) {
       return sendUiResult(
         "definitive_failure",
         "Configurez le transport de courriel avant l’envoi.",
@@ -511,14 +574,23 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
         "Le registre local d’envoi est indisponible; rien n’a été transmis.",
       );
     }
-    let idempotencyKey: string;
+    let idempotencyKey: string | null;
     try {
-      idempotencyKey = await attempts.keyFor(payload);
+      idempotencyKey = options.repairOnly
+        ? await attempts.existingKeyFor(payload)
+        : await attempts.keyFor(payload);
     } catch {
       const message =
         "Le brouillon n’a pas pu être protégé contre un double envoi; rien n’a été transmis.";
       setSyncMessage(message);
       return sendUiResult("definitive_failure", message);
+    }
+    if (!idempotencyKey) {
+      setSyncMessage(LOCAL_REPAIR_KEY_MISSING_MESSAGE);
+      return sendUiResult(
+        "definitive_failure",
+        LOCAL_REPAIR_KEY_MISSING_MESSAGE,
+      );
     }
 
     let response: Response;
@@ -526,7 +598,11 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       response = await fetch("/api/messages/send", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...payload, idempotencyKey }),
+        body: JSON.stringify({
+          ...payload,
+          idempotencyKey,
+          ...(options.repairOnly === true ? { repairOnly: true } : {}),
+        }),
       });
     } catch {
       setSyncMessage(UNKNOWN_SEND_MESSAGE);
@@ -544,7 +620,9 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       return sendUiResult(outcome, UNKNOWN_SEND_MESSAGE);
     }
     if (outcome === "definitive_failure") {
-      await attempts.confirm(payload, idempotencyKey);
+      if (options.repairOnly !== true) {
+        await attempts.confirm(payload, idempotencyKey);
+      }
       const message =
         typeof result.error === "string"
           ? outreachErrorMessage(result.error)
@@ -642,10 +720,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
               setActiveView("contacts");
             }}
             onOpenConversation={(id) => {
-              selectConversation(id);
-              setContextOpen(false);
-              setActiveView("inbox");
-              focusWorkspaceTitle();
+              openConversationInInbox(id);
             }}
             onOpenDeal={(id) => {
               setSelectedDealId(id);
@@ -670,16 +745,19 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
               selectedId={selectedConversation?.id ?? null}
               filter={filter}
               search={search}
+              status={inboxStatus}
               hiddenOnMobile={mobileThreadOpen}
               onMailboxChange={(address) => {
+                const nextVisible = conversationsForInbox(address, filter, search);
                 setMailboxAddress(address);
                 setSelectedConversationId(
-                  data.conversations.find((item) => item.mailboxAddress === address)?.id ?? null,
+                  resolveVisibleConversation(nextVisible, null)?.id ?? null,
                 );
                 setMobileThreadOpen(false);
+                setInboxStatus("");
               }}
-              onFilterChange={setFilter}
-              onSearchChange={setSearch}
+              onFilterChange={changeInboxFilter}
+              onSearchChange={changeInboxSearch}
               onSelect={selectConversation}
             />
             <div className="thread-column" data-mobile-hidden={!mobileThreadOpen || undefined}>
@@ -729,9 +807,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
                   (conversation) => conversation.id === selectedPipelineDeal.conversationId,
                 )
                   ? () => {
-                      setSelectedConversationId(selectedPipelineDeal.conversationId);
-                      setActiveView("inbox");
-                      setMobileThreadOpen(true);
+                      openConversationInInbox(selectedPipelineDeal.conversationId);
                     }
                   : undefined
               }
@@ -840,6 +916,7 @@ export function CrmApp({ initialData, operator }: CrmAppProps) {
       <ComposeDialog
         open={composeOpen}
         mailboxes={data.mailboxes}
+        selectedMailboxAddress={mailboxAddress}
         sendEnabled={sendEnabled}
         onClose={() => setComposeOpen(false)}
         onSend={sendMessage}

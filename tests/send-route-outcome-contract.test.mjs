@@ -72,6 +72,26 @@ test("repairs a sent command locally before returning an idempotent retry", asyn
   );
 });
 
+test("repair-only requests fail closed before transport when the original command is absent", async () => {
+  const source = await readFile(routeUrl, "utf8");
+  const repairFlag = source.indexOf("const repairOnly = payload.repairOnly === true");
+  const existingLookup = source.indexOf("await loadSendCommand(db, idempotencyKey)");
+  const repairNotFound = source.indexOf(
+    'return jsonError(409, "send_command_repair_not_found")',
+    existingLookup,
+  );
+  const transportConfig = source.indexOf(
+    "requireOutboundMessageOperationalConfig()",
+  );
+  const providerDispatch = source.indexOf("await sendOutboundMessage(");
+
+  assert.ok(repairFlag >= 0);
+  assert.ok(existingLookup > repairFlag);
+  assert.ok(repairNotFound > existingLookup);
+  assert.ok(transportConfig > repairNotFound);
+  assert.ok(providerDispatch > transportConfig);
+});
+
 test("persists a Cakemail RFC Message-ID before the non-idempotent provider request", async () => {
   const source = await readFile(routeUrl, "utf8");
   const createExternalId = source.indexOf("createOutboundExternalMessageId(");

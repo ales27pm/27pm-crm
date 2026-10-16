@@ -88,6 +88,7 @@ export async function POST(request: Request) {
   if (!idempotencyKey) return jsonError(400, "idempotency_key_invalid");
   const command = parseSendCommand(payload);
   if (!command) return jsonError(400, "message_invalid");
+  const repairOnly = payload.repairOnly === true;
   if (payload.complianceConfirmed !== true) return jsonError(409, "operator_compliance_confirmation_required");
   if (
     command.mailbox.purpose === "operations" &&
@@ -116,6 +117,9 @@ export async function POST(request: Request) {
     }
   } catch {
     return jsonError(503, "send_command_lookup_failed");
+  }
+  if (repairOnly) {
+    return jsonError(409, "send_command_repair_not_found");
   }
 
   let transport: OutboundTransportConfig;

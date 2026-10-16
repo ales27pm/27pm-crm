@@ -65,6 +65,7 @@ export type Conversation = {
   organization: string;
   subject: string;
   preview: string;
+  lastActivityAt: string;
   updatedLabel: string;
   unread: boolean;
   followUp: boolean;

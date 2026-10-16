@@ -37,8 +37,8 @@ struct CrmBuildIdentityTests {
   }
 
   @Test func hostAppCarriesBuild10OfMarketingVersion100() {
-    #expect(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "10",
-            "CURRENT_PROJECT_VERSION doit être 10 pour le nouveau build TestFlight")
+    #expect(Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String == "11",
+            "CURRENT_PROJECT_VERSION doit être 11 pour le nouveau build TestFlight")
     #expect(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String == "1.0.0")
   }
 
@@ -60,9 +60,9 @@ struct CrmBuildIdentityTests {
 
   @Test func currentProjectVersionIs10InAllSixConfigurations() throws {
     let identity = try bundledProof("BuildIdentity", extension: "txt")
-    #expect(count("CURRENT_PROJECT_VERSION = 10;", in: identity) == 6,
+    #expect(count("CURRENT_PROJECT_VERSION = 11;", in: identity) == 6,
             "Trois targets × deux configurations")
-    #expect(!identity.contains("CURRENT_PROJECT_VERSION = 9;"))
+    #expect(!identity.contains("CURRENT_PROJECT_VERSION = 10;"))
   }
 
   @Test func marketingVersionStaysAt100InEveryConfiguration() throws {

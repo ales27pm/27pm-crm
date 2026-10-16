@@ -107,6 +107,37 @@ test("persists an unresolved intention across reloads and releases it after conf
   assert.notEqual(await nextIntention.keyFor(payload), first);
 });
 
+test("repair lookup reuses only an existing key and never creates one", async () => {
+  const storage = memoryStorage();
+  const coordinator = serialCoordinator();
+  let generated = 0;
+  const factory = () => `attempt-key-${String(++generated).padStart(4, "0")}`;
+  const payload = { to: "client@example.com", body: "Message accepté" };
+  const registry = createSendAttemptRegistry(
+    factory,
+    storage,
+    coordinator,
+    true,
+  );
+
+  assert.equal(await registry.existingKeyFor(payload), null);
+  assert.equal(generated, 0, "a repair lookup must not create a send key");
+
+  const original = await registry.keyFor(payload);
+  const reloaded = createSendAttemptRegistry(
+    factory,
+    storage,
+    coordinator,
+    true,
+  );
+  assert.equal(await reloaded.existingKeyFor(payload), original);
+  assert.equal(
+    await reloaded.existingKeyFor({ ...payload, body: "Message modifié" }),
+    null,
+  );
+  assert.equal(generated, 1, "repair lookups must never allocate another key");
+});
+
 test("canonicalizes the same command exactly as the send route", () => {
   const raw = {
     from: " Alexis Boulet <ALEXIS@27PM.ORG> ",

@@ -10,8 +10,9 @@ import {
   type FrozenSendDraft,
 } from "@/lib/frozen-send-draft";
 import type { SendAttemptPayload } from "@/lib/send-attempt-registry";
-import type { SendUiResult } from "@/lib/send-ui-result";
+import type { SendUiOptions, SendUiResult } from "@/lib/send-ui-result";
 import { mailboxForAddress } from "@/lib/mailboxes";
+import { MAIL_SEND_DISABLED_REASON } from "@/lib/mail-ui-state";
 import type { Conversation, CrmAttachment, CrmMessage } from "../crm-types";
 import {
   executeFrozenSend,
@@ -29,7 +30,10 @@ type ThreadViewProps = {
   contextTriggerRef: Ref<HTMLButtonElement>;
   onBack: () => void;
   onOpenContext: () => void;
-  onSend: (payload: SendAttemptPayload) => Promise<SendUiResult>;
+  onSend: (
+    payload: SendAttemptPayload,
+    options?: SendUiOptions,
+  ) => Promise<SendUiResult>;
 };
 
 type ReplyPayload = {
@@ -52,6 +56,7 @@ type ReplyConfirmationState = {
 type AttachmentLoadState = {
   conversationId: string;
   attachments: CrmAttachment[];
+  failed: boolean;
   status: string;
 };
 
@@ -65,6 +70,7 @@ type ThreadConversationProps = {
   view: {
     attachments: CrmAttachment[];
     attachmentStatus: string;
+    attachmentLoadFailed: boolean;
     body: string;
     contextOpen: boolean;
     conversation: Conversation;
@@ -82,6 +88,7 @@ type ThreadConversationProps = {
     confirmReply: () => void;
     downloadAttachment: (attachment: CrmAttachment) => void;
     openContext: () => void;
+    retryAttachments: () => void;
     setBody: (body: string) => void;
     submit: () => void;
   };
@@ -121,6 +128,7 @@ export function ThreadView({
     useState<AttachmentLoadState | null>(null);
   const [attachmentDownload, setAttachmentDownload] =
     useState<AttachmentDownloadState | null>(null);
+  const [attachmentReloadToken, setAttachmentReloadToken] = useState(0);
   const [sending, setSending] = useState(false);
   const [readyDraftSlot, setReadyDraftSlot] = useState<string | null>(null);
   const [frozenDraft, setFrozenDraft] = useState<FrozenSendDraft | null>(null);
@@ -144,6 +152,7 @@ export function ThreadView({
     ? attachmentDownload
     : null;
   const attachments = currentAttachmentLoad?.attachments ?? [];
+  const attachmentLoadFailed = currentAttachmentLoad?.failed ?? false;
   const attachmentStatus = currentAttachmentDownload?.status ?? (
     attachmentConversationId
       ? currentAttachmentLoad?.status ?? "Chargement des pièces jointes…"
@@ -199,6 +208,7 @@ export function ThreadView({
         setAttachmentLoad({
           conversationId,
           attachments: result.attachments,
+          failed: false,
           status: result.truncated
             ? "Les 200 premières pièces jointes sont affichées."
             : "",
@@ -209,11 +219,12 @@ export function ThreadView({
         setAttachmentLoad({
           conversationId,
           attachments: [],
+          failed: true,
           status: "Les pièces jointes sont indisponibles.",
         });
       });
     return () => controller.abort();
-  }, [conversation?.id]);
+  }, [attachmentReloadToken, conversation?.id]);
 
   if (!conversation) {
     return (
@@ -236,7 +247,8 @@ export function ThreadView({
     if (frozenDraft?.outcome === "outcome_unknown") return;
     const value = body.trim();
     if (!value) return;
-    if (!sendEnabled) {
+    const localRepair = frozenDraft?.outcome === "local_repair";
+    if (!sendEnabled && !localRepair) {
       setStatus("Le transport de courriel doit être configuré avant l’envoi.");
       return;
     }
@@ -265,7 +277,7 @@ export function ThreadView({
     setReplyConfirmation({
       draftSlot,
       payload,
-      localRepair: frozenDraft?.outcome === "local_repair",
+      localRepair,
       operationalReply,
     });
     setStatus("Vérifiez le destinataire et le message exact avant de confirmer.");
@@ -314,10 +326,18 @@ export function ThreadView({
     }
     setReplyConfirmation(null);
     confirmationReturnFocusRef.current = null;
-    void dispatchReply(confirmation.draftSlot, confirmation.payload);
+    void dispatchReply(
+      confirmation.draftSlot,
+      confirmation.payload,
+      confirmation.localRepair,
+    );
   }
 
-  async function dispatchReply(slot: string, payload: ReplyPayload) {
+  async function dispatchReply(
+    slot: string,
+    payload: ReplyPayload,
+    repairOnly: boolean,
+  ) {
     if (sendingRef.current) return;
 
     sendingRef.current = true;
@@ -327,7 +347,7 @@ export function ThreadView({
       const execution = await executeFrozenSend({
         slot,
         payload,
-        send: onSend,
+        send: (exactPayload) => onSend(exactPayload, { repairOnly }),
         onReserved: setFrozenDraft,
       });
       setFrozenDraft(execution.draft);
@@ -379,6 +399,7 @@ export function ThreadView({
   return <ThreadConversation
     view={{
       attachments,
+      attachmentLoadFailed,
       attachmentStatus,
       body,
       contextOpen,
@@ -397,6 +418,10 @@ export function ThreadView({
       confirmReply,
       downloadAttachment: (attachment) => void downloadAttachment(attachment),
       openContext: onOpenContext,
+      retryAttachments: () => {
+        setAttachmentLoad(null);
+        setAttachmentReloadToken((current) => current + 1);
+      },
       setBody,
       submit: () => void submit(),
     }}
@@ -450,8 +475,10 @@ function ThreadConversation({
         conversation={view.conversation}
         attachments={view.attachments}
         attachmentStatus={view.attachmentStatus}
+        attachmentLoadFailed={view.attachmentLoadFailed}
         downloadingAttachmentId={view.downloadingAttachmentId}
         onDownload={actions.downloadAttachment}
+        onRetryAttachments={actions.retryAttachments}
       />
       <ReplyComposer
         view={view}
@@ -479,50 +506,61 @@ function MessageStream({
   conversation,
   attachments,
   attachmentStatus,
+  attachmentLoadFailed,
   downloadingAttachmentId,
   onDownload,
+  onRetryAttachments,
 }: {
   conversation: Conversation;
   attachments: CrmAttachment[];
   attachmentStatus: string;
+  attachmentLoadFailed: boolean;
   downloadingAttachmentId: string | null;
   onDownload: (attachment: CrmAttachment) => void;
+  onRetryAttachments: () => void;
 }) {
   const initials = contactInitials(conversation.contactName);
   return <div className="message-stream">
-    {conversation.messages.map((message) => {
-      const outbound = message.direction === "outbound";
-      return (
-        <article className="message" key={message.id} data-direction={message.direction}>
-          <header>
-            <span className="avatar" data-studio={outbound || undefined}>
-              {outbound ? "27" : initials}
-            </span>
-            <span className="message-identity">
-              <strong>{message.senderName}</strong>
-              <span>À : {message.recipientLabel}</span>
-            </span>
-            <time dateTime={message.sentAtIso}>{message.sentAt}</time>
-            {message.direction === "inbound" ? (
-              <span className="unread-dot" aria-label="Message reçu" />
-            ) : null}
-          </header>
-          <DeliveryStatus message={message} />
-          <p>{message.body}</p>
-          <MessageAttachments
-            attachments={attachments.filter(
-              (attachment) => attachment.messageId === message.id,
-            )}
-            downloadingAttachmentId={downloadingAttachmentId}
-            onDownload={onDownload}
-          />
-        </article>
-      );
-    })}
+    <div role="list" aria-label="Fil de conversation">
+      {conversation.messages.map((message) => {
+        const outbound = message.direction === "outbound";
+        return (
+          <article className="message" key={message.id} data-direction={message.direction} role="listitem">
+            <header>
+              <span className="avatar" data-studio={outbound || undefined}>
+                {outbound ? "27" : initials}
+              </span>
+              <span className="message-identity">
+                <strong>{message.senderName}</strong>
+                <span>{message.senderEmail}</span>
+                <span>À : {message.recipientLabel}</span>
+              </span>
+              <time dateTime={message.sentAtIso}>{message.sentAt}</time>
+            </header>
+            <DeliveryStatus message={message} />
+            <p>{message.body}</p>
+            <MessageAttachments
+              attachments={attachments.filter(
+                (attachment) => attachment.messageId === message.id,
+              )}
+              downloadingAttachmentId={downloadingAttachmentId}
+              onDownload={onDownload}
+            />
+          </article>
+        );
+      })}
+    </div>
     {attachmentStatus ? (
-      <p className="attachment-status" role="status" aria-live="polite">
-        {attachmentStatus}
-      </p>
+      <div className="attachment-status-row">
+        <p className="attachment-status" role="status" aria-live="polite">
+          {attachmentStatus}
+        </p>
+        {attachmentLoadFailed ? (
+          <button className="secondary-action" type="button" onClick={onRetryAttachments}>
+            Réessayer
+          </button>
+        ) : null}
+      </div>
     ) : null}
   </div>;
 }
@@ -581,7 +619,13 @@ function ReplyComposer({
         <div className="composer-heading">
           <Icon name="reply" />
           <label htmlFor="reply-body">Répondre à {view.conversation.contactName.split(" ")[0]}</label>
-          <span>{view.sendEnabled ? "Prêt à envoyer" : "Transport à configurer"}</span>
+          <span>
+            {view.frozenDraft?.outcome === "local_repair"
+              ? "Réparation locale prête"
+              : view.sendEnabled
+                ? "Prêt à envoyer"
+                : "Transport à configurer"}
+          </span>
         </div>
         <textarea
           id="reply-body"
@@ -603,6 +647,11 @@ function ReplyComposer({
           placeholder="Écrivez votre réponse…"
           rows={5}
         />
+        {!view.sendEnabled && view.frozenDraft?.outcome !== "local_repair" ? (
+          <p className="send-capability-notice" role="note">
+            {MAIL_SEND_DISABLED_REASON}
+          </p>
+        ) : null}
         <div className="composer-toolbar">
           <span className="composer-hint">⌘↵ pour envoyer</span>
           <button
@@ -610,7 +659,7 @@ function ReplyComposer({
             className="send-button"
             type="submit"
             disabled={
-              !view.sendEnabled ||
+              (!view.sendEnabled && view.frozenDraft?.outcome !== "local_repair") ||
               !view.draftReady ||
               !view.body.trim() ||
               view.replyConfirmation !== null ||

@@ -11,11 +11,22 @@ export type SendUiResult = {
   message: string;
 };
 
+export type SendUiOptions = {
+  /**
+   * Replays only an already-persisted idempotent command so the server can
+   * finish its local CRM record. It must never allocate a new send key.
+   */
+  repairOnly?: boolean;
+};
+
 export const UNKNOWN_SEND_MESSAGE =
   "Résultat d’envoi inconnu : ne modifiez pas le brouillon et ne le renvoyez pas. Vérifiez le journal du fournisseur, puis utilisez la résolution administrative.";
 
 export const LOCAL_REPAIR_MESSAGE =
   "Courriel accepté par le transport; réessayez sans modifier le brouillon pour réparer son enregistrement CRM sans le renvoyer.";
+
+export const LOCAL_REPAIR_KEY_MISSING_MESSAGE =
+  "La clé de la tentative originale est introuvable; aucune requête n’a été transmise. Conservez ce brouillon et utilisez la résolution administrative.";
 
 export function classifyMessageSendHttpResponse(
   status: number,

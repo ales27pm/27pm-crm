@@ -15,6 +15,11 @@ import {
   selectedOutboundProviderStatus,
 } from "@/lib/outbound-runtime";
 import { runtimeString } from "@/lib/runtime";
+import {
+  DASHBOARD_CONVERSATION_LIMIT,
+  DASHBOARD_CONVERSATION_ORDER,
+  dashboardConversationScope,
+} from "@/lib/dashboard-mail-window";
 
 export const dynamic = "force-dynamic";
 
@@ -242,11 +247,39 @@ export async function GET(request: Request) {
 
   try {
     const db = crmDatabase();
+    const conversations = await db
+      .prepare(
+        `SELECT c.id, c.mailbox_id AS mailboxId,
+                mb.address AS mailboxAddress,
+                contact.id AS contactId,
+                contact.email AS contactEmail,
+                contact.display_name AS contactName,
+                contact.organization,
+                c.subject,
+                c.is_unread AS isUnread,
+                c.follow_up_state AS followUpState,
+                c.last_message_at AS lastMessageAt,
+                d.id AS dealId
+         FROM conversations c
+         JOIN mailboxes mb ON mb.id = c.mailbox_id
+         LEFT JOIN contacts contact ON contact.id = c.contact_id
+         LEFT JOIN deals d ON d.conversation_id = c.id
+         ${conversationWhere}
+         ORDER BY ${DASHBOARD_CONVERSATION_ORDER}
+         LIMIT ${DASHBOARD_CONVERSATION_LIMIT}`,
+      )
+      .bind(...values)
+      .all<ConversationRow>();
+    const visibleConversationIds = conversations.results.map(
+      (conversation) => conversation.id,
+    );
+    const visibleConversationScope = dashboardConversationScope(
+      visibleConversationIds,
+    );
     const [
       mailboxes,
       organizations,
       contacts,
-      conversations,
       messages,
       messageEvents,
       deals,
@@ -347,39 +380,15 @@ export async function GET(request: Request) {
           .all<ContactRow>(),
         db
           .prepare(
-            `SELECT c.id, c.mailbox_id AS mailboxId,
-                    mb.address AS mailboxAddress,
-                    contact.id AS contactId,
-                    contact.email AS contactEmail,
-                    contact.display_name AS contactName,
-                    contact.organization,
-                    c.subject,
-                    c.is_unread AS isUnread,
-                    c.follow_up_state AS followUpState,
-                    c.last_message_at AS lastMessageAt,
-                    d.id AS dealId
-             FROM conversations c
-             JOIN mailboxes mb ON mb.id = c.mailbox_id
-             LEFT JOIN contacts contact ON contact.id = c.contact_id
-             LEFT JOIN deals d ON d.conversation_id = c.id
-             ${conversationWhere}
-             ORDER BY c.last_message_at DESC
-             LIMIT 100`,
-          )
-          .bind(...values)
-          .all<ConversationRow>(),
-        db
-          .prepare(
             `SELECT m.id, m.conversation_id AS conversationId,
                     m.direction, m.sender, m.subject,
                     m.text_body AS textBody, m.html_body AS htmlBody, m.status,
                     m.occurred_at AS occurredAt
              FROM messages m
-             JOIN conversations c ON c.id = m.conversation_id
-             ${where}
+             WHERE ${visibleConversationScope.sql}
              ORDER BY m.occurred_at, m.created_at`,
           )
-          .bind(...values)
+          .bind(...visibleConversationScope.bindings)
           .all<MessageRow>(),
         db
           .prepare(
@@ -394,11 +403,10 @@ export async function GET(request: Request) {
              FROM message_events me
              JOIN messages m ON m.id = me.message_id
                AND m.transport_provider = me.transport_provider
-             JOIN conversations c ON c.id = m.conversation_id
-             ${where}
+             WHERE ${visibleConversationScope.sql}
              ORDER BY me.event_timestamp, me.rowid`,
           )
-          .bind(...values)
+          .bind(...visibleConversationScope.bindings)
           .all<MessageEventRow>(),
         db
           .prepare(
@@ -577,6 +585,7 @@ export async function GET(request: Request) {
             organization: conversation.organization ?? "",
             subject: conversation.subject,
             preview: latest ? messagePresentationBody(latest).slice(0, 280) : "",
+            lastActivityAt: conversation.lastMessageAt,
             updatedLabel: displayDate(conversation.lastMessageAt),
             unread: Boolean(conversation.isUnread),
             followUp: ["pending", "waiting"].includes(

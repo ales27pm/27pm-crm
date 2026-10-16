@@ -20,6 +20,7 @@ export type SendAttemptCoordinator = {
 
 export type SendAttemptRegistry = {
   keyFor: (payload: SendAttemptPayload) => Promise<string>;
+  existingKeyFor: (payload: SendAttemptPayload) => Promise<string | null>;
   confirm: (
     payload: SendAttemptPayload,
     idempotencyKey: string,
@@ -69,6 +70,17 @@ export function createSendAttemptRegistry(
         throw error;
       }
     },
+    async existingKeyFor(payload) {
+      const fingerprint = canonicalSendAttemptFingerprint(payload);
+      const existing = pending.get(fingerprint);
+      if (existing) return existing;
+      return readExistingAttemptKey(
+        fingerprint,
+        storage,
+        coordinator,
+        persistenceRequired,
+      );
+    },
     async confirm(payload, idempotencyKey) {
       const fingerprint = canonicalSendAttemptFingerprint(payload);
       if (!VALID_KEY.test(idempotencyKey)) return;
@@ -100,6 +112,39 @@ export function createSendAttemptRegistry(
       return pending.size;
     },
   };
+}
+
+async function readExistingAttemptKey(
+  fingerprint: string,
+  storage: SendAttemptStorage | null,
+  coordinator: SendAttemptCoordinator | null,
+  persistenceRequired: boolean,
+): Promise<string | null> {
+  if (!storage) {
+    if (persistenceRequired) {
+      throw new Error("Send attempt could not be read safely.");
+    }
+    return null;
+  }
+
+  const storageKey = await attemptStorageKey(fingerprint);
+  const readPersisted = () => {
+    try {
+      const stored = storage.getItem(storageKey);
+      return stored && VALID_KEY.test(stored) ? stored : null;
+    } catch {
+      if (persistenceRequired) {
+        throw new Error("Send attempt could not be read safely.");
+      }
+      return null;
+    }
+  };
+
+  if (coordinator) return coordinator.run(storageKey, async () => readPersisted());
+  if (persistenceRequired) {
+    throw new Error("Send attempt coordination is unavailable.");
+  }
+  return readPersisted();
 }
 
 export function canonicalSendAttemptFingerprint(

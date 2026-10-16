@@ -1,10 +1,14 @@
 "use client";
 
 import type { Conversation, Mailbox } from "../crm-types";
+import {
+  inboxEmptyState,
+  type InboxFilter,
+} from "../../lib/mail-ui-state";
 import { Icon } from "./icons";
 import { Illustration } from "./visual-assets";
 
-export type InboxFilter = "all" | "unread" | "follow-up";
+export type { InboxFilter } from "../../lib/mail-ui-state";
 
 type InboxRailProps = {
   mailboxes: Mailbox[];
@@ -13,6 +17,7 @@ type InboxRailProps = {
   selectedId: string | null;
   filter: InboxFilter;
   search: string;
+  status?: string;
   hiddenOnMobile: boolean;
   onMailboxChange: (address: string) => void;
   onFilterChange: (filter: InboxFilter) => void;
@@ -33,12 +38,22 @@ export function InboxRail({
   selectedId,
   filter,
   search,
+  status = "",
   hiddenOnMobile,
   onMailboxChange,
   onFilterChange,
   onSearchChange,
   onSelect,
 }: InboxRailProps) {
+  const selectedMailbox = mailboxes.find(
+    (mailbox) => mailbox.address === mailboxAddress,
+  );
+  const emptyState = inboxEmptyState({
+    filter,
+    mailboxLabel: selectedMailbox?.label ?? mailboxAddress,
+    search,
+  });
+
   return (
     <section
       className="inbox-rail"
@@ -54,7 +69,10 @@ export function InboxRail({
         >
           {mailboxes.map((mailbox) => (
             <option key={mailbox.address} value={mailbox.address}>
-              {mailbox.address}
+              {mailbox.label} — {mailbox.address}
+              {mailbox.unreadCount > 0
+                ? ` (${mailbox.unreadCount} non lu${mailbox.unreadCount > 1 ? "s" : ""})`
+                : ""}
             </option>
           ))}
         </select>
@@ -79,6 +97,7 @@ export function InboxRail({
             key={item.id}
             type="button"
             data-active={filter === item.id || undefined}
+            aria-pressed={filter === item.id}
             onClick={() => onFilterChange(item.id)}
           >
             {item.label}
@@ -86,12 +105,19 @@ export function InboxRail({
         ))}
       </div>
 
+      {status ? (
+        <p className="inbox-local-status" role="status" aria-live="polite">
+          {status}
+        </p>
+      ) : null}
+
       <div className="conversation-list">
         {conversations.length ? (
           conversations.map((conversation) => (
             <button
               className="conversation-row"
               data-selected={selectedId === conversation.id || undefined}
+              aria-current={selectedId === conversation.id ? "true" : undefined}
               key={conversation.id}
               type="button"
               onClick={() => onSelect(conversation.id)}
@@ -110,8 +136,8 @@ export function InboxRail({
         ) : (
           <div className="empty-list">
             <Illustration className="crm-empty-art" name="inbox-empty" />
-            <strong>Aucune conversation ici.</strong>
-            <p>Les nouveaux messages apparaîtront dans cette boîte.</p>
+            <strong>{emptyState.title}</strong>
+            <p>{emptyState.description}</p>
           </div>
         )}
       </div>

@@ -143,29 +143,78 @@ enum MessageDirection: String {
   case outbound
 }
 
-enum DeliveryState: String {
+enum DeliveryState: String, CaseIterable {
   case received
   case draft
   case queued
+  case accepted
   case sent
   case delivered
+  /// Legacy provider signal. It does not prove that a human read the message.
   case opened
+  case temporaryFailure = "temporary-failure"
+  case permanentFailure = "permanent-failure"
   case bounced
+  case complained
+  case unknown
+
+  /// Converts the server/provider spelling to the finite presentation model.
+  /// Missing or unrecognized values remain unknown; they must never be
+  /// presented as received or sent.
+  static func canonical(_ rawValue: String?) -> DeliveryState {
+    guard let rawValue else { return .unknown }
+    let normalized = rawValue
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
+      .replacingOccurrences(of: "_", with: "-")
+    return DeliveryState(rawValue: normalized) ?? .unknown
+  }
 
   var label: String {
     switch self {
     case .received: "Reçu"
-    case .draft: "Brouillon"
-    case .queued: "En file"
+    case .draft: "Brouillon temporaire"
+    case .queued: "En file d’attente"
+    case .accepted: "Accepté par le transport"
     case .sent: "Envoyé"
-    case .delivered: "Remis"
-    case .opened: "Ouvert"
+    case .delivered: "Remis au serveur destinataire"
+    case .opened: "Ouvert (signal historique)"
+    case .temporaryFailure: "Échec temporaire"
+    case .permanentFailure: "Échec permanent"
     case .bounced: "Rebond"
+    case .complained: "Signalé comme indésirable"
+    case .unknown: "État inconnu"
+    }
+  }
+
+  var symbolName: String {
+    switch self {
+    case .received: "envelope.fill"
+    case .draft: "pencil.circle.fill"
+    case .queued: "clock.fill"
+    case .accepted: "tray.and.arrow.up.fill"
+    case .sent: "paperplane.fill"
+    case .delivered: "checkmark.circle.fill"
+    case .opened: "eye.fill"
+    case .temporaryFailure: "exclamationmark.triangle.fill"
+    case .permanentFailure: "xmark.octagon.fill"
+    case .bounced: "arrow.uturn.backward.circle.fill"
+    case .complained: "hand.raised.fill"
+    case .unknown: "questionmark.circle.fill"
     }
   }
 
   var isTerminalSuccess: Bool {
     self == .delivered || self == .opened
+  }
+
+  var isFailure: Bool {
+    switch self {
+    case .temporaryFailure, .permanentFailure, .bounced, .complained:
+      true
+    default:
+      false
+    }
   }
 }
 
@@ -439,4 +488,20 @@ struct DashboardData {
   var strategies: [OutreachStrategy]
   var intakes: [IntakeSubmission]
   var activities: [ActivityEntry]
+
+  /// Honest placeholder for an authenticated session before its first genuine
+  /// cache or server payload. Live mode must never expose bundled demo records.
+  static let emptyLive = DashboardData(
+    mailboxes: [],
+    transportState: .configuration,
+    transportProvider: .unknown,
+    conversations: [],
+    organizations: [],
+    contacts: [],
+    deals: [],
+    tasks: [],
+    strategies: [],
+    intakes: [],
+    activities: []
+  )
 }
