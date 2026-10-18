@@ -1,7 +1,7 @@
 import type { CrmDatabase } from "./d1";
 import type { PrivateObjectBucket, PrivateObjectMetadata } from "./runtime";
 import { ATTACHMENT_SCAN_POLICY, SCAN_RECEIPT_MAX_BYTES, hex, projectScanVerdict,
-  readBoundedBytes, sha256Hex, validScanVerdict } from "./attachment-v2-protocol";
+  isoTime, readBoundedBytes, sha256Hex, validScanVerdict } from "./attachment-v2-protocol";
 import type { AttachmentObjectRow, ScanVerdict } from "./attachment-v2-protocol";
 import { activeScanAttachment, attachmentScanJob, authorizedScanJob, commitScanResult,
   completedLeaseJob, scannerFresh, validScanLease } from "./attachment-scan-store";
@@ -146,4 +146,54 @@ export async function scannedAttachment(
     || !metadataMatches(row, await bucket.head(row.storage_key))
     || !validScanVerdict(receipt.verdict, row.sha256, row.byte_size, clock().valueOf())) return null;
   return row;
+}
+
+/**
+ * Only definitive negative evidence for the current object is terminal. This is
+ * never download permission: unknown, replaced or inconsistent evidence stays in
+ * quarantine, and the caller must still recheck its session after this R2 I/O.
+ */
+export async function blockedAttachment(
+  db: CrmDatabase, bucket: PrivateObjectBucket, attachmentId: string, now: ClockInput = () => new Date(),
+): Promise<boolean> {
+  const clock = clockFor(now);
+  if (!Number.isFinite(clock().valueOf())) return false;
+  const row = await activeScanAttachment(db, attachmentId);
+  const job = row ? await attachmentScanJob(db, attachmentId) : null;
+  if (!row || !job || !jobMatches(row, job)) return false;
+  const policyBlocked = job.state === "blocked" && job.errorCode === "archive_policy_blocked"
+    && job.resultStatus === null && job.receiptKey === null && job.resultDigest === null;
+  const infected = job.state === "completed" && job.resultStatus === "infected"
+    && !!job.receiptKey && !!job.resultDigest && job.receiptKey === receiptKey(job, job.resultDigest);
+  if ((!policyBlocked && !infected) || !metadataMatches(row, await bucket.head(row.storage_key))) return false;
+  if (infected) {
+    const bytes = await receiptBytes(bucket, job.receiptKey!, job.resultDigest!);
+    if (!bytes) return false;
+    let value: unknown;
+    try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); }
+    catch { return false; }
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    const receipt = value as Partial<ScanReceipt>;
+    // Infection does not expire into a retryable state when a clean-result TTL
+    // passes. Validate the original verdict at its scan time, but reject future
+    // timestamps and require the immutable receipt's committed bindings.
+    const scanned = isoTime(job.scannedAt), at = clock().valueOf();
+    if (receipt.policy !== ATTACHMENT_SCAN_POLICY || receipt.jobId !== job.id || receipt.generation !== job.generation
+      || receipt.objectKey !== row.storage_key || receipt.objectVersion !== row.object_version
+      || !validScanVerdict(receipt.verdict, row.sha256, row.byte_size, scanned)
+      || receipt.verdict.status !== "infected" || receipt.verdict.scannedAt !== job.scannedAt
+      || receipt.verdict.signatureUpdatedAt !== job.signatureUpdatedAt || !Number.isFinite(at)
+      || scanned > at + 30_000 || isoTime(job.signatureUpdatedAt) > at + 30_000) return false;
+  }
+  // R2 reads can span owner deletion, object replacement or job supersession.
+  // Re-read the active row and current job after the final metadata await.
+  if (!metadataMatches(row, await bucket.head(row.storage_key))) return false;
+  const currentRow = await activeScanAttachment(db, attachmentId);
+  const current = await attachmentScanJob(db, attachmentId);
+  return Number.isFinite(clock().valueOf()) && !!currentRow && !!current && jobMatches(currentRow, job) && jobMatches(currentRow, current)
+    && currentRow.owner_kind === row.owner_kind && currentRow.owner_id === row.owner_id
+    && current.id === job.id && current.generation === job.generation && current.state === job.state
+    && current.errorCode === job.errorCode && current.resultStatus === job.resultStatus
+    && current.receiptKey === job.receiptKey && current.resultDigest === job.resultDigest
+    && current.scannedAt === job.scannedAt && current.signatureUpdatedAt === job.signatureUpdatedAt;
 }

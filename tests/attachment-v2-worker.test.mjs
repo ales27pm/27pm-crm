@@ -50,6 +50,41 @@ test("real mobile token still requires a live allowlisted session and exact brow
   assert.equal(f.io.puts, 0);
 });
 
+test("collection metadata is not released after session revocation or owner deletion during the database read", async t => {
+  for (const reason of ["session", "owner", "allowlist"]) {
+    const f = await fixture(t), { attachmentId } = await f.upload();
+    const path = "/api/mobile/attachments?ownerKind=account&ownerId=owner";
+    const baseline = await f.mobile(path);
+    assert.equal(baseline.status, 200);
+    const visible = (await baseline.json()).attachments;
+    assert.equal(visible.length, 1);
+    assert.equal(visible[0].id, attachmentId);
+    assert.doesNotMatch(JSON.stringify(visible), /storageKey|storage_key|receipt|scanner/);
+    const prepare = f.db.prepare;
+    let changed = false;
+    f.db.prepare = function (query) {
+      const statement = prepare.call(this, query);
+      if (!query.startsWith("SELECT * FROM attachment_v2_objects WHERE owner_kind = ?")) return statement;
+      const all = statement.all;
+      statement.all = async function (...args) {
+        const result = await all.apply(this, args);
+        changed = true;
+        if (reason === "session") f.sqlite.prepare("UPDATE mobile_sessions SET revoked_at=?").run(f.now.toISOString());
+        if (reason === "owner") f.sqlite.prepare("UPDATE organizations SET deleted_at=?").run(f.now.toISOString());
+        if (reason === "allowlist") f.env.CRM_ADMIN_EMAILS = "another@example.test";
+        return result;
+      };
+      return statement;
+    };
+    const response = await f.mobile(path);
+    assert.equal(changed, true, "revocation occurs after the real list query has fetched its rows");
+    assert.equal(response.status, reason === "owner" ? 404 : 401);
+    const denied = await response.json();
+    assert.equal(Object.hasOwn(denied, "attachments"), false);
+    assert.equal(JSON.stringify(denied).includes(attachmentId), false);
+  }
+});
+
 test("signed machine body/path/nonce cannot be replayed or replaced and mobile bearer cannot claim", async t => {
   const f = await fixture(t);
   const path = "/api/internal/attachment-scanner/heartbeat";
@@ -107,10 +142,55 @@ test("terminal archive policy refusal cannot release a file and owner removal re
   assert.equal((await f.machine(root + "/fail", { ...lease, code: "archive_policy_blocked" })).status, 200);
   assert.equal((await f.machine(root + "/claim", {})).status, 404);
   assert.equal((await f.machine("/api/internal/attachment-scanner/claim", {})).status, 204);
-  assert.equal((await f.mobile(`/api/mobile/attachments/${attachmentId}/manifest`)).status, 423);
+  const blocked = await f.mobile(`/api/mobile/attachments/${attachmentId}/manifest`);
+  assert.equal(blocked.status, 423);
+  assert.deepEqual(await blocked.json(), { error: "attachment_blocked" });
+  assert.equal(blocked.headers.has("retry-after"), false, "a definitive refusal must not instruct another polling attempt");
   f.sqlite.prepare("UPDATE organizations SET deleted_at=? WHERE id='owner'").run(f.now.toISOString());
   assert.equal((await f.machine(root + "/chunks/0", lease)).status, 409);
   assert.equal((await f.mobile(`/api/mobile/attachments/${attachmentId}/manifest`)).status, 404);
+});
+
+test("infected receipts expose only a terminal refusal while pending jobs remain retryable", async t => {
+  const f = await fixture(t), { attachmentId, bytes } = await f.upload();
+  const path = `/api/mobile/attachments/${attachmentId}`;
+  const pending = await f.mobile(path + "/manifest");
+  assert.equal(pending.status, 423);
+  assert.deepEqual(await pending.json(), { error: "attachment_quarantined" });
+  assert.equal(pending.headers.get("retry-after"), "30");
+  await f.machine("/api/internal/attachment-scanner/heartbeat", f.heartbeat);
+  const lease = await (await f.machine("/api/internal/attachment-scanner/claim", {})).json();
+  const verdict = { protocol: "crm-clamav-v1", status: "infected", sha256: hash(bytes), byteSize: bytes.length,
+    ...f.heartbeat, scannedAt: f.now.toISOString(), diagnostics: "private scanner finding" };
+  assert.equal((await f.machine(`/api/internal/attachment-scanner/jobs/${lease.jobId}/complete`, { ...lease, verdict })).status, 200);
+  for (const suffix of ["/manifest", "/chunks/0?version=fixture-version"]) {
+    const blocked = await f.mobile(path + suffix);
+    assert.equal(blocked.status, 423);
+    assert.deepEqual(await blocked.json(), { error: "attachment_blocked" });
+    assert.equal(blocked.headers.has("retry-after"), false);
+  }
+});
+
+test("terminal refusal rechecks the mobile session and owner after R2 metadata I/O", async t => {
+  for (const reason of ["session", "owner"]) {
+    const f = await fixture(t), { attachmentId } = await f.upload();
+    await f.machine("/api/internal/attachment-scanner/heartbeat", f.heartbeat);
+    const lease = await (await f.machine("/api/internal/attachment-scanner/claim", {})).json();
+    assert.equal((await f.machine(`/api/internal/attachment-scanner/jobs/${lease.jobId}/fail`,
+      { ...lease, code: "archive_policy_blocked" })).status, 200);
+    const head = f.env.BUCKET.head;
+    let changed = false;
+    f.env.BUCKET.head = async (...args) => {
+      const metadata = await head(...args);
+      changed = true;
+      if (reason === "session") f.sqlite.prepare("UPDATE mobile_sessions SET revoked_at=?").run(f.now.toISOString());
+      else f.sqlite.prepare("UPDATE organizations SET deleted_at=?").run(f.now.toISOString());
+      return metadata;
+    };
+    const response = await f.mobile(`/api/mobile/attachments/${attachmentId}/manifest`);
+    assert.equal(changed, true, "terminal classification must inspect the actual stored object");
+    assert.equal(response.status, reason === "session" ? 401 : 404);
+  }
 });
 
 test("machine timestamp is rechecked after a delayed body before any nonce or job write", async t => {

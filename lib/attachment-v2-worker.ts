@@ -12,7 +12,7 @@ import {
   claimScanJob, enqueueScanJob, recordScanFailure, recordScannerHeartbeat, renewScanJob,
   scannerFresh, validScanLease, type ScanLease,
 } from "./attachment-scan-store";
-import { authorizedScanObject, completeScanJob, scannedAttachment } from "./attachment-scan-service";
+import { authorizedScanObject, blockedAttachment, completeScanJob, scannedAttachment } from "./attachment-scan-service";
 import {
   createUpload, deleteAttachment, getAttachment, listAttachments, requireAttachmentOwner,
   uploadStatus, validAttachmentOwner, type AttachmentV2Identity,
@@ -195,7 +195,10 @@ export async function handleAttachmentV2Request(
     if (path === ATTACHMENTS && request.method === "GET") {
       const kind = url.searchParams.get("ownerKind"), id = url.searchParams.get("ownerId");
       if (!validAttachmentOwner(kind, id) || !id || [...url.searchParams.keys()].sort().join(",") !== "ownerId,ownerKind") return error(400, "attachment_validation_failed");
-      return json({ attachments: await listAttachments(env.DB, kind, id) });
+      const attachments = await listAttachments(env.DB, kind, id);
+      await authorize();
+      await requireAttachmentOwner(env.DB, kind, id);
+      return json({ attachments });
     }
     const attachment = /^\/api\/mobile\/attachments\/([0-9a-f-]{36})(?:\/(manifest|chunks\/(0|[1-9])|file))?$/u.exec(path);
     if (!attachment || !isUuid(attachment[1])) return error(404, "attachment_route_not_found");
@@ -209,9 +212,15 @@ export async function handleAttachmentV2Request(
     }
     if (request.method !== "GET") return error(405, "attachment_method_forbidden");
     if (attachment[2] === "file") return error(503, "attachment_chunked_transport_required");
+    const rejectUnscanned = async (): Promise<never> => {
+      const blocked = await blockedAttachment(env.DB, env.BUCKET, row.id, clock);
+      await authorize();
+      await requireAttachmentOwner(env.DB, row.owner_kind, row.owner_id);
+      return error(423, blocked ? "attachment_blocked" : "attachment_quarantined");
+    };
     await enqueueScanJob(env.DB, row.id, clock());
     const verified = await scannedAttachment(env.DB, env.BUCKET, row.id, clock);
-    if (!verified) return error(423, "attachment_quarantined");
+    if (!verified) return await rejectUnscanned();
     await authorize();
     if (attachment[2] === "manifest") {
       if (url.search) return error(400, "attachment_query_forbidden");
@@ -220,11 +229,15 @@ export async function handleAttachmentV2Request(
     if (attachment[3] !== undefined && [...url.searchParams.keys()].join(",") === "version") {
       const part = await readAttachmentChunk(env.BUCKET, verified, Number(attachment[3]), url.searchParams.get("version") ?? "", async () => {
         const current = await scannedAttachment(env.DB, env.BUCKET, row.id, clock);
-        if (!current || current.object_version !== verified.object_version) return error(423, "attachment_quarantined");
+        if (!current || current.object_version !== verified.object_version) return await rejectUnscanned();
         await authorize();
       });
       return chunkResponse(part);
     }
     return error(400, "attachment_validation_failed");
-  } catch (cause) { return attachmentV2ErrorResponse(cause); }
+  } catch (cause) {
+    const response = attachmentV2ErrorResponse(cause);
+    if (cause instanceof AttachmentV2Error && cause.code === "attachment_blocked") response.headers.delete("retry-after");
+    return response;
+  }
 }

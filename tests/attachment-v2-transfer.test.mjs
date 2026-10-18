@@ -212,7 +212,9 @@ test("a body stalled beyond upload TTL cannot persist a late chunk", async t => 
   const stream = new ReadableStream({ start(value) { controller = value; } });
   const pending = putUploadChunk(f.db, f.bucket, input.upload.id, 0, stream, IDENTITY, () => instant);
   await new Promise(resolve => setImmediate(resolve));
-  instant = new Date(NOW.getTime() + 3600001);
+  // Date anchors advance monotonically during creation. The returned expiry,
+  // not NOW+TTL+1ms, is authoritative even when another test delays creation.
+  instant = new Date(Date.parse(input.upload.expiresAt) + 1);
   controller.enqueue(input.bytes); controller.close();
   await assert.rejects(pending, error(410, "attachment_upload_expired"));
   assert.equal(f.objects.size, 0);

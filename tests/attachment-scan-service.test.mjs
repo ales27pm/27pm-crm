@@ -3,8 +3,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { DatabaseSync } from "node:sqlite";
 import test from "node:test";
-import { enqueueScanJob, claimScanJob, recordScannerHeartbeat, getScanJob } from "../lib/attachment-scan-store.ts";
-import { completeScanJob, scannedAttachment, authorizedScanObject } from "../lib/attachment-scan-service.ts";
+import { enqueueScanJob, claimScanJob, recordScanFailure, recordScannerHeartbeat, getScanJob } from "../lib/attachment-scan-store.ts";
+import { blockedAttachment, completeScanJob, scannedAttachment, authorizedScanObject } from "../lib/attachment-scan-service.ts";
 
 const NOW = new Date("2026-10-16T16:00:00.000Z");
 const later = seconds => new Date(NOW.valueOf() + seconds * 1000);
@@ -123,6 +123,107 @@ test("unsupported result states, mismatched digest and oversize diagnostics cann
   assert.equal(await completeScanJob(f.db, f.bucket, f.claim.lease, verdict(f, { diagnostics: "x".repeat(10000) }), NOW), "completed");
   const job = await getScanJob(f.db, f.claim.job.id);
   assert.doesNotMatch(new TextDecoder().decode(f.objects.get(job.receiptKey).bytes), /diagnostics/);
+});
+
+test("only definitive infected and archive-policy results are terminal, even after clean-result freshness expires", async t => {
+  for (const result of ["infected", "archive_policy_blocked"]) {
+    const f = await setup(t);
+    assert.equal(await blockedAttachment(f.db, f.bucket, f.id, NOW), false);
+    if (result === "infected") {
+      assert.equal(await completeScanJob(f.db, f.bucket, f.claim.lease, verdict(f, { status: "infected" }), NOW), "completed");
+    } else assert.equal(await recordScanFailure(f.db, f.claim.lease, result, NOW), true);
+    assert.equal(await blockedAttachment(f.db, f.bucket, f.id, NOW), true);
+    assert.equal(await blockedAttachment(f.db, f.bucket, f.id, later(8 * 86400)), true,
+      "a permanent refusal must not be reopened by receipt or signature aging");
+    assert.equal(await scannedAttachment(f.db, f.bucket, f.id, later(8 * 86400)), null);
+    assert.equal(await blockedAttachment(f.db, f.bucket, f.id, new Date(NaN)), false);
+  }
+  for (const result of ["clean", "unavailable", "attempts_exhausted"]) {
+    const f = await setup(t);
+    if (result === "clean") await completeScanJob(f.db, f.bucket, f.claim.lease, verdict(f), NOW);
+    else if (result === "unavailable") await recordScanFailure(f.db, f.claim.lease, result, NOW);
+    else f.sqlite.prepare("UPDATE attachment_scan_jobs SET state='blocked',error_code=?").run(result);
+    assert.equal(await blockedAttachment(f.db, f.bucket, f.id, NOW), false, result);
+  }
+});
+
+test("terminal classification rejects replaced, deleted, mismatched or missing current object evidence", async t => {
+  for (const result of ["infected", "archive_policy_blocked"]) {
+    for (const change of ["object-version", "object-hash", "missing-object", "job-version", "job-hash", "job-size", "deleted", "owner"]) {
+      const f = await setup(t);
+      if (result === "infected") await completeScanJob(f.db, f.bucket, f.claim.lease, verdict(f, { status: "infected" }), NOW);
+      else await recordScanFailure(f.db, f.claim.lease, result, NOW);
+      if (change === "object-version") f.objects.get(f.key).version = "replacement";
+      if (change === "object-hash") f.objects.get(f.key).checksums = {};
+      if (change === "missing-object") f.objects.delete(f.key);
+      if (change === "job-version") f.sqlite.prepare("UPDATE attachment_scan_jobs SET object_version='replacement'").run();
+      if (change === "job-hash") f.sqlite.prepare("UPDATE attachment_scan_jobs SET sha256=?").run("0".repeat(64));
+      if (change === "job-size") f.sqlite.prepare("UPDATE attachment_scan_jobs SET byte_size=byte_size+1").run();
+      if (change === "deleted") f.sqlite.prepare("UPDATE attachment_v2_objects SET deleted_at=?").run(NOW.toISOString());
+      if (change === "owner") f.sqlite.prepare("UPDATE organizations SET deleted_at=?").run(NOW.toISOString());
+      assert.equal(await blockedAttachment(f.db, f.bucket, f.id, NOW), false, `${result}: ${change}`);
+    }
+  }
+});
+
+test("infected classification requires an intact receipt and committed verdict bindings", async t => {
+  for (const change of ["corrupt", "missing", "status", "policy", "version", "generation", "hash", "engine", "scan-time", "signature-time", "future", "future-signature"]) {
+    const f = await setup(t);
+    await completeScanJob(f.db, f.bucket, f.claim.lease, verdict(f, { status: "infected" }), NOW);
+    const job = await getScanJob(f.db, f.claim.job.id), receiptObject = f.objects.get(job.receiptKey);
+    if (change === "missing") f.objects.delete(job.receiptKey);
+    else if (change === "corrupt") receiptObject.bytes = new TextEncoder().encode("{broken");
+    else {
+      const receipt = JSON.parse(new TextDecoder().decode(receiptObject.bytes));
+      if (change === "status") receipt.verdict.status = "clean";
+      if (change === "policy") receipt.policy = "obsolete-policy";
+      if (change === "version") receipt.objectVersion = "replacement";
+      if (change === "generation") receipt.generation++;
+      if (change === "hash") receipt.verdict.sha256 = "0".repeat(64);
+      if (change === "engine") receipt.verdict.engineVersion = "unknown";
+      if (change === "scan-time") receipt.verdict.scannedAt = later(-1).toISOString();
+      if (change === "signature-time") receipt.verdict.signatureUpdatedAt = later(-1).toISOString();
+      if (change === "future") {
+        receipt.verdict.scannedAt = later(60).toISOString();
+        f.sqlite.prepare("UPDATE attachment_scan_jobs SET scanned_at=?").run(receipt.verdict.scannedAt);
+      }
+      if (change === "future-signature") {
+        receipt.verdict.scannedAt = later(20).toISOString();
+        receipt.verdict.signatureUpdatedAt = later(50).toISOString();
+        f.sqlite.prepare("UPDATE attachment_scan_jobs SET scanned_at=?,signature_updated_at=?")
+          .run(receipt.verdict.scannedAt, receipt.verdict.signatureUpdatedAt);
+      }
+      const bytes = new TextEncoder().encode(JSON.stringify(receipt)), digest = hash(bytes);
+      const key = `attachments-v2/scan-receipts/${job.id}/${job.generation}/${digest}.json`;
+      await f.bucket.put(key, bytes);
+      f.sqlite.prepare("UPDATE attachment_scan_jobs SET receipt_key=?,result_digest=?").run(key, digest);
+    }
+    assert.equal(await blockedAttachment(f.db, f.bucket, f.id, NOW), false, change);
+  }
+});
+
+test("terminal evidence is revoked by owner deletion, object replacement or generation changes during R2 I/O", async t => {
+  for (const result of ["infected", "archive_policy_blocked"]) {
+    for (const change of ["owner", "version", "generation", "verdict"]) {
+      const f = await setup(t);
+      if (result === "infected") await completeScanJob(f.db, f.bucket, f.claim.lease, verdict(f, { status: "infected" }), NOW);
+      else await recordScanFailure(f.db, f.claim.lease, result, NOW);
+      const head = f.bucket.head;
+      let reads = 0;
+      f.bucket.head = async (...args) => {
+        const metadata = await head(...args);
+        if (++reads === 2) {
+          if (change === "owner") f.sqlite.prepare("UPDATE organizations SET deleted_at=?").run(NOW.toISOString());
+          if (change === "version") f.sqlite.prepare("UPDATE attachment_v2_objects SET object_version='replacement'").run();
+          if (change === "generation") f.sqlite.prepare("UPDATE attachment_scan_jobs SET generation=generation+1").run();
+          if (change === "verdict") f.sqlite.prepare("UPDATE attachment_scan_jobs SET state='pending',result_status=NULL").run();
+        }
+        return metadata;
+      };
+      assert.equal(await blockedAttachment(f.db, f.bucket, f.id, NOW), false, `${result}: ${change}`);
+      assert.equal(reads, 2, "the actual object was inspected before and after the receipt read");
+    }
+  }
 });
 
 async function setup(t) {
