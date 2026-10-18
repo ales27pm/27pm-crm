@@ -1,12 +1,18 @@
 import CryptoKit
 import Foundation
 import NativeAttachmentPolicy
+import Observation
+
+enum AttachmentCollectionState: Equatable {
+  case idle, loading, loaded, failed
+}
 
 /// Owns the attachment-only HTTP state machine. The reviewed policy decides
 /// before any authentication action, so only a first 401 can rotate tokens.
 /// Storage/scanner states (423/5xx), authorization failures and validation
 /// errors can never masquerade as token expiry.
 @MainActor
+@Observable
 final class AttachmentSyncCoordinator {
   private let api: AttachmentAPITransport
   private let attachments: AttachmentStore
@@ -23,6 +29,29 @@ final class AttachmentSyncCoordinator {
   private var pendingReconcileEpoch: UInt64?
   private var abortCurrentDrain = false
   private var sessionEpochChanged = false
+  private struct CollectionKey: Hashable {
+    let kind: AttachmentOwnerKind
+    let id: String
+  }
+  private var collectionRequests: [CollectionKey: UInt64] = [:]
+  private var collectionStates: [CollectionKey: AttachmentCollectionState] = [:]
+
+  func collectionState(ownerKind: AttachmentOwnerKind, ownerId: String) -> AttachmentCollectionState {
+    collectionStates[CollectionKey(kind: ownerKind, id: ownerId)] ?? .idle
+  }
+
+  /// Collection reads share the same serialized authentication/refresh lane
+  /// as uploads. A late response from a prior login cannot import metadata.
+  func refreshRemoteAttachments(
+    ownerKind: AttachmentOwnerKind, ownerId: String,
+    expectedAuthenticationEpoch: UInt64
+  ) async {
+    guard authenticationEpoch() == expectedAuthenticationEpoch else { return }
+    let key = CollectionKey(kind: ownerKind, id: ownerId)
+    collectionRequests[key] = expectedAuthenticationEpoch
+    collectionStates[key] = .loading
+    await reconcileAndDrain(expectedAuthenticationEpoch: expectedAuthenticationEpoch)
+  }
 
   init(
     api: AttachmentAPITransport,
@@ -63,7 +92,18 @@ final class AttachmentSyncCoordinator {
       return
     }
     isReconciling = true
-    defer { isReconciling = false }
+    defer {
+      isReconciling = false
+      // Persistence or authentication can stop a pass before its collection
+      // reads run. Never strand the UI in loading with refresh disabled.
+      let unprocessed = collectionRequests
+      collectionRequests.removeAll()
+      // Stale-session requests have been abandoned too. They must not leave
+      // a reused collection key loading after the next login.
+      for key in unprocessed.keys where collectionStates[key] == .loading {
+        collectionStates[key] = .failed
+      }
+    }
 
     var passEpoch = requestedEpoch
     var forceUnknownTombstoneReconciliation = false
@@ -104,6 +144,8 @@ final class AttachmentSyncCoordinator {
       expectedAuthenticationEpoch: expectedAuthenticationEpoch
     )
     guard !abortCurrentDrain, !sessionEpochChanged else { return }
+    await reconcileRemoteCollections(expectedAuthenticationEpoch: expectedAuthenticationEpoch)
+    guard !abortCurrentDrain, !sessionEpochChanged else { return }
     do {
       try attachments.reconcilePersistentState()
     } catch {
@@ -114,6 +156,64 @@ final class AttachmentSyncCoordinator {
       return await handle(item, expectedAuthenticationEpoch: expectedAuthenticationEpoch)
     }
   }
+
+  private struct RemoteCollectionEnvelope: Decodable {
+    let attachments: [RemoteAttachmentMetadata]
+  }
+
+  private func reconcileRemoteCollections(expectedAuthenticationEpoch: UInt64) async {
+    let requests = collectionRequests
+    for (key, epoch) in requests {
+      guard epoch == expectedAuthenticationEpoch else {
+        if epoch != authenticationEpoch(), collectionRequests[key] == epoch {
+          collectionRequests.removeValue(forKey: key)
+          if collectionStates[key] == .loading { collectionStates[key] = .failed }
+        }
+        continue
+      }
+      collectionRequests.removeValue(forKey: key)
+      let outcome = await request(
+        operation: .download, consecutiveFailures: 0,
+        expectedAuthenticationEpoch: expectedAuthenticationEpoch
+      ) { [api] in
+        try await api.listAttachments(ownerKind: key.kind.rawValue, ownerId: key.id)
+      }
+      guard authenticationEpoch() == expectedAuthenticationEpoch else {
+        // This key was removed before the request suspended, so the outer
+        // unprocessed-request cleanup cannot see it. Preserve a replacement
+        // queued by the current login; otherwise settle the abandoned load.
+        if collectionRequests[key] != authenticationEpoch() {
+          collectionStates[key] = .failed
+        }
+        return
+      }
+      switch outcome {
+      case .response(.success, let response):
+        do {
+          guard response.body.count <= ChunkedAttachmentContract.maxCollectionBytes,
+            response.contentType?.split(separator: ";").first?.trimmingCharacters(in: .whitespaces).lowercased()
+              == "application/json"
+          else { throw RemoteCollectionError.invalid }
+          let envelope = try JSONDecoder().decode(RemoteCollectionEnvelope.self, from: response.body)
+          guard envelope.attachments.count <= 200 else { throw RemoteCollectionError.invalid }
+          try attachments.importRemoteAttachments(envelope.attachments, ownerKind: key.kind, ownerId: key.id)
+          collectionStates[key] = .loaded
+        } catch {
+          collectionStates[key] = .failed
+        }
+      case .sessionChanged:
+        if authenticationEpoch() == expectedAuthenticationEpoch, collectionRequests[key] == nil {
+          collectionStates[key] = .failed
+        }
+        return
+      default:
+        collectionStates[key] = .failed
+      }
+      guard !abortCurrentDrain, !sessionEpochChanged else { return }
+    }
+  }
+
+  private enum RemoteCollectionError: Error { case invalid }
 
   private func handle(
     _ item: OutboxItem,
@@ -243,7 +343,9 @@ final class AttachmentSyncCoordinator {
     guard let remote = attachments.remoteRecord(localId: attachment.id) else {
       return .paused(code: "server_identifier_missing")
     }
-    guard let localData = attachments.data(for: attachment) else {
+    let isRemoteDownload = remote.remoteOnly == true && remote.downloadRequested == true
+    let localData = attachments.data(for: attachment)
+    guard isRemoteDownload || localData != nil else {
       return .paused(code: "local_file_missing")
     }
     let outcome = await request(
@@ -255,7 +357,23 @@ final class AttachmentSyncCoordinator {
     }
     switch outcome {
     case .response(.success, let response):
-      guard Self.isByteIdentical(response, to: localData, expectedLength: attachment.byteSize) else {
+      if isRemoteDownload {
+        do {
+          guard let version = response.objectVersion else {
+            throw RemoteCollectionError.invalid
+          }
+          try attachments.cacheRemoteDownload(
+            localId: attachment.id, data: response.body, objectVersion: version
+          )
+          return .completed
+        } catch {
+          try? attachments.markVerificationFailed(localId: attachment.id, code: "download_integrity_mismatch")
+          return .paused(code: "download_integrity_mismatch")
+        }
+      }
+      guard let localData,
+        Self.isByteIdentical(response, to: localData, expectedLength: attachment.byteSize)
+      else {
         let retryAt = AttachmentHTTPPolicy.decide(
           status: 503,
           operation: .download,
@@ -277,6 +395,14 @@ final class AttachmentSyncCoordinator {
       }
     case .response(.quarantined(let retryAt), let response):
       let code = Self.errorCode(from: response.body) ?? "attachment_quarantined"
+      if code == "attachment_blocked" {
+        do {
+          try attachments.markBlocked(localId: attachment.id)
+          return .completed
+        } catch {
+          return .paused(code: "attachment_state_persistence_failed")
+        }
+      }
       do {
         try attachments.markQuarantined(localId: attachment.id, retryAt: retryAt, code: code)
       } catch {
@@ -382,6 +508,7 @@ final class AttachmentSyncCoordinator {
   ) async -> RequestOutcome {
     var alreadyRefreshed = false
     while true {
+      guard !Task.isCancelled else { return .sessionChanged }
       guard authenticationEpoch() == expectedAuthenticationEpoch else {
         sessionEpochChanged = true
         return .sessionChanged
@@ -393,6 +520,29 @@ final class AttachmentSyncCoordinator {
       let response: AttachmentHTTPResult
       do {
         response = try await perform()
+      } catch let error as CrmAPIError {
+        guard authenticationEpoch() == expectedAuthenticationEpoch else {
+          sessionEpochChanged = true
+          return .sessionChanged
+        }
+        if case .http(let status, let code) = error,
+          (400...599).contains(status), status != 401
+        {
+          let body = (try? JSONEncoder().encode(["error": code])) ?? Data()
+          let response = AttachmentHTTPResult(
+            status: status, body: body, retryAfter: nil,
+            contentType: "application/json", contentLength: body.count, effectiveURL: nil
+          )
+          return .response(AttachmentHTTPPolicy.decide(
+            status: status, operation: operation, body: body,
+            alreadyRefreshed: alreadyRefreshed, consecutiveFailures: consecutiveFailures, now: now()
+          ), response)
+        }
+        let fallback = AttachmentHTTPPolicy.decide(
+          status: 503, operation: operation,
+          consecutiveFailures: consecutiveFailures, now: now()
+        )
+        return .transportRetry(fallback.retryAt ?? now().addingTimeInterval(30))
       } catch {
         guard authenticationEpoch() == expectedAuthenticationEpoch else {
           sessionEpochChanged = true
@@ -407,6 +557,7 @@ final class AttachmentSyncCoordinator {
         if case .retryLater(let retryAt) = decision { return .transportRetry(retryAt) }
         return .transportRetry(now().addingTimeInterval(30))
       }
+      guard !Task.isCancelled else { return .sessionChanged }
       guard authenticationEpoch() == expectedAuthenticationEpoch else {
         sessionEpochChanged = true
         return .sessionChanged
@@ -652,9 +803,9 @@ final class AttachmentSyncCoordinator {
   private struct UploadAcknowledgement: Decodable { let id: String }
   private struct ErrorEnvelope: Decodable { let error: String? }
   private struct RemoteAttachmentEnvelope: Decodable {
-    let attachments: [RemoteAttachmentMetadata]
+    let attachments: [TombstoneAttachmentMetadata]
   }
-  private struct RemoteAttachmentMetadata: Decodable {
+  private struct TombstoneAttachmentMetadata: Decodable {
     let id: String
     let ownerKind: String
     let ownerId: String

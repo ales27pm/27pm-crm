@@ -32,14 +32,19 @@ final class App27pmCRMUITests: XCTestCase {
     }
 
     @MainActor
-    func testQuarantinedAttachmentDisplaysBlockingVerificationStatus() throws {
+    func testQuarantinedAttachmentDisplaysPendingAnalysisStatus() throws {
         let app = XCUIApplication()
         app.launchArguments.append("-ui-test-attachment-quarantine")
         app.launch()
 
         let status = app.staticTexts["attachment-quarantine-status"]
         XCTAssertTrue(status.waitForExistence(timeout: 5))
-        XCTAssertEqual(status.label, "En vérification / fichier bloqué")
+        XCTAssertEqual(status.label, "Analyse en attente")
+
+        let blockedStatus = app.staticTexts["attachment-blocked-status"]
+        XCTAssertTrue(blockedStatus.waitForExistence(timeout: 5))
+        XCTAssertEqual(blockedStatus.label, "Fichier bloqué")
+        XCTAssertNotEqual(status.label, blockedStatus.label)
     }
 
     @MainActor

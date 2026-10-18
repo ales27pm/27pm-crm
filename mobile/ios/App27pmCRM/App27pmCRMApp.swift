@@ -50,7 +50,8 @@ private struct AttachmentQuarantineUITestHarness: View {
     VStack(alignment: .leading, spacing: 16) {
       Text("Pièce jointe")
         .font(.headline)
-      AttachmentStatusChip(label: "En vérification / fichier bloqué")
+      AttachmentStatusChip(label: "Analyse en attente")
+      AttachmentStatusChip(label: "Fichier bloqué")
     }
     .padding()
   }

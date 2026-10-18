@@ -61,6 +61,7 @@ private struct AuthenticatedAttachmentSectionView: View {
   @State private var viewer: Attachment?
   @State private var pendingDelete: Attachment?
   @State private var addError: String?
+  @State private var isRefreshing = false
 
   private var items: [Attachment] {
     store.attachments.attachments(ownerKind: ownerKind, ownerId: ownerId)
@@ -74,8 +75,21 @@ private struct AuthenticatedAttachmentSectionView: View {
     items.filter { $0.mediaKind == .document }
   }
 
+  private var collectionState: AttachmentCollectionState {
+    store.attachmentCollectionState(ownerKind: ownerKind, ownerId: ownerId)
+  }
+
   var body: some View {
     authenticatedContent
+    .task(id: "\(ownerKind.rawValue):\(ownerId)") {
+      await refreshCollection()
+    }
+    .onChange(of: store.network.isOnline) { _, isOnline in
+      if isOnline { Task { await refreshCollection() } }
+    }
+    .onChange(of: store.serverSupportsAttachments) { _, supportsAttachments in
+      if supportsAttachments { Task { await refreshCollection() } }
+    }
     .onChange(of: store.isCurrentAttachmentSession(sessionContext)) { _, isCurrent in
       guard !isCurrent else { return }
       cameraPresented = false
@@ -91,10 +105,11 @@ private struct AuthenticatedAttachmentSectionView: View {
   private var authenticatedContent: some View {
     VStack(alignment: .leading, spacing: 12) {
       SectionHeader(eyebrow: "Pièces jointes", title: "Photos et documents", count: items.count)
+      collectionStatus
       if items.isEmpty {
         Card {
-          Text("Aucune pièce jointe. Ajoutez une photo ou un document : il reste sur l'appareil et rejoindra le CRM dès que le serveur sera à jour.")
-            .font(.system(size: 13))
+          Text(emptyMessage)
+            .font(.footnote)
             .foregroundStyle(Theme.muted)
             .fixedSize(horizontal: false, vertical: true)
         }
@@ -109,7 +124,7 @@ private struct AuthenticatedAttachmentSectionView: View {
       addRow
       if let addError {
         Text(addError)
-          .font(.system(size: 12))
+          .font(.footnote)
           .foregroundStyle(Theme.rust)
           .fixedSize(horizontal: false, vertical: true)
       }
@@ -124,7 +139,7 @@ private struct AuthenticatedAttachmentSectionView: View {
           store.attachmentWasAdded()
           Haptics.success()
         } catch {
-          addError = "La photo n'a pas pu être enregistrée sur l'appareil."
+          addError = importError(error, fallback: "La photo n'a pas pu être enregistrée sur l'appareil.")
         }
       }
     }
@@ -142,10 +157,12 @@ private struct AuthenticatedAttachmentSectionView: View {
           store.attachmentWasAdded()
           Haptics.success()
         } catch {
-          addError = "Le document n'a pas pu être copié sur l'appareil."
+          addError = importError(error, fallback: "Le document n'a pas pu être copié sur l'appareil.")
         }
-      case .failure:
-        break
+      case .failure(let error):
+        if (error as NSError).code != NSUserCancelledError {
+          addError = importError(error, fallback: "Le document n'a pas pu être importé.")
+        }
       }
     }
     .fullScreenCover(item: $viewer) { attachment in
@@ -201,7 +218,7 @@ private struct AuthenticatedAttachmentSectionView: View {
           store.attachmentWasAdded()
           Haptics.success()
         } catch {
-          addError = "La photo n'a pas pu être enregistrée sur l'appareil."
+          addError = importError(error, fallback: "La photo n'a pas pu être enregistrée sur l'appareil.")
         }
       }
     }
@@ -209,8 +226,68 @@ private struct AuthenticatedAttachmentSectionView: View {
 
   // MARK: Add row
 
+  private var emptyMessage: String {
+    if !store.network.isOnline {
+      return "Aucun fichier connu sur cet appareil. La liste du CRM sera vérifiée à la reconnexion."
+    }
+    if collectionState == .loaded {
+      return "Aucune pièce jointe sur ce dossier. Ajoutez une photo ou un document."
+    }
+    return "Aucun fichier local. La liste du CRM n'est pas encore confirmée. Vous pouvez ajouter un fichier sur cet appareil."
+  }
+
+  private var collectionStatus: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      if !store.network.isOnline {
+        Label("Hors ligne · fichiers déjà connus seulement", systemImage: "wifi.slash")
+          .foregroundStyle(Theme.muted)
+      } else if isRefreshing || collectionState == .loading {
+        HStack(spacing: 8) {
+          ProgressView()
+          Text("Chargement de la liste du CRM…")
+        }
+        .foregroundStyle(Theme.muted)
+      } else if collectionState == .failed {
+        Label("Liste du CRM indisponible. Les fichiers déjà connus sont conservés.", systemImage: "exclamationmark.triangle")
+          .foregroundStyle(Theme.rust)
+      } else if !store.serverSupportsAttachments {
+        Label("Transport CRM non confirmé · ajouts conservés sur l'appareil", systemImage: "externaldrive.badge.exclamationmark")
+          .foregroundStyle(Theme.muted)
+      } else if collectionState == .loaded {
+        Label("Liste du CRM à jour · téléchargement sur demande", systemImage: "checkmark.circle")
+          .foregroundStyle(Theme.green)
+      }
+      Button {
+        Task { await refreshCollection() }
+      } label: {
+        Label("Actualiser la liste", systemImage: "arrow.clockwise")
+          .frame(minHeight: 44, alignment: .leading)
+          .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .foregroundStyle(Theme.blueDeep)
+      .disabled(!store.network.isOnline || isRefreshing || collectionState == .loading)
+      .accessibilityIdentifier("attachment-refresh-list")
+    }
+    .font(.footnote)
+    .fixedSize(horizontal: false, vertical: true)
+    .accessibilityIdentifier("attachment-collection-status")
+  }
+
+  @MainActor
+  private func refreshCollection() async {
+    guard !isRefreshing, store.isCurrentAttachmentSession(sessionContext) else { return }
+    isRefreshing = true
+    defer { isRefreshing = false }
+    await store.refreshRemoteAttachments(ownerKind: ownerKind, ownerId: ownerId, context: sessionContext)
+  }
+
+  private func importError(_ error: Error, fallback: String) -> String {
+    (error as? LocalizedError)?.errorDescription ?? fallback
+  }
+
   private var addRow: some View {
-    HStack(spacing: 8) {
+    LazyVGrid(columns: [GridItem(.adaptive(minimum: 140), spacing: 8)], spacing: 8) {
       Button {
         guard store.isCurrentAttachmentSession(sessionContext) else { return }
         photoPickerPresented = true
@@ -245,13 +322,15 @@ private struct AuthenticatedAttachmentSectionView: View {
   private func addButton(symbol: String, title: String) -> some View {
     HStack(spacing: 6) {
       Image(systemName: symbol)
-        .font(.system(size: 12, weight: .semibold))
+        .accessibilityHidden(true)
       Text(title)
-        .font(.system(size: 12.5, weight: .semibold))
+        .fixedSize(horizontal: false, vertical: true)
     }
+    .font(.footnote.weight(.semibold))
     .foregroundStyle(Theme.blueDeep)
     .padding(.horizontal, 12)
     .padding(.vertical, 8)
+    .frame(maxWidth: .infinity, minHeight: 44)
     .background(RoundedRectangle(cornerRadius: 3).fill(Theme.blueSoft))
     .overlay(RoundedRectangle(cornerRadius: 3).strokeBorder(Theme.blue.opacity(0.3), lineWidth: 1))
   }
@@ -259,31 +338,30 @@ private struct AuthenticatedAttachmentSectionView: View {
   // MARK: Photo grid
 
   private var photoGrid: some View {
-    LazyVGrid(columns: [GridItem(.adaptive(minimum: 84), spacing: 8)], spacing: 8) {
+    LazyVGrid(columns: [GridItem(.adaptive(minimum: 150), spacing: 8)], spacing: 8) {
       ForEach(photos) { attachment in
-        Button {
-          guard store.isCurrentAttachmentSession(sessionContext) else { return }
-          viewer = attachment
-        } label: {
+        VStack(alignment: .leading, spacing: 8) {
           Theme.ink.opacity(0.08)
             .aspectRatio(1, contentMode: .fit)
             .overlay {
-              AttachmentThumb(attachment: attachment)
-                .allowsHitTesting(false)
-            }
-            .overlay(alignment: .topTrailing) {
-              if let label = store.attachments.statusLabel(for: attachment) {
-                AttachmentStatusChip(label: label)
-                  .padding(5)
+              if !isBlocked(attachment), store.attachments.hasLocalCopy(attachment) {
+                AttachmentThumb(attachment: attachment)
+              } else {
+                Image(systemName: isBlocked(attachment) ? "lock.shield" : "photo")
+                  .font(.title2)
+                  .foregroundStyle(Theme.muted)
               }
             }
+            .compositingGroup()
             .clipShape(.rect(cornerRadius: 3))
-            .overlay(
-              RoundedRectangle(cornerRadius: 3)
-                .strokeBorder(Theme.line, lineWidth: 1)
-            )
+            .accessibilityHidden(true)
+          Text(attachment.fileName)
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(Theme.ink)
+            .fixedSize(horizontal: false, vertical: true)
+          attachmentState(attachment)
+          attachmentActions(attachment)
         }
-        .buttonStyle(.plain)
         .contextMenu {
           deleteButton(attachment)
         }
@@ -297,33 +375,28 @@ private struct AuthenticatedAttachmentSectionView: View {
     Card {
       VStack(alignment: .leading, spacing: 0) {
         ForEach(Array(documents.enumerated()), id: \.element.id) { index, attachment in
-          Button {
-            guard store.isCurrentAttachmentSession(sessionContext) else { return }
-            viewer = attachment
-          } label: {
+          VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 10) {
               Image(systemName: "doc.fill")
-                .font(.system(size: 15))
+                .font(.body)
                 .foregroundStyle(Theme.blue)
                 .frame(width: 30, height: 30)
                 .background(RoundedRectangle(cornerRadius: 3).fill(Theme.blueSoft))
+                .accessibilityHidden(true)
               VStack(alignment: .leading, spacing: 2) {
                 Text(attachment.fileName)
-                  .font(.system(size: 13.5, weight: .semibold))
+                  .font(.footnote.weight(.semibold))
                   .foregroundStyle(Theme.ink)
-                  .lineLimit(1)
+                  .fixedSize(horizontal: false, vertical: true)
                 Text("\(Fmt.shortDay(attachment.createdAt)) · \(AttachmentSectionView.byteLabel(attachment.byteSize))")
-                  .font(.system(size: 11))
+                  .font(.caption)
                   .foregroundStyle(Theme.muted)
               }
-              Spacer(minLength: 8)
-              if let label = store.attachments.statusLabel(for: attachment) {
-                AttachmentStatusChip(label: label)
-              }
             }
-            .padding(.vertical, 8)
+            attachmentState(attachment)
+            attachmentActions(attachment)
           }
-          .buttonStyle(.plain)
+          .padding(.vertical, 8)
           .contextMenu {
             deleteButton(attachment)
           }
@@ -333,6 +406,108 @@ private struct AuthenticatedAttachmentSectionView: View {
         }
       }
     }
+  }
+
+  private func isBlocked(_ attachment: Attachment) -> Bool {
+    store.attachments.remoteRecord(localId: attachment.id)?.lastErrorCode == "attachment_blocked"
+  }
+
+  private func failureCode(_ attachment: Attachment) -> String? {
+    if attachment.pendingSync {
+      return store.outbox.item(idempotencyKey: "upload-\(attachment.id)")?.lastErrorCode
+    }
+    return store.attachments.remoteRecord(localId: attachment.id)?.lastErrorCode
+  }
+
+  private func canRetry(_ attachment: Attachment) -> Bool {
+    guard let code = failureCode(attachment) else { return false }
+    // Only known transient/persistence errors offer an explicit retry. Unknown
+    // validation, authorization and security decisions never become a bypass.
+    let recoverableCodes: Set<String> = [
+      "transport_unavailable", "attachment_storage_unavailable", "attachment_transport_disabled",
+      "attachment_transport_unavailable", "attachment_chunked_transport_required",
+      "attachment_chunk_mismatch", "download_integrity_mismatch", "download_integrity_failed",
+      "attachment_ack_persistence_failed", "attachment_state_persistence_failed",
+      "outbox_persistence_failed", "attachment_scanner_unavailable", "attachment_unavailable",
+      "rate_limited", "service_unavailable", "internal_error"
+    ]
+    return recoverableCodes.contains(code)
+  }
+
+  @ViewBuilder
+  private func attachmentState(_ attachment: Attachment) -> some View {
+    if let label = store.attachments.statusLabel(for: attachment) {
+      AttachmentStatusChip(label: label)
+    }
+    if isBlocked(attachment) {
+      Text("Le contrôle de sécurité a bloqué ce fichier. Aucun aperçu ni téléchargement n'est disponible.")
+        .font(.caption)
+        .foregroundStyle(Theme.rust)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+  }
+
+  private func attachmentActions(_ attachment: Attachment) -> some View {
+    let hasLocalCopy = store.attachments.hasLocalCopy(attachment)
+    let record = store.attachments.remoteRecord(localId: attachment.id)
+    let downloadPending = !hasLocalCopy && record?.downloadRequested == true && record?.status != .failed
+    let actionTitle: String
+    if hasLocalCopy {
+      actionTitle = "Aperçu local"
+    } else if downloadPending {
+      actionTitle = "Téléchargement demandé"
+    } else if canRetry(attachment) {
+      actionTitle = "Réessayer le téléchargement"
+    } else {
+      actionTitle = "Télécharger"
+    }
+    return VStack(alignment: .leading, spacing: 0) {
+      Button {
+        guard store.isCurrentAttachmentSession(sessionContext), !isBlocked(attachment) else { return }
+        if store.attachments.hasLocalCopy(attachment) {
+          viewer = attachment
+        } else {
+          do {
+            if canRetry(attachment) {
+              try store.retryAttachment(attachment, context: sessionContext)
+            } else {
+              try store.requestAttachmentDownload(attachment, context: sessionContext)
+            }
+            addError = nil
+          } catch {
+            addError = importError(error, fallback: "Le téléchargement n'a pas pu être enregistré.")
+          }
+        }
+      } label: {
+        Label(
+          actionTitle,
+          systemImage: hasLocalCopy ? "eye" : "arrow.down.circle"
+        )
+        .frame(minHeight: 44, alignment: .leading)
+        .contentShape(Rectangle())
+      }
+      .disabled(isBlocked(attachment) || downloadPending || (!hasLocalCopy && failureCode(attachment) != nil && !canRetry(attachment)))
+      .accessibilityHint(hasLocalCopy ? "Ouvre la copie de cet appareil. Ne confirme pas l'analyse antivirus." : "Enregistre une demande de téléchargement. Le fichier reste fermé pendant la vérification.")
+      if hasLocalCopy && canRetry(attachment) {
+        Button {
+          guard store.isCurrentAttachmentSession(sessionContext) else { return }
+          do {
+            try store.retryAttachment(attachment, context: sessionContext)
+            addError = nil
+          } catch {
+            addError = importError(error, fallback: "La reprise n'a pas pu être enregistrée.")
+          }
+        } label: {
+          Label("Réessayer la synchronisation", systemImage: "arrow.clockwise")
+            .frame(minHeight: 44, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+      }
+    }
+    .font(.footnote.weight(.semibold))
+    .foregroundStyle(Theme.blueDeep)
+    .buttonStyle(.plain)
+    .fixedSize(horizontal: false, vertical: true)
   }
 
   private func deleteButton(_ attachment: Attachment) -> some View {
@@ -351,20 +526,32 @@ private struct AuthenticatedAttachmentSectionView: View {
 struct AttachmentStatusChip: View {
   let label: String
 
+  private var isBlocked: Bool { label == "Fichier bloqué" }
+  private var symbol: String {
+    if isBlocked { return "lock.shield" }
+    if label == "Sur le CRM · non téléchargé" { return "cloud" }
+    if ["reprendre", "interrompu", "refusé", "non accepté", "requise"].contains(where: { label.contains($0) }) {
+      return "exclamationmark.triangle"
+    }
+    return "clock"
+  }
+
   var body: some View {
-    Text(label)
-      .font(.system(size: 9, weight: .heavy))
-      .kerning(0.6)
-      .textCase(.uppercase)
-      .foregroundStyle(Theme.ivory)
-      .padding(.horizontal, 6)
-      .padding(.vertical, 3)
-      .background(Capsule().fill(Theme.amber))
-      .accessibilityIdentifier(
-        label == "En vérification / fichier bloqué"
-          ? "attachment-quarantine-status"
-          : "attachment-sync-status"
-      )
+    HStack(alignment: .firstTextBaseline, spacing: 5) {
+      Image(systemName: symbol)
+        .accessibilityHidden(true)
+      Text(label)
+        .accessibilityIdentifier(
+          isBlocked ? "attachment-blocked-status"
+            : (label == "Analyse en attente" ? "attachment-quarantine-status" : "attachment-sync-status")
+        )
+    }
+    .font(.caption.weight(.semibold))
+    .foregroundStyle(isBlocked ? Theme.rust : Theme.ink)
+    .padding(.horizontal, 8)
+    .padding(.vertical, 5)
+    .background(RoundedRectangle(cornerRadius: 4).fill(isBlocked ? Theme.rustSoft : Theme.amberSoft))
+    .fixedSize(horizontal: false, vertical: true)
   }
 }
 
@@ -405,9 +592,15 @@ struct AttachmentViewer: View {
   @GestureState private var pinch: CGFloat = 1
   @State private var fullImage: UIImage?
 
+  private var canPreview: Bool {
+    store.isCurrentAttachmentSession(sessionContext)
+      && store.attachments.hasLocalCopy(attachment)
+      && store.attachments.remoteRecord(localId: attachment.id)?.lastErrorCode != "attachment_blocked"
+  }
+
   var body: some View {
     Group {
-      if store.isCurrentAttachmentSession(sessionContext) {
+      if canPreview {
         ZStack {
           Color.black.ignoresSafeArea()
           content
@@ -415,12 +608,18 @@ struct AttachmentViewer: View {
             HStack(alignment: .top, spacing: 10) {
               VStack(alignment: .leading, spacing: 2) {
                 Text(attachment.fileName)
-                  .font(.system(size: 14, weight: .semibold))
+                  .font(.subheadline.weight(.semibold))
                   .foregroundStyle(.white)
-                  .lineLimit(1)
-                Text(Fmt.longDate(attachment.createdAt))
-                  .font(.system(size: 11))
-                  .foregroundStyle(.white.opacity(0.6))
+                  .lineLimit(2)
+                Text("Aperçu local · \(Fmt.longDate(attachment.createdAt))")
+                  .font(.caption)
+                  .foregroundStyle(.white.opacity(0.85))
+                if store.attachments.remoteRecord(localId: attachment.id)?.status != .available {
+                  Text("L'analyse antivirus du CRM n'est pas confirmée.")
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .fixedSize(horizontal: false, vertical: true)
+                }
               }
               Spacer(minLength: 12)
               Button {
@@ -429,7 +628,7 @@ struct AttachmentViewer: View {
                 Image(systemName: "xmark")
                   .font(.system(size: 15, weight: .semibold))
                   .foregroundStyle(.white)
-                  .frame(width: 38, height: 38)
+                  .frame(width: 44, height: 44)
                   .background(Circle().fill(.white.opacity(0.18)))
               }
               .accessibilityLabel("Fermer")
@@ -443,7 +642,7 @@ struct AttachmentViewer: View {
       }
     }
     .task {
-      guard store.isCurrentAttachmentSession(sessionContext) else {
+      guard canPreview else {
         dismiss()
         return
       }
@@ -451,8 +650,8 @@ struct AttachmentViewer: View {
         fullImage = store.attachments.data(for: attachment).flatMap(UIImage.init(data:))
       }
     }
-    .onChange(of: store.isCurrentAttachmentSession(sessionContext)) { _, isCurrent in
-      if !isCurrent {
+    .onChange(of: canPreview) { _, canPreview in
+      if !canPreview {
         fullImage = nil
         dismiss()
       }

@@ -9,6 +9,7 @@ struct SettingsView: View {
   @State private var confirmDeleteAttachments = false
   @State private var storageError: String?
   @State private var deleteAttachmentsContext: CrmStore.AttachmentSessionContext?
+  @State private var deleteAttachmentIDs: [String] = []
 
   private var dnclPendingCount: Int {
     store.data.contacts.filter { $0.dnclStatus != "Vérifié" }.count
@@ -307,11 +308,11 @@ struct SettingsView: View {
         Eyebrow("Stockage local")
         if store.canAccessAttachments {
           HStack {
-            Text("Pièces jointes sur l'appareil")
+            Text("Pièces jointes connues")
               .font(.system(size: 13.5))
               .foregroundStyle(Theme.ink)
             Spacer()
-            Text("\(store.attachments.fileCount) · \(AttachmentSectionView.byteLabel(store.attachments.storageBytes))")
+            Text("\(store.attachments.fileCount) · \(AttachmentSectionView.byteLabel(store.attachments.storageBytes)) en local")
               .font(.system(size: 14, weight: .bold, design: .serif))
               .foregroundStyle(Theme.blue)
           }
@@ -358,9 +359,10 @@ struct SettingsView: View {
             Button {
               guard let context = store.captureAttachmentSessionContext() else { return }
               deleteAttachmentsContext = context
+              deleteAttachmentIDs = store.attachments.attachments.map(\.id)
               confirmDeleteAttachments = true
             } label: {
-              Text("Supprimer les pièces jointes")
+              Text("Supprimer les pièces jointes connues")
                 .font(.system(size: 12.5, weight: .semibold))
                 .foregroundStyle(Theme.rust)
                 .padding(.horizontal, 12)
@@ -393,7 +395,7 @@ struct SettingsView: View {
       Text("Les données seront de nouveau téléchargées au prochain accès réseau.")
     }
     .confirmationDialog(
-      "Supprimer toutes les pièces jointes ?",
+      "Supprimer les \(deleteAttachmentIDs.count) pièces jointes sélectionnées ?",
       isPresented: $confirmDeleteAttachments,
       titleVisibility: .visible
     ) {
@@ -403,10 +405,17 @@ struct SettingsView: View {
         else {
           confirmDeleteAttachments = false
           deleteAttachmentsContext = nil
+          deleteAttachmentIDs = []
           return
         }
         do {
-          try store.attachments.deleteAll()
+          // Keep the confirmation's exact scope even if a pending collection
+          // response discovers additional files while the dialog is open.
+          for id in deleteAttachmentIDs {
+            if let attachment = store.attachments.attachment(id: id) {
+              try store.attachments.delete(attachment)
+            }
+          }
           store.drainOutboxIfPossible()
           storageError = nil
           Haptics.light()
@@ -414,16 +423,19 @@ struct SettingsView: View {
           storageError = "La suppression n'a pas pu être enregistrée durablement."
         }
         deleteAttachmentsContext = nil
+        deleteAttachmentIDs = []
       }
       Button("Annuler", role: .cancel) {
         deleteAttachmentsContext = nil
+        deleteAttachmentIDs = []
       }
     } message: {
-      Text("Les fichiers locaux et leur envoi en attente seront définitivement supprimés.")
+      Text("Les copies locales seront supprimées et la suppression des fichiers correspondants sur le CRM sera mise en file. Cette action ne vide pas seulement le cache. Les fichiers découverts après l'ouverture de cette confirmation ne sont pas concernés.")
     }
     .onChange(of: store.uiSessionRevision) { _, _ in
       confirmDeleteAttachments = false
       deleteAttachmentsContext = nil
+      deleteAttachmentIDs = []
       storageError = nil
     }
   }

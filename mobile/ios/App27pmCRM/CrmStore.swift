@@ -484,6 +484,40 @@ final class CrmStore {
     }
   }
 
+  func attachmentCollectionState(ownerKind: AttachmentOwnerKind, ownerId: String) -> AttachmentCollectionState {
+    attachmentSync.collectionState(ownerKind: ownerKind, ownerId: ownerId)
+  }
+
+  func refreshRemoteAttachments(
+    ownerKind: AttachmentOwnerKind, ownerId: String, context: AttachmentSessionContext
+  ) async {
+    guard isCurrentAttachmentSession(context), network.isOnline else { return }
+    if !serverSupportsAttachments {
+      let supported = await apiClient.probeAttachmentsSupport()
+      guard isCurrentAttachmentSession(context) else { return }
+      serverSupportsAttachments = supported
+    }
+    guard serverSupportsAttachments else { return }
+    await attachmentSync.refreshRemoteAttachments(
+      ownerKind: ownerKind, ownerId: ownerId,
+      expectedAuthenticationEpoch: context.authenticationEpoch
+    )
+    guard isCurrentAttachmentSession(context) else { return }
+    scheduleNextAttachmentAttempt(expectedAuthenticationEpoch: context.authenticationEpoch)
+  }
+
+  func requestAttachmentDownload(_ attachment: Attachment, context: AttachmentSessionContext) throws {
+    guard isCurrentAttachmentSession(context) else { return }
+    try attachments.requestRemoteDownload(localId: attachment.id)
+    attachmentWasAdded()
+  }
+
+  func retryAttachment(_ attachment: Attachment, context: AttachmentSessionContext) throws {
+    guard isCurrentAttachmentSession(context) else { return }
+    try attachments.retryAttachment(localId: attachment.id)
+    attachmentWasAdded()
+  }
+
   func drainOutboxIfPossible() {
     let expectedAuthenticationEpoch = authenticationEpoch
     Task {

@@ -46,12 +46,30 @@ enum AttachmentRemoteStatus: String, Codable, Equatable {
   case failed
 }
 
+/// Authenticated collection metadata, never a storage URL or a local path.
+nonisolated struct RemoteAttachmentMetadata: Decodable, Sendable {
+  let id: String
+  let ownerKind: String
+  let ownerId: String
+  let fileName: String
+  let contentType: String
+  let byteSize: Int
+  let sha256: String
+  let objectVersion: String
+  let createdAt: String
+}
+
 struct AttachmentRemoteRecord: Codable, Equatable {
   let serverId: String
   var status: AttachmentRemoteStatus
   var retryAt: Date?
   var consecutiveFailures: Int
   var lastErrorCode: String?
+  // Optional additions preserve indexes written before remote discovery.
+  var expectedSHA256: String? = nil
+  var objectVersion: String? = nil
+  var remoteOnly: Bool? = nil
+  var downloadRequested: Bool? = nil
 }
 
 struct AttachmentTombstone: Codable, Equatable {
@@ -69,6 +87,13 @@ struct AttachmentTombstone: Codable, Equatable {
 enum AttachmentStoreError: LocalizedError {
   case persistenceFailed
   case outboxPersistenceFailed
+  case emptyFile
+  case fileTooLarge
+  case unsupportedPhoto
+  case invalidFileName
+  case invalidRemoteMetadata
+  case downloadIntegrityFailed
+  case attachmentBlocked
 
   var errorDescription: String? {
     switch self {
@@ -76,6 +101,20 @@ enum AttachmentStoreError: LocalizedError {
       "La pièce jointe n'a pas pu être enregistrée durablement sur l'appareil."
     case .outboxPersistenceFailed:
       "L'opération de synchronisation n'a pas pu être enregistrée durablement."
+    case .emptyFile:
+      "Le fichier est vide. Choisissez un fichier contenant des données."
+    case .fileTooLarge:
+      "Le fichier dépasse la limite de 20 Mio. Choisissez un fichier plus petit."
+    case .unsupportedPhoto:
+      "Cette image ne peut pas être importée. Utilisez une photo JPEG, PNG ou HEIC."
+    case .invalidFileName:
+      "Le nom de fichier n'est pas accepté. Renommez le fichier, puis réessayez."
+    case .invalidRemoteMetadata:
+      "La liste des fichiers du CRM est invalide. Aucun fichier n'a été importé."
+    case .downloadIntegrityFailed:
+      "Le fichier téléchargé ne correspond pas à la version attendue. Réessayez sa vérification."
+    case .attachmentBlocked:
+      "Ce fichier est bloqué par le contrôle de sécurité et ne peut pas être téléchargé."
     }
   }
 }
@@ -89,6 +128,7 @@ enum AttachmentStoreError: LocalizedError {
 /// and confirmed by CrmStore.
 @Observable
 final class AttachmentStore {
+  nonisolated static let maximumFileBytes = 20 * 1024 * 1024
   private(set) var attachments: [Attachment] = []
 
   private let baseDirectory: URL
@@ -183,19 +223,42 @@ final class AttachmentStore {
   }
 
   func statusLabel(for attachment: Attachment) -> String? {
-    guard !attachment.pendingSync else { return "En file" }
-    switch remoteRecords[attachment.id]?.status {
+    if attachment.pendingSync {
+      guard let code = outbox?.item(idempotencyKey: "upload-\(attachment.id)")?.lastErrorCode else {
+        return "En file"
+      }
+      switch code {
+      case "authentication_required", "authentication_retry_incomplete", "authentication_session_changed":
+        return "Connexion requise"
+      case "transport_unavailable", "attachment_storage_unavailable", "attachment_transport_disabled":
+        return "Envoi interrompu · réessayer"
+      case "attachment_validation_failed", "invalid_upload_manifest", "attachment_too_large", "attachment_size_exceeded":
+        return "Fichier refusé · vérifier le format et la taille"
+      case "attachment_media_type_mismatch", "attachment_media_type_rejected", "attachment_unsupported_media_type", "unsupported_media_type":
+        return "Format de fichier non accepté"
+      default:
+        return "Envoi à reprendre"
+      }
+    }
+    let record = remoteRecords[attachment.id]
+    if record?.lastErrorCode == "attachment_blocked" { return "Fichier bloqué" }
+    if record?.status == .failed { return "Vérification à reprendre" }
+    if record?.remoteOnly == true, record?.downloadRequested != true {
+      return "Sur le CRM · non téléchargé"
+    }
+    switch record?.status {
     case .awaitingVerification, .quarantined:
-      return "En vérification / fichier bloqué"
+      return record?.lastErrorCode == nil || record?.lastErrorCode == "attachment_quarantined"
+        ? "Analyse en attente" : "Vérification à reprendre"
     case .failed:
-      return "Synchronisation à reprendre"
+      return "Vérification à reprendre"
     case .available, .none:
       return nil
     }
   }
 
   var storageBytes: Int {
-    attachments.reduce(0) { $0 + $1.byteSize }
+    attachments.filter(hasLocalCopy).reduce(0) { $0 + $1.byteSize }
   }
 
   var fileCount: Int {
@@ -205,20 +268,28 @@ final class AttachmentStore {
   // MARK: Adding
 
   func addPhoto(_ data: Data, ownerKind: AttachmentOwnerKind, ownerId: String) throws -> Attachment {
-    try write(
-      data,
+    try Self.validateSize(data.count)
+    let photo = try Self.photoRepresentation(data)
+    return try write(
+      photo.data,
       ownerKind: ownerKind,
       ownerId: ownerId,
       mediaKind: .photo,
       displayName: "Photo",
-      fileExtension: "jpg",
-      mimeType: "image/jpeg"
+      fileExtension: photo.fileExtension,
+      mimeType: Self.mimeType(forExtension: photo.fileExtension)
     )
   }
 
   func addDocument(from sourceURL: URL, ownerKind: AttachmentOwnerKind, ownerId: String) throws -> Attachment {
     let secured = sourceURL.startAccessingSecurityScopedResource()
     defer { if secured { sourceURL.stopAccessingSecurityScopedResource() } }
+    // Reject oversized providers before allocating their entire file. The
+    // write boundary checks again because a provider can change after stat.
+    let resource = try sourceURL.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+    guard resource.isRegularFile != false else { throw AttachmentStoreError.invalidFileName }
+    guard let size = resource.fileSize else { throw AttachmentStoreError.invalidFileName }
+    try Self.validateSize(size)
     let data = try Data(contentsOf: sourceURL)
     let displayName = sourceURL.lastPathComponent
     let fileExtension = sourceURL.pathExtension.lowercased()
@@ -242,6 +313,8 @@ final class AttachmentStore {
     fileExtension: String,
     mimeType: String
   ) throws -> Attachment {
+    try Self.validateSize(data.count)
+    guard Self.validFileName(displayName) else { throw AttachmentStoreError.invalidFileName }
     let id = UUID().uuidString
     let extension_ = fileExtension.isEmpty
       ? (mediaKind == .photo ? "jpg" : "dat")
@@ -292,6 +365,11 @@ final class AttachmentStore {
 
   // MARK: Reading
 
+  func hasLocalCopy(_ attachment: Attachment) -> Bool {
+    remoteRecords[attachment.id]?.remoteOnly != true
+      && FileManager.default.fileExists(atPath: fileURL(for: attachment).path)
+  }
+
   func fileURL(for attachment: Attachment) -> URL {
     baseDirectory.appending(path: "\(attachment.id).\(attachment.fileExtension)")
   }
@@ -303,12 +381,14 @@ final class AttachmentStore {
   }
 
   func data(for attachment: Attachment) -> Data? {
-    try? Data(contentsOf: fileURL(for: attachment))
+    guard hasLocalCopy(attachment) else { return nil }
+    return try? Data(contentsOf: fileURL(for: attachment))
   }
 
   /// Downsampled thumbnail through ImageIO — full-resolution images are
   /// never decoded into memory for grid display.
   func image(for attachment: Attachment, maxPixel: CGFloat = 640) -> UIImage? {
+    guard hasLocalCopy(attachment) else { return nil }
     if let cached = thumbnailCache.object(forKey: attachment.id as NSString) {
       return cached
     }
@@ -326,6 +406,169 @@ final class AttachmentStore {
   }
 
   // MARK: Durable sync bookkeeping
+
+  /// Adds a read-only local projection. Discovering metadata never authorizes
+  /// transferring bytes, revives a deleted row, or replaces a cached original.
+  func importRemoteAttachments(
+    _ metadata: [RemoteAttachmentMetadata],
+    ownerKind: AttachmentOwnerKind,
+    ownerId: String
+  ) throws {
+    guard UUID(uuidString: ownerId) != nil, metadata.count <= 200 else {
+      throw AttachmentStoreError.invalidRemoteMetadata
+    }
+    // Validate the complete envelope before publishing any partial import.
+    let rows = try metadata.map { row -> (RemoteAttachmentMetadata, Date) in
+      guard UUID(uuidString: row.id) != nil,
+        row.ownerKind == ownerKind.rawValue, row.ownerId == ownerId,
+        UUID(uuidString: row.ownerId) != nil,
+        Self.validFileName(row.fileName), Self.allowedContentTypes.contains(row.contentType),
+        (1...Self.maximumFileBytes).contains(row.byteSize),
+        Self.validSHA256(row.sha256), Self.validObjectVersion(row.objectVersion),
+        let createdAt = Self.remoteDate(row.createdAt)
+      else { throw AttachmentStoreError.invalidRemoteMetadata }
+      return (row, createdAt)
+    }
+    try persistMutation {
+      for (row, createdAt) in rows {
+        let serverId = row.id.lowercased()
+        guard !tombstones.values.contains(where: {
+            $0.serverId?.lowercased() == serverId
+              || ($0.serverId == nil && $0.ownerKind == ownerKind && $0.ownerId == ownerId
+                && $0.uploadFileName == row.fileName)
+          }),
+          !attachments.contains(where: {
+            $0.pendingSync && $0.ownerKind == ownerKind && $0.ownerId == ownerId
+              && (Self.remoteUploadFileName(for: $0) == row.fileName || $0.fileName == row.fileName)
+          })
+        else { continue }
+        let existingIds = remoteRecords.filter { $0.value.serverId.lowercased() == serverId }.map(\.key)
+        if !existingIds.isEmpty {
+          for localId in existingIds {
+            guard let index = attachments.firstIndex(where: { $0.id == localId }),
+              var record = remoteRecords[localId], record.remoteOnly == true,
+              attachments[index].ownerKind == ownerKind, attachments[index].ownerId == ownerId,
+              !FileManager.default.fileExists(atPath: fileURL(for: attachments[index]).path)
+            else { continue }
+            let versionChanged = record.objectVersion != row.objectVersion
+            // One object version is immutable: contradictory metadata must
+            // never silently rebind an in-flight download or a blocked row.
+            guard versionChanged || (record.expectedSHA256 == row.sha256 && attachments[index].byteSize == row.byteSize)
+            else { continue }
+            attachments[index] = Attachment(
+              id: localId, ownerKind: ownerKind, ownerId: ownerId,
+              mediaKind: row.contentType.hasPrefix("image/") ? .photo : .document,
+              fileName: row.fileName, fileExtension: Self.safeExtension(for: row.fileName),
+              byteSize: row.byteSize, createdAt: createdAt, pendingSync: false
+            )
+            record.expectedSHA256 = row.sha256
+            record.objectVersion = row.objectVersion
+            if versionChanged {
+              record.status = .awaitingVerification
+              record.retryAt = nil
+              record.consecutiveFailures = 0
+              record.lastErrorCode = nil
+              record.downloadRequested = false
+            }
+            remoteRecords[localId] = record
+          }
+          continue
+        }
+        let extension_ = Self.safeExtension(for: row.fileName)
+        let occupied = attachments.contains(where: { $0.id.lowercased() == serverId })
+          || remoteRecords.keys.contains(where: { $0.lowercased() == serverId })
+          || tombstones.keys.contains(where: { $0.lowercased() == serverId })
+          || FileManager.default.fileExists(atPath: baseDirectory.appending(path: "\(serverId).\(extension_)").path)
+        let localId = occupied ? UUID().uuidString.lowercased() : serverId
+        let attachment = Attachment(
+          id: localId,
+          ownerKind: ownerKind,
+          ownerId: ownerId,
+          mediaKind: row.contentType.hasPrefix("image/") ? .photo : .document,
+          fileName: row.fileName,
+          fileExtension: extension_,
+          byteSize: row.byteSize,
+          createdAt: createdAt,
+          pendingSync: false
+        )
+        attachments.append(attachment)
+        remoteRecords[localId] = AttachmentRemoteRecord(
+          serverId: serverId,
+          status: .awaitingVerification,
+          retryAt: nil,
+          consecutiveFailures: 0,
+          lastErrorCode: nil,
+          expectedSHA256: row.sha256,
+          objectVersion: row.objectVersion,
+          remoteOnly: true
+        )
+      }
+    }
+  }
+
+  /// Explicit operator intent survives a restart, unlike discovery alone.
+  func requestRemoteDownload(localId: String) throws {
+    guard let attachment = attachment(id: localId), var record = remoteRecords[localId],
+      record.remoteOnly == true
+    else { throw AttachmentStoreError.invalidRemoteMetadata }
+    guard record.lastErrorCode != "attachment_blocked" else { throw AttachmentStoreError.attachmentBlocked }
+    record.downloadRequested = true
+    try persistMutation { remoteRecords[localId] = record }
+    guard enqueueDownload(attachment, record: record) else {
+      // Intent stays durable for reconciliation; no bytes become visible.
+      throw AttachmentStoreError.outboxPersistenceFailed
+    }
+  }
+
+  func retryAttachment(localId: String) throws {
+    guard let attachment = attachment(id: localId) else { return }
+    guard remoteRecords[localId]?.lastErrorCode != "attachment_blocked" else {
+      throw AttachmentStoreError.attachmentBlocked
+    }
+    if attachment.pendingSync {
+      try reconcilePersistentState()
+      guard outbox?.retry(idempotencyKey: "upload-\(localId)") ?? true else {
+        throw AttachmentStoreError.outboxPersistenceFailed
+      }
+    } else if var record = remoteRecords[localId] {
+      record.status = .awaitingVerification
+      record.retryAt = nil
+      record.lastErrorCode = nil
+      if record.remoteOnly == true { record.downloadRequested = true }
+      try persistMutation { remoteRecords[localId] = record }
+      guard enqueueDownload(attachment, record: record),
+        outbox?.retry(idempotencyKey: "download-\(localId)") ?? true
+      else { throw AttachmentStoreError.outboxPersistenceFailed }
+    }
+  }
+
+  /// Publish downloaded bytes only after their immutable metadata and index
+  /// both commit. A failed index write restores the previous disk contents.
+  func cacheRemoteDownload(localId: String, data: Data, objectVersion: String) throws {
+    guard let attachment = attachment(id: localId), var record = remoteRecords[localId],
+      record.lastErrorCode != "attachment_blocked",
+      let digest = record.expectedSHA256, record.objectVersion == objectVersion,
+      data.count == attachment.byteSize, Self.sha256Hex(data) == digest
+    else { throw AttachmentStoreError.downloadIntegrityFailed }
+    let destination = fileURL(for: attachment)
+    let previousData = try? Data(contentsOf: destination)
+    // Never replace an original/cached version with a different byte stream.
+    if let previousData, previousData != data { throw AttachmentStoreError.downloadIntegrityFailed }
+    try data.write(to: destination, options: .atomic)
+    record.remoteOnly = false
+    record.downloadRequested = false
+    record.status = .available
+    record.retryAt = nil
+    record.consecutiveFailures = 0
+    record.lastErrorCode = nil
+    do {
+      try persistMutation { remoteRecords[localId] = record }
+    } catch {
+      if let previousData { try? previousData.write(to: destination, options: .atomic) }
+      else { try? FileManager.default.removeItem(at: destination) }
+      throw error
+    }
+  }
 
   /// Persists the durable POST acknowledgement before the upload queue item
   /// can be removed. When the local attachment was deleted during the POST,
@@ -392,8 +635,21 @@ final class AttachmentStore {
   func markVerificationFailed(localId: String, code: String) throws {
     guard var record = remoteRecords[localId] else { return }
     record.status = .failed
+    record.retryAt = nil
     record.lastErrorCode = code
     try persistMutation { remoteRecords[localId] = record }
+  }
+
+  func markBlocked(localId: String) throws {
+    guard var record = remoteRecords[localId] else { return }
+    record.status = .failed
+    record.retryAt = nil
+    record.lastErrorCode = "attachment_blocked"
+    record.downloadRequested = false
+    try persistMutation { remoteRecords[localId] = record }
+    guard outbox?.remove(idempotencyKey: "download-\(localId)") ?? true else {
+      throw AttachmentStoreError.outboxPersistenceFailed
+    }
   }
 
   // MARK: Deleting
@@ -482,20 +738,12 @@ final class AttachmentStore {
         guard outbox.remove(idempotencyKey: "upload-\(attachment.id)") else {
           throw AttachmentStoreError.outboxPersistenceFailed
         }
-        if record.status != .available {
-          guard outbox.enqueue(OutboxItem(
-            id: UUID().uuidString,
-            idempotencyKey: "download-\(attachment.id)",
-            kind: .attachmentDownload,
-            ownerKind: attachment.ownerKind.rawValue,
-            ownerId: attachment.ownerId,
-            subjectId: attachment.id,
-            label: attachment.fileName,
-            createdAt: Date(),
-            attempts: record.consecutiveFailures,
-            notBefore: record.retryAt,
-            lastErrorCode: record.lastErrorCode
-          )) else { throw AttachmentStoreError.outboxPersistenceFailed }
+        if record.status != .available, record.lastErrorCode != "attachment_blocked",
+          record.remoteOnly != true || record.downloadRequested == true
+        {
+          guard enqueueDownload(attachment, record: record) else {
+            throw AttachmentStoreError.outboxPersistenceFailed
+          }
         } else {
           guard outbox.remove(idempotencyKey: "download-\(attachment.id)") else {
             throw AttachmentStoreError.outboxPersistenceFailed
@@ -540,6 +788,84 @@ final class AttachmentStore {
   }
 
   // MARK: Plumbing
+
+  private func enqueueDownload(_ attachment: Attachment, record: AttachmentRemoteRecord) -> Bool {
+    outbox?.enqueue(OutboxItem(
+      id: UUID().uuidString,
+      idempotencyKey: "download-\(attachment.id)",
+      kind: .attachmentDownload,
+      ownerKind: attachment.ownerKind.rawValue,
+      ownerId: attachment.ownerId,
+      subjectId: attachment.id,
+      label: attachment.fileName,
+      createdAt: Date(),
+      attempts: record.consecutiveFailures,
+      notBefore: record.retryAt,
+      lastErrorCode: record.lastErrorCode
+    )) ?? true
+  }
+
+  private nonisolated static func validateSize(_ byteSize: Int) throws {
+    guard byteSize > 0 else { throw AttachmentStoreError.emptyFile }
+    guard byteSize <= maximumFileBytes else { throw AttachmentStoreError.fileTooLarge }
+  }
+
+  private nonisolated static func validFileName(_ value: String) -> Bool {
+    !value.isEmpty && value.utf16.count <= 255 && value != "." && value != ".."
+      && !value.contains("/") && !value.contains("\\")
+      && value.unicodeScalars.allSatisfy { !CharacterSet.controlCharacters.contains($0) }
+      && value.precomposedStringWithCompatibilityMapping == value
+  }
+
+  private nonisolated static func safeExtension(for fileName: String) -> String {
+    let candidate = (fileName as NSString).pathExtension.lowercased()
+    guard !candidate.isEmpty, candidate.count <= 12,
+      candidate.unicodeScalars.allSatisfy({ CharacterSet.alphanumerics.contains($0) && $0.isASCII })
+    else { return "dat" }
+    return candidate
+  }
+
+  private nonisolated static func validSHA256(_ value: String) -> Bool {
+    value.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil
+  }
+
+  private nonisolated static func validObjectVersion(_ value: String) -> Bool {
+    value.range(of: "^[A-Za-z0-9._:-]{1,256}$", options: .regularExpression) != nil
+  }
+
+  private nonisolated static func remoteDate(_ value: String) -> Date? {
+    guard value.count <= 64 else { return nil }
+    let formatter = ISO8601DateFormatter()
+    formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    if let date = formatter.date(from: value) { return date }
+    formatter.formatOptions = [.withInternetDateTime]
+    return formatter.date(from: value)
+  }
+
+  private nonisolated static let allowedContentTypes: Set<String> = [
+    "image/jpeg", "image/png", "image/heic", "application/pdf", "text/plain", "text/csv",
+    "application/msword", "application/vnd.ms-excel", "application/zip", "application/octet-stream",
+  ]
+
+  private static func photoRepresentation(_ data: Data) throws -> (data: Data, fileExtension: String) {
+    if data.starts(with: [0xFF, 0xD8, 0xFF]) { return (data, "jpg") }
+    if data.starts(with: [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) { return (data, "png") }
+    if data.count >= 16, data.subdata(in: 4..<8) == Data("ftyp".utf8) {
+      let brands = Set(["heic", "heix", "hevc", "hevx"])
+      let boxSize = data.prefix(4).reduce(0) { ($0 << 8) | Int($1) }
+      if boxSize >= 16, boxSize <= data.count, boxSize <= 4096 {
+        let brandOffsets = [8] + Array(stride(from: 16, to: boxSize - 3, by: 4))
+        if brandOffsets.contains(where: { brands.contains(String(decoding: data[$0..<($0 + 4)], as: UTF8.self)) }) {
+          return (data, "heic")
+        }
+      }
+    }
+    guard let image = UIImage(data: data), let jpeg = image.jpegData(compressionQuality: 0.9) else {
+      throw AttachmentStoreError.unsupportedPhoto
+    }
+    try validateSize(jpeg.count)
+    return (jpeg, "jpg")
+  }
 
   private func persistMutation(_ mutation: () -> Void) throws {
     let previousAttachments = attachments

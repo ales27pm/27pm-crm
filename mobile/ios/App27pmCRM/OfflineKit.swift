@@ -222,6 +222,23 @@ final class OutboxQueue {
     items.first { $0.idempotencyKey == idempotencyKey }
   }
 
+  /// Explicit operator retry preserves the same operation identity. Never
+  /// manufacture a second upload key after an uncertain network outcome.
+  @discardableResult
+  func retry(idempotencyKey: String) -> Bool {
+    guard let index = items.firstIndex(where: { $0.idempotencyKey == idempotencyKey }) else {
+      return false
+    }
+    let previous = items
+    items[index].notBefore = nil
+    items[index].lastErrorCode = nil
+    guard persist() else {
+      items = previous
+      return false
+    }
+    return true
+  }
+
   /// Drops queued items without sending — used when a local attachment is
   /// deleted before it ever synced.
   @discardableResult

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import XCTest
 @testable import App27pmCRM
@@ -115,6 +116,8 @@ private final class SuspendedListTransport: AttachmentAPITransport {
   private(set) var listCalls = 0
   private(set) var deleteIDs: [String] = []
   var firstContinuation: CheckedContinuation<AttachmentHTTPResult, Never>?
+  var suspendSecondList = false
+  var secondContinuation: CheckedContinuation<AttachmentHTTPResult, Never>?
   var subsequentListResults: [Result<AttachmentHTTPResult, Error>] = []
   var deleteResults: [Result<AttachmentHTTPResult, Error>] = []
 
@@ -143,12 +146,20 @@ private final class SuspendedListTransport: AttachmentAPITransport {
     if listCalls == 1 {
       return await withCheckedContinuation { firstContinuation = $0 }
     }
+    if listCalls == 2, suspendSecondList {
+      return await withCheckedContinuation { secondContinuation = $0 }
+    }
     return try next(&subsequentListResults)
   }
 
   func resumeFirstList(with response: AttachmentHTTPResult? = nil) {
     firstContinuation?.resume(returning: response ?? Self.json(200, #"{"attachments":[]}"#))
     firstContinuation = nil
+  }
+
+  func resumeSecondList(with response: AttachmentHTTPResult) {
+    secondContinuation?.resume(returning: response)
+    secondContinuation = nil
   }
 
   private func next(
@@ -416,7 +427,7 @@ final class AttachmentSyncCoordinatorTests: XCTestCase {
     XCTAssertEqual(store.remoteRecord(localId: attachment.id)?.retryAt, clock.value.addingTimeInterval(60))
     XCTAssertEqual(
       store.attachment(id: attachment.id).flatMap(store.statusLabel),
-      "En vérification / fichier bloqué"
+      "Analyse en attente"
     )
     XCTAssertEqual(outbox.items.map(\.kind), [.attachmentDownload])
     XCTAssertEqual(api.uploadCalls.count, 1)
@@ -1101,5 +1112,248 @@ final class AttachmentSyncCoordinatorTests: XCTestCase {
       .reconcileAndDrain()
     XCTAssertTrue(store.tombstones.isEmpty)
     XCTAssertEqual(retryAPI.deleteIDs, [serverID])
+  }
+
+  @MainActor
+  func testLocalValidationErrorIsNotMisreportedAsOffline() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+    let attachment = try store.addPhoto(bytes, ownerKind: .account, ownerId: "org-1")
+    let api = AttachmentTransportStub()
+    api.uploadResults = [.failure(CrmAPIError.http(status: 422, code: "invalid_upload_manifest"))]
+    let auth = AuthenticationProbe()
+    let clock = TestClock(Date())
+    await coordinator(api: api, store: store, outbox: outbox, auth: auth, clock: clock).reconcileAndDrain()
+
+    XCTAssertEqual(outbox.items.first?.lastErrorCode, "invalid_upload_manifest")
+    XCTAssertNil(outbox.items.first?.notBefore)
+    XCTAssertNotEqual(store.statusLabel(for: attachment), "En file")
+    XCTAssertEqual(auth.refreshCount, 0)
+  }
+
+  @MainActor
+  func testTerminalBlockStopsVerificationAcrossPassesAndRestart() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let directory = root.appending(path: "attachments")
+    let store = AttachmentStore(directory: directory, outbox: outbox)
+    let attachment = try store.addPhoto(bytes, ownerKind: .account, ownerId: "org-1")
+    let api = AttachmentTransportStub()
+    api.uploadResults = [.success(response(200, #"{"id":"\#(serverID)"}"#))]
+    api.downloadResults = [.success(response(423, #"{"error":"attachment_blocked"}"#))]
+    let auth = AuthenticationProbe()
+    let clock = TestClock(Date())
+    let sync = coordinator(api: api, store: store, outbox: outbox, auth: auth, clock: clock)
+    await sync.reconcileAndDrain()
+    await sync.reconcileAndDrain()
+
+    XCTAssertEqual(store.statusLabel(for: store.attachment(id: attachment.id)!), "Fichier bloqué")
+    XCTAssertTrue(outbox.items.isEmpty)
+    XCTAssertEqual(api.downloadIDs, [serverID])
+    let restarted = AttachmentStore(directory: directory, outbox: OutboxQueue(directory: root))
+    try restarted.reconcilePersistentState()
+    XCTAssertEqual(restarted.remoteRecord(localId: attachment.id)?.lastErrorCode, "attachment_blocked")
+    XCTAssertTrue(OutboxQueue(directory: root).items.isEmpty)
+    XCTAssertEqual(auth.refreshCount, 0)
+  }
+
+  private var collectionOwnerID: String { "ac15ed5c-d531-477a-9a65-dc89fd44e101" }
+
+  private func collectionBody() throws -> String {
+    let digest = SHA256.hash(data: bytes).map { String(format: "%02x", $0) }.joined()
+    let object: [String: Any] = ["attachments": [[
+      "id": serverID, "ownerKind": "account", "ownerId": collectionOwnerID,
+      "fileName": "photo.jpg", "contentType": "image/jpeg", "byteSize": bytes.count,
+      "sha256": digest, "objectVersion": "version-test-1", "createdAt": "2026-10-18T04:00:00Z",
+    ]]]
+    return String(decoding: try JSONSerialization.data(withJSONObject: object), as: UTF8.self)
+  }
+
+  @MainActor
+  func testRemoteMetadataIsVisibleWithoutAutomaticByteTransfer() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+    let api = AttachmentTransportStub()
+    api.listResults = [.success(response(200, try collectionBody()))]
+    let sync = coordinator(api: api, store: store, outbox: outbox, auth: AuthenticationProbe(), clock: TestClock(Date()))
+    await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 0)
+
+    let attachment = try XCTUnwrap(store.attachments.first)
+    XCTAssertFalse(attachment.pendingSync)
+    XCTAssertFalse(store.hasLocalCopy(attachment))
+    XCTAssertTrue(outbox.items.isEmpty)
+    XCTAssertTrue(api.uploadCalls.isEmpty)
+    XCTAssertTrue(api.downloadIDs.isEmpty)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .loaded)
+  }
+
+  @MainActor
+  func testRequestedRemoteFileCachesOnlyExactMetadataVersionAndBytes() async throws {
+    for version in ["version-test-1", "wrong-version"] {
+      let root = tempDirectory()
+      let outbox = OutboxQueue(directory: root)
+      let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+      let api = AttachmentTransportStub()
+      api.listResults = [.success(response(200, try collectionBody()))]
+      let sync = coordinator(api: api, store: store, outbox: outbox, auth: AuthenticationProbe(), clock: TestClock(Date()))
+      await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 0)
+      let attachment = try XCTUnwrap(store.attachments.first)
+      try store.requestRemoteDownload(localId: attachment.id)
+      api.downloadResults = [.success(AttachmentHTTPResult(
+        status: 200, body: bytes, retryAfter: nil, contentType: "image/jpeg",
+        contentLength: bytes.count, effectiveURL: URL(string: "https://crm.27pm.org/api/mobile/attachments/\(serverID)/manifest"),
+        objectVersion: version
+      ))]
+      await sync.reconcileAndDrain()
+      XCTAssertEqual(store.hasLocalCopy(attachment), version == "version-test-1")
+      if version == "version-test-1" {
+        XCTAssertEqual(store.data(for: attachment), bytes)
+        XCTAssertEqual(store.remoteRecord(localId: attachment.id)?.status, .available)
+        XCTAssertTrue(outbox.items.isEmpty)
+      } else {
+        XCTAssertNil(store.data(for: attachment))
+        XCTAssertEqual(store.remoteRecord(localId: attachment.id)?.lastErrorCode, "download_integrity_mismatch")
+      }
+      XCTAssertTrue(api.uploadCalls.isEmpty)
+    }
+  }
+
+  @MainActor
+  func testMetadataListFromPreviousLoginCannotRepopulateIndex() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+    let api = SuspendedListTransport()
+    let epoch = AuthenticationEpochProbe(1)
+    let sync = coordinator(api: api, store: store, outbox: outbox, auth: AuthenticationProbe(), clock: TestClock(Date()), authenticationEpoch: { epoch.value })
+    let pending = Task {
+      await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 1)
+    }
+    while api.firstContinuation == nil { await Task.yield() }
+    epoch.value = 2
+    api.resumeFirstList(with: response(200, try collectionBody()))
+    await pending.value
+    XCTAssertTrue(store.attachments.isEmpty)
+    XCTAssertTrue(outbox.items.isEmpty)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .failed)
+  }
+
+  @MainActor
+  func testNewLoginCollectionRefreshIsNotClobberedByPreviousResponse() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+    let api = SuspendedListTransport()
+    api.suspendSecondList = true
+    let epoch = AuthenticationEpochProbe(1)
+    let sync = coordinator(api: api, store: store, outbox: outbox, auth: AuthenticationProbe(), clock: TestClock(Date()), authenticationEpoch: { epoch.value })
+    let oldRequest = Task {
+      await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 1)
+    }
+    while api.firstContinuation == nil { await Task.yield() }
+    epoch.value = 2
+    await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 2)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .loading)
+    api.resumeFirstList(with: response(200, try collectionBody()))
+    while api.secondContinuation == nil { await Task.yield() }
+    XCTAssertEqual(api.listCalls, 2)
+    XCTAssertTrue(store.attachments.isEmpty)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .loading)
+    api.resumeSecondList(with: response(200, try collectionBody()))
+    await oldRequest.value
+    XCTAssertEqual(store.fileCount, 1)
+    XCTAssertTrue(outbox.items.isEmpty)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .loaded)
+  }
+
+  @MainActor
+  func testPreviousLoginUnprocessedCollectionDoesNotRemainLoading() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+    let api = SuspendedListTransport()
+    let epoch = AuthenticationEpochProbe(1)
+    let sync = coordinator(api: api, store: store, outbox: outbox, auth: AuthenticationProbe(), clock: TestClock(Date()), authenticationEpoch: { epoch.value })
+    let oldRequest = Task {
+      await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 1)
+    }
+    while api.firstContinuation == nil { await Task.yield() }
+    let otherOwnerID = "c57ca1ad-aa4d-4ef7-8406-b481b1b13246"
+    await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: otherOwnerID, expectedAuthenticationEpoch: 1)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: otherOwnerID), .loading)
+    epoch.value = 2
+    api.resumeFirstList(with: response(200, try collectionBody()))
+    await oldRequest.value
+    XCTAssertEqual(api.listCalls, 1)
+    XCTAssertTrue(store.attachments.isEmpty)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .failed)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: otherOwnerID), .failed)
+  }
+
+  @MainActor
+  func testCancelledCollectionDoesNotImportOrRemainLoading() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+    let api = SuspendedListTransport()
+    let sync = coordinator(api: api, store: store, outbox: outbox, auth: AuthenticationProbe(), clock: TestClock(Date()))
+    let pending = Task {
+      await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 0)
+    }
+    while api.firstContinuation == nil { await Task.yield() }
+    pending.cancel()
+    api.resumeFirstList(with: response(200, try collectionBody()))
+    await pending.value
+    XCTAssertTrue(store.attachments.isEmpty)
+    XCTAssertTrue(outbox.items.isEmpty)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .failed)
+  }
+
+  @MainActor
+  func testExplicitOutboxRetryKeepsOperationIdentityAndPersists() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let item = OutboxItem(
+      id: UUID().uuidString, idempotencyKey: "same-upload", kind: .attachmentUpload,
+      ownerKind: "account", ownerId: collectionOwnerID, subjectId: serverID,
+      label: "photo", createdAt: Date(), attempts: 2,
+      notBefore: Date().addingTimeInterval(60), lastErrorCode: "transport_unavailable"
+    )
+    XCTAssertTrue(outbox.enqueue(item))
+    XCTAssertTrue(outbox.retry(idempotencyKey: item.idempotencyKey))
+    let restored = try XCTUnwrap(OutboxQueue(directory: root).items.first)
+    XCTAssertEqual(restored.id, item.id)
+    XCTAssertEqual(restored.idempotencyKey, item.idempotencyKey)
+    XCTAssertEqual(restored.attempts, 2)
+    XCTAssertNil(restored.notBefore)
+    XCTAssertNil(restored.lastErrorCode)
+  }
+
+  @MainActor
+  func testCollectionPersistenceFailureDoesNotLeaveRefreshPermanentlyLoading() async throws {
+    let root = tempDirectory()
+    let outbox = OutboxQueue(directory: root)
+    let store = AttachmentStore(directory: root.appending(path: "attachments"), outbox: outbox)
+    let attachment = try store.addPhoto(bytes, ownerKind: .account, ownerId: collectionOwnerID)
+    try store.recordUploadAcknowledgement(
+      localId: attachment.id, serverId: serverID, ownerKind: .account,
+      ownerId: collectionOwnerID, uploadFileName: AttachmentStore.remoteUploadFileName(for: attachment)
+    )
+    let queueFile = root.appending(path: "outbox.json")
+    try FileManager.default.removeItem(at: queueFile)
+    try FileManager.default.createDirectory(at: queueFile, withIntermediateDirectories: false)
+    let api = AttachmentTransportStub()
+    api.listResults = [.success(response(200, try collectionBody()))]
+    let sync = coordinator(api: api, store: store, outbox: outbox, auth: AuthenticationProbe(), clock: TestClock(Date()))
+    await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 0)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .failed)
+    XCTAssertTrue(api.listRequests.isEmpty)
+
+    try FileManager.default.removeItem(at: queueFile)
+    await sync.refreshRemoteAttachments(ownerKind: .account, ownerId: collectionOwnerID, expectedAuthenticationEpoch: 0)
+    XCTAssertEqual(sync.collectionState(ownerKind: .account, ownerId: collectionOwnerID), .loaded)
+    XCTAssertEqual(api.listRequests.count, 1)
   }
 }
