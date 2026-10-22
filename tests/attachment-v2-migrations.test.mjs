@@ -16,10 +16,11 @@ const TABLES = ["attachment_v2_objects", "attachment_v2_uploads", "attachment_v2
 test("the actual Drizzle reader registers both custom migrations as five statements each", async () => {
   const journal = JSON.parse(await readFile(new URL("meta/_journal.json", DIRECTORY), "utf8"));
   const migrations = readMigrationFiles({ migrationsFolder: FOLDER });
-  assert.equal(journal.entries.length, 24);
-  assert.equal(migrations.length, 24, "SQL files alone do not register a Drizzle migration");
-  assert.deepEqual(journal.entries.map(e => e.idx), Array.from({ length: 24 }, (_, i) => i));
-  assert.deepEqual(journal.entries.slice(-2).map(e => e.tag), ["0022_attachment_v2_uploads", "0023_attachment_scan_jobs"]);
+  assert.equal(journal.entries.length, 25);
+  assert.equal(migrations.length, 25, "SQL files alone do not register a Drizzle migration");
+  assert.deepEqual(journal.entries.map(e => e.idx), Array.from({ length: 25 }, (_, i) => i));
+  assert.deepEqual(journal.entries.slice(22, 24).map(e => e.tag), ["0022_attachment_v2_uploads", "0023_attachment_scan_jobs"]);
+  assert.equal(journal.entries[24].tag, "0024_service_integration");
   for (let i = 1; i < journal.entries.length; i++) assert.ok(journal.entries[i].when > journal.entries[i - 1].when);
   for (const index of [22, 23]) {
     assert.equal(journal.entries[index].version, "6");
@@ -48,7 +49,18 @@ test("custom snapshots extend the ID chain without changing the previous schema"
     "these explicit custom DDL tables remain SQL-authoritative, not half-modeled ORM additions");
 });
 
-test("real local D1 Drizzle migrator adds only 0022/0023, preserves history/data and is idempotent", { timeout: 60_000 }, async t => {
+test("service snapshot extends the current chain with only its two additive tables", async () => {
+  const [previous, current] = await Promise.all([23, 24].map(async n =>
+    JSON.parse(await readFile(new URL(`meta/00${n}_snapshot.json`, DIRECTORY), "utf8"))));
+  assert.equal(current.prevId, previous.id);
+  for (const [name, table] of Object.entries(previous.tables)) {
+    assert.deepEqual(current.tables[name], table, name);
+  }
+  assert.deepEqual(Object.keys(current.tables).filter(name => !Object.hasOwn(previous.tables, name)).sort(),
+    ["integration_documents", "integration_operations"]);
+});
+
+test("real local D1 Drizzle migrator adds 0022 onward, preserves history/data and is idempotent", { timeout: 60_000 }, async t => {
   const mf = new Miniflare(convertV4MiniflareOptions({
     name: "attachment-migration-proof", modules: true, compatibilityDate: "2026-09-18",
     d1Databases: { DB: randomUUID() }, host: "127.0.0.1", port: 0,
@@ -83,7 +95,7 @@ test("real local D1 Drizzle migrator adds only 0022/0023, preserves history/data
   const orm = drizzle(native);
   await migrate(orm, { migrationsFolder: FOLDER });
   const history = (await native.prepare("SELECT * FROM __drizzle_migrations ORDER BY created_at").all()).results;
-  assert.equal(history.length, 24);
+  assert.equal(history.length, 25);
   assert.deepEqual(history.slice(0, 22), beforeHistory);
   assert.deepEqual(history.slice(22).map(({ hash, created_at }) => ({ hash, created_at })),
     migrations.slice(22).map(m => ({ hash: m.hash, created_at: m.folderMillis })));
@@ -91,6 +103,8 @@ test("real local D1 Drizzle migrator adds only 0022/0023, preserves history/data
   const tableRows = (await native.prepare(`SELECT name FROM sqlite_master WHERE type='table'
     AND (name LIKE 'attachment_v2_%' OR name LIKE 'attachment_scan%') ORDER BY name`).all()).results;
   assert.deepEqual(tableRows.map(row => row.name), TABLES);
+  assert.deepEqual((await native.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'integration_%' ORDER BY name").all()).results.map(row => row.name),
+    ["integration_documents", "integration_operations"]);
   assert.deepEqual((await native.prepare("PRAGMA foreign_key_check").all()).results, []);
   const indexes = (await native.prepare("SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'attachment_%' ORDER BY name").all()).results;
   assert.ok(indexes.some(row => row.name === "attachment_v2_active_dedup"));
