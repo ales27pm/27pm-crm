@@ -8,6 +8,12 @@ import type { InternalApiNonceDatabase } from "../lib/internal-api-nonce-store";
 import { handleAttachmentV2Request } from "../lib/attachment-v2-worker";
 import type { AttachmentV2Environment } from "../lib/attachment-v2-worker";
 
+import {
+  isAllowedDuringPredeployBackup,
+  isPredeployBackupFreeze,
+  predeployMaintenanceResponse,
+} from "../lib/predeploy-backup";
+
 interface Env extends AttachmentV2Environment {
   ASSETS: Fetcher;
   DB: D1Database &
@@ -21,6 +27,7 @@ interface Env extends AttachmentV2Environment {
       };
     };
   };
+  CRM_PREDEPLOY_BACKUP_MODE?: string;
   CRM_API_AUTH_MODE?: string;
   CRM_ATTACHMENT_DOWNLOAD_ORIGIN?: string;
   CRM_ATTACHMENT_DOWNLOAD_SIGNING_KEY?: string;
@@ -43,6 +50,16 @@ interface ExecutionContext {
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    const url = new URL(request.url);
+    if (isPredeployBackupFreeze(env.CRM_PREDEPLOY_BACKUP_MODE)) {
+      if (!isAllowedDuringPredeployBackup(request.method, url.pathname)) {
+        return withSecurityHeaders(predeployMaintenanceResponse());
+      }
+      // Backup routes authenticate their own short-lived credential; health is
+      // public. Skip attachment handlers and nonce writes while frozen.
+      return withSecurityHeaders(await handler.fetch(request, env, ctx));
+    }
+
     const attachmentDownload = await handleAttachmentDownloadRequest(
       request,
       env,
@@ -61,7 +78,6 @@ const worker = {
       return withSecurityHeaders(preparedRequest);
     }
     request = preparedRequest;
-    const url = new URL(request.url);
 
     if (url.pathname === "/_vinext/image") {
       const allowedWidths = [...DEFAULT_DEVICE_SIZES, ...DEFAULT_IMAGE_SIZES];

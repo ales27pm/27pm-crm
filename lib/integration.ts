@@ -38,8 +38,9 @@ export async function handleIntegration(request: Request, db: CrmDatabase, confi
     const payload = await readJsonObject(bounded);
     if (!payload || typeof payload.operation !== 'string') fail(400,'operation_invalid');
     if (Object.keys(payload).some(k=>!['operation','id','query','limit','data'].includes(k))) fail(400,'unknown_command_field');
-    const [resource, action, extra] = payload.operation.split('.');
-    if (extra || !resources.includes(resource as Resource) || !['search','read','create','update'].includes(action)) fail(400,'operation_invalid');
+    const parts = payload.operation.split('.');
+    const [resource, action] = parts;
+    if (parts.length !== 2 || !resources.includes(resource as Resource) || !['search','read','create','update'].includes(action)) fail(400,'operation_invalid');
     const r = resource as Resource;
     const write = action === 'create' || action === 'update';
     if (!config.scopes.split(/[\s,]+/).includes(`${r}:${write ? 'write' : 'read'}`)) fail(403,'integration_scope_forbidden');
