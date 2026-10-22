@@ -1185,3 +1185,17 @@ export const exchangeSendState = sqliteTable("exchange_send_state", {
   check("exchange_send_state_version_check", sql`${table.version} >= 0`),
   check("exchange_send_state_draft_check", sql`${table.phase} not in ('drafted','send_requested','accepted') or ${table.graphMessageId} is not null`),
 ]);
+
+export const integrationOperations = sqliteTable('integration_operations', {
+  id: text('id').primaryKey(), subject: text('subject').notNull(),
+  idempotencyKey: text('idempotency_key').notNull(), requestHash: text('request_hash').notNull(),
+  responseJson: text('response_json').notNull(), valid: integer('valid').notNull().default(1),
+  createdAt: timestamp('created_at'),
+}, table => [uniqueIndex('integration_operations_subject_key_unique').on(table.subject,table.idempotencyKey),check('integration_operations_valid_check',sql`${table.valid}=1`)]);
+
+export const integrationDocuments = sqliteTable('integration_documents', {
+  id: text('id').primaryKey(), dealId: text('deal_id').notNull().references(()=>deals.id,{onDelete:'cascade'}),
+  title: text('title').notNull(), content: text('content').notNull(),
+  mediaType: text('media_type').notNull().default('text/markdown'), status: text('status').notNull().default('prepared'),
+  createdAt: timestamp('created_at'), updatedAt: timestamp('updated_at'),
+}, table => [index('integration_documents_deal_idx').on(table.dealId),check('integration_documents_media_type_check',sql`${table.mediaType}='text/markdown'`),check('integration_documents_status_check',sql`${table.status}='prepared'`)]);

@@ -4,7 +4,7 @@ import { boundedRequest } from "./bounded-request";
 export const MOBILE_CLIENT_ID = "org.27pm.crm.mobile";
 export const MOBILE_TOKEN_AUDIENCE = "27pm-crm-mobile";
 export const MOBILE_SCOPES = ["crm:dashboard:read", "crm:work"] as const;
-export const MOBILE_SCOPE_VALUE = MOBILE_SCOPES.join(" ");
+export const MOBILE_SCOPE_VALUE = "crm:dashboard:read crm:work" as const;
 export const MOBILE_ACCESS_TOKEN_TTL_SECONDS = 15 * 60;
 export const MOBILE_AUTHORIZATION_CODE_TTL_SECONDS = 5 * 60;
 export const MOBILE_SESSION_TTL_SECONDS = 30 * 24 * 60 * 60;
@@ -20,6 +20,7 @@ const BASE64URL = /^[A-Za-z0-9_-]+$/u;
 const IOS_APP_ID = /^[A-Z0-9]{10}\.[A-Za-z0-9.-]{3,200}$/u;
 
 export type MobileScope = (typeof MOBILE_SCOPES)[number];
+export type MobileScopeValue = MobileScope | typeof MOBILE_SCOPE_VALUE;
 
 export type MobileAccessClaims = {
   version: 1;
@@ -27,7 +28,7 @@ export type MobileAccessClaims = {
   audience: typeof MOBILE_TOKEN_AUDIENCE;
   subject: string;
   sessionId: string;
-  scopes: typeof MOBILE_SCOPE_VALUE;
+  scopes: MobileScopeValue;
   issuedAt: number;
   notBefore: number;
   expiresAt: number;
@@ -40,7 +41,7 @@ type EncodedClaims = {
   aud: typeof MOBILE_TOKEN_AUDIENCE;
   sub: string;
   sid: string;
-  scp: typeof MOBILE_SCOPE_VALUE;
+  scp: MobileScopeValue;
   iat: number;
   nbf: number;
   exp: number;
@@ -317,6 +318,12 @@ export function hasMobileScope(
   return claims.scopes.split(" ").includes(requiredScope);
 }
 
+function validMobileScopeValue(value: unknown): value is MobileScopeValue {
+  return value === MOBILE_SCOPES[0]
+    || value === MOBILE_SCOPES[1]
+    || value === MOBILE_SCOPE_VALUE;
+}
+
 export function validMobileSigningSecret(
   value: string | null | undefined,
 ): value is string {
@@ -432,7 +439,7 @@ function validEncodedClaims(
     subject === claims.sub &&
     typeof claims.sid === "string" &&
     SESSION_ID.test(claims.sid) &&
-    claims.scp === MOBILE_SCOPE_VALUE &&
+    validMobileScopeValue(claims.scp) &&
     Number.isInteger(claims.iat) &&
     Number.isInteger(claims.nbf) &&
     Number.isInteger(claims.exp) &&

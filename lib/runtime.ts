@@ -11,6 +11,7 @@ export interface PrivateObjectMetadata {
   version: string;
   httpEtag?: string;
   customMetadata?: Record<string, string>;
+  uploaded?: Date | string;
   checksums?: { sha256?: ArrayBuffer };
 }
 
@@ -35,6 +36,14 @@ export interface PrivateObjectBucket {
     key: string,
     options?: { onlyIf?: { etagMatches?: string }; range?: { offset: number; length: number } },
   ): Promise<PrivateObjectBody | PrivateObjectMetadata | null>;
+  list(options?: {
+    cursor?: string;
+    limit?: number;
+  }): Promise<{
+    objects: PrivateObjectMetadata[];
+    truncated: boolean;
+    cursor?: string;
+  }>;
 }
 
 function bindings(): RuntimeBindings {

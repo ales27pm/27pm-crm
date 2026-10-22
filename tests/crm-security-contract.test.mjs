@@ -24,6 +24,12 @@ const unsafeRouteInventory = [
   { route: "integrations/exchange/route.ts", method: "POST", boundary: "operator" },
   { route: "integrations/exchange/sync/route.ts", method: "POST", boundary: "operator" },
   {
+    route: "integrations/v1/commands/route.ts",
+    method: "POST",
+    boundary: "service-token",
+    guard: /handleIntegration\(request, crmDatabase\(\),[\s\S]*CRM_INTEGRATION_TOKEN/u,
+  },
+  {
     route: "integrations/exchange/callback/route.ts",
     method: "POST",
     boundary: "oauth-callback",
@@ -53,6 +59,18 @@ const unsafeRouteInventory = [
   { route: "strategies/[strategyId]/steps/[stepId]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "tasks/[id]/route.ts", method: "PATCH", boundary: "operator" },
   { route: "tasks/route.ts", method: "POST", boundary: "operator" },
+  {
+    route: "admin/d1-export/route.ts",
+    method: "POST",
+    boundary: "predeploy-backup",
+    guard: /authorizePredeployBackupRequest\(request, configuration\)[\s\S]*if \(denied\) return denied/u,
+  },
+  {
+    route: "admin/r2-inventory/route.ts",
+    method: "POST",
+    boundary: "predeploy-backup",
+    guard: /authorizePredeployBackupRequest\(request, configuration\)[\s\S]*if \(denied\) return denied/u,
+  },
   {
     route: "admin/mailgun-handoff/consume/route.ts",
     method: "POST",

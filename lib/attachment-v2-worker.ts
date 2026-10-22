@@ -59,9 +59,9 @@ async function identity(request: Request, env: AttachmentV2Environment, write: b
   }
   const claims = await verifyMobileAccessToken(env.CRM_MOBILE_TOKEN_SIGNING_KEY, bearer, env.CRM_PUBLIC_ORIGIN, clock());
   if (!claims) return error(401, "mobile_token_invalid");
-  if (!hasMobileScope(claims, write ? "crm:work" : "crm:dashboard:read")) return error(403, "mobile_scope_forbidden");
   const operator = await activeMobileSession(env.DB, claims, env.CRM_ADMIN_EMAILS, clock());
   if (!operator?.mobileSessionId) return error(401, "mobile_session_invalid");
+  if (!hasMobileScope(claims, write ? "crm:work" : "crm:dashboard:read")) return error(403, "mobile_scope_forbidden");
   if (claims.expiresAt <= Math.floor(clock().valueOf() / 1000)) return error(401, "mobile_token_invalid");
   return { creator: operator.email, sessionId: operator.mobileSessionId };
 }
