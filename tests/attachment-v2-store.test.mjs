@@ -76,9 +76,9 @@ test("atomic creation enforces per-creator concurrent reservations across device
 
 test("expired uploads do not resume and owner removal prevents creation", async t => {
   const { db, sql } = await fixture(t), input = await manifest();
-  const upload = await createUpload(db, input, IDENTITY, "expired-key", NOW);
+  const upload = await createUpload(db, input, IDENTITY, "expired-key", () => NOW);
   const expired = new Date(NOW.getTime() + 3600000);
-  await assert.rejects(uploadStatus(db, upload.id, IDENTITY, expired), error(410, "attachment_upload_expired"));
+  await assert.rejects(uploadStatus(db, upload.id, IDENTITY, () => expired), error(410, "attachment_upload_expired"));
   sql.prepare("UPDATE organizations SET deleted_at = ?").run(NOW.toISOString());
   await assert.rejects(createUpload(db, input, IDENTITY, "another-key", NOW), error(404, "owner_not_found"));
 });

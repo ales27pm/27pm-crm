@@ -90,7 +90,7 @@ async function runtime(t) {
   }
   const dispatchSigned = value => mf.dispatchFetch(ORIGIN + value.path, value.init);
   const machine = (path, value) => dispatchSigned(signed(path, value));
-  return { mf, db, bucket, mobile, signed, dispatchSigned, machine, sessionId };
+  return { mf, db, bucket, mobile, signed, dispatchSigned, machine, sessionId, token };
 }
 
 async function expectStatus(response, expected) {
@@ -200,5 +200,37 @@ test("real workerd authentication rejects spoofed identity and altered MAC body 
   assert.equal((await f.db.prepare("SELECT COUNT(*) AS n FROM attachment_scanner_request_nonces").first()).n, 0);
   assert.equal((await f.db.prepare("SELECT COUNT(*) AS n FROM attachment_scanner_heartbeats").first()).n, 0);
   assert.equal((await f.db.prepare("SELECT COUNT(*) AS n FROM attachment_v2_objects").first()).n, 0);
+  assert.equal((await f.bucket.list()).objects.length, 0);
+});
+
+test("real workerd honors attenuated scopes only for a current full-scope session", { timeout: 60_000 }, async t => {
+  const f = await runtime(t);
+  const [prefix, payload] = f.token.split(".");
+  const claims = JSON.parse(Buffer.from(payload, "base64url").toString());
+  const attenuatedToken = (scope, sessionId = f.sessionId) => {
+    const encoded = Buffer.from(JSON.stringify({ ...claims, sid: sessionId, scp: scope })).toString("base64url");
+    const input = `${prefix}.${encoded}`;
+    return `${input}.${createHmac("sha256", Buffer.from(MOBILE_KEY, "base64url")).update(input).digest("base64url")}`;
+  };
+  const upload = token => f.mobile("/api/mobile/attachment-uploads", {
+    method: "POST", body: "{}", headers: { authorization: `Bearer ${token}` },
+  });
+  const readOnly = attenuatedToken("crm:dashboard:read");
+  await expectStatus(await f.mobile("/api/mobile/capabilities", {
+    headers: { authorization: `Bearer ${readOnly}` },
+  }), 200);
+  await expectStatus(await upload(readOnly), 403);
+  await expectStatus(await f.mobile("/api/mobile/capabilities", {
+    headers: { authorization: `Bearer ${attenuatedToken("crm:work")}` },
+  }), 403);
+  await expectStatus(await upload(attenuatedToken("crm:dashboard:read", randomUUID())), 401);
+  await f.db.prepare("UPDATE mobile_sessions SET revoked_at=? WHERE id=?").bind(NOW.toISOString(), f.sessionId).run();
+  await expectStatus(await upload(readOnly), 401);
+  await assert.rejects(
+    f.db.prepare("UPDATE mobile_sessions SET revoked_at=NULL,scopes='crm:dashboard:read' WHERE id=?").bind(f.sessionId).run(),
+    /mobile_sessions_scope_check/,
+  );
+  await expectStatus(await upload(readOnly), 401);
+  assert.equal((await f.db.prepare("SELECT COUNT(*) AS n FROM attachment_v2_uploads").first()).n, 0);
   assert.equal((await f.bucket.list()).objects.length, 0);
 });

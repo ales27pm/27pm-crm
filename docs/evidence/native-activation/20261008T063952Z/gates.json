@@ -1,0 +1,26 @@
+{
+  "runId": "20261008T063952Z",
+  "evidenceCreatedAt": "2026-10-08T06:39:52Z",
+  "outcome": "BLOCKED_NOT_ACTIVATED",
+  "candidateParent": "8305ac3803a35775a4731e97c7bbdcef7eebb3a1",
+  "candidateCodeCommit": "5e22d1258beb5df994173bee0243d3ac35d8ebe8",
+  "publishedHead": null,
+  "publishedHeadEvidence": "PR #4 readback and idempotent comment 6008748674; the evidence commit SHA is recorded externally because a commit cannot contain its own identity",
+  "iosSourceTreeSha256": "bff94c7bc17cb98b6dfd92d12abfa7bf2b5a07ce8b171382ca2b52f785726bc7",
+  "iosReleaseSimulatorBinarySha256": "adc79f1d968973c657bbd20e48c13ef89b14e6147ce3a93e22fe3a3600bce74c",
+  "productionCapabilityHttpStatus": 404,
+  "productionActivated": false,
+  "steps": [
+    { "step": 1, "status": "PASS", "evidence": "summary.md" },
+    { "step": 2, "status": "BLOCKED", "evidence": "step-02-06-infrastructure.md" },
+    { "step": 3, "status": "PASS", "evidence": "step-03-validation.md" },
+    { "step": 4, "status": "BLOCKED", "evidence": "step-02-06-infrastructure.md" },
+    { "step": 5, "status": "NOT_RUN", "evidence": "step-02-06-infrastructure.md" },
+    { "step": 6, "status": "BLOCKED", "evidence": "step-02-06-infrastructure.md" },
+    { "step": 7, "status": "PASS", "evidence": "step-07-ios-integration.md" },
+    { "step": 8, "status": "BLOCKED", "evidence": "step-08-10-boundaries.md" },
+    { "step": 9, "status": "BLOCKED", "evidence": "step-08-10-boundaries.md" },
+    { "step": 10, "status": "NOT_RUN", "evidence": "step-08-10-boundaries.md" },
+    { "step": 11, "status": "PASS", "evidence": "summary.md plus PR #4 readback/comment 6008748674" }
+  ]
+}
