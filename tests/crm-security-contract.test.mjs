@@ -24,6 +24,12 @@ const unsafeRouteInventory = [
   { route: "integrations/exchange/route.ts", method: "POST", boundary: "operator" },
   { route: "integrations/exchange/sync/route.ts", method: "POST", boundary: "operator" },
   {
+    route: "integrations/v1/commands/route.ts",
+    method: "POST",
+    boundary: "service-token",
+    guard: /handleIntegration\(request, crmDatabase\(\),[\s\S]*CRM_INTEGRATION_TOKEN/u,
+  },
+  {
     route: "integrations/exchange/callback/route.ts",
     method: "POST",
     boundary: "oauth-callback",
